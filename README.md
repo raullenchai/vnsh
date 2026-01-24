@@ -75,7 +75,7 @@ brew tap raullenchai/vnsh
 brew install vnsh
 ```
 
-**Shell script** (universal):
+**Shell script** (cross-platform: macOS, Linux, WSL, Git Bash):
 ```bash
 curl -sL https://vnsh.dev/i | sh
 ```
@@ -96,6 +96,10 @@ vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
 
 # Custom expiry (1-168 hours)
 vn --ttl 1 temp-file.txt   # expires in 1 hour
+
+# Show version and help
+vn --version
+vn --help
 ```
 
 ### Option 3: Claude Code (MCP Integration)
@@ -238,7 +242,7 @@ curl https://vnsh.dev/api/blob/a1b2c3d4-5678-90ab-cdef-1234567890ab
 
 ### `GET /v/:id`
 
-Web viewer redirect (preserves URL fragment).
+Web viewer (serves HTML directly to preserve URL fragment with encryption keys).
 
 ### `GET /i`
 

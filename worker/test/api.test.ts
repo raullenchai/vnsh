@@ -224,14 +224,46 @@ describe('vnsh API', () => {
   });
 
   describe('Viewer Route', () => {
-    it('GET /v/:id redirects to hash-based route', async () => {
+    it('GET /v/:id serves app HTML directly (preserves hash fragment with keys)', async () => {
       const request = new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc');
       const ctx = createExecutionContext();
       const response = await worker.fetch(request, env as Env, ctx);
       await waitOnExecutionContext(ctx);
 
-      expect(response.status).toBe(302);
-      expect(response.headers.get('Location')).toBe('/#v/12345678-1234-1234-1234-123456789abc');
+      // Serves HTML directly instead of redirect to preserve #k=...&iv=... fragment
+      // Bug fix: redirect to /#v/:id broke hash fragments - browser replaces hash, doesn't merge
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toContain('text/html');
+      expect(response.headers.get('Cache-Control')).toBe('no-cache');
+      const html = await response.text();
+      expect(html).toContain('<!DOCTYPE html>');
+      expect(html).toContain('vnsh');
+    });
+
+    it('HTML contains JavaScript to handle /v/:id path format', async () => {
+      // Bug fix: JavaScript must detect /v/:id in pathname and extract keys from hash
+      const request = new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      const html = await response.text();
+      // Verify JS handles both /v/:id path format AND legacy #v/:id hash format
+      expect(html).toContain('location.pathname');
+      expect(html).toContain('pathMatch');
+      expect(html).toContain('/^\\/v\\/([a-f0-9-]+)$/');
+    });
+
+    it('does not redirect (would break hash fragment)', async () => {
+      const request = new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      // Must NOT be a redirect - redirects break hash fragments
+      expect(response.status).not.toBe(301);
+      expect(response.status).not.toBe(302);
+      expect(response.headers.get('Location')).toBeNull();
     });
   });
 
@@ -246,9 +278,45 @@ describe('vnsh API', () => {
       expect(response.headers.get('Content-Type')).toContain('text/plain');
 
       const script = await response.text();
-      expect(script).toContain('#!/bin/bash');
+      expect(script).toContain('#!/bin/sh');
       expect(script).toContain('vn()');
       expect(script).toContain('vnsh.dev');
+    });
+
+    it('uses valid shell commands for JSON parsing', async () => {
+      // Bug fix: complex shell quoting with grep/cut broke on macOS
+      // Now uses sed which has simpler quoting requirements
+      const request = new Request('http://localhost/i');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      const script = await response.text();
+
+      // Should use sed for ID extraction (not grep | cut with complex quoting)
+      expect(script).toContain('sed -n');
+      expect(script).toMatch(/\\?"id\\?"/); // Matches "id" or \"id\"
+
+      // Should NOT use echo -e for output (not portable to macOS /bin/sh)
+      // Check that echo -e is not used for actual output (followed by quote or variable)
+      expect(script).not.toMatch(/echo -e ["'$]/);
+
+      // Should use printf for colors (POSIX portable)
+      expect(script).toContain('printf "%b"');
+
+      // Should detect OS for platform-specific handling
+      expect(script).toContain('detect_os');
+      expect(script).toContain('uname');
+
+      // Should check for required dependencies
+      expect(script).toContain('command -v openssl');
+      expect(script).toContain('command -v curl');
+
+      // Should use POSIX-compatible base64 (tr to remove newlines works on both BSD and GNU)
+      expect(script).toContain('tr -d');
+
+      // Should use shebang #!/bin/sh (not bash) for portability
+      expect(script.startsWith('#!/bin/sh')).toBe(true);
     });
   });
 

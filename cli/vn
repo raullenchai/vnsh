@@ -16,7 +16,7 @@
 
 set -e
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # Configuration
 VNSH_HOST="${VNSH_HOST:-https://vnsh.dev}"

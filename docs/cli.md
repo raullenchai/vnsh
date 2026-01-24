@@ -9,20 +9,38 @@
 curl -sL vnsh.dev/i | sh
 
 # Restart terminal or source your rc file
-source ~/.zshrc  # or ~/.bashrc
+source ~/.zshrc  # or ~/.bashrc, ~/.profile, etc.
 ```
+
+### Platform Support
+
+The install script is cross-platform and works on:
+
+| Platform | Shell | Notes |
+|----------|-------|-------|
+| **macOS** | zsh, bash, sh | Default since Catalina is zsh |
+| **Linux** | bash, zsh, sh | Most distros use bash |
+| **Windows (WSL)** | bash, zsh | Full support via Windows Subsystem for Linux |
+| **Windows (Git Bash)** | bash | Works with Git for Windows |
+| **Windows (Native)** | PowerShell | Use `npm install -g vnsh-cli` instead |
+
+The installer automatically detects your shell and adds `vn` to the appropriate config file (`.zshrc`, `.bashrc`, `.bash_profile`, `.profile`, or `config.fish`).
 
 ## Requirements
 
 - `openssl` — For AES-256-CBC encryption
 - `curl` — For HTTP requests
-- Bash or Zsh shell
+- `base64` — For encoding (included on all Unix systems)
+- Any POSIX-compatible shell (sh, bash, zsh, etc.)
 
 ## Usage
 
 ```
 vn [FILE]              Encrypt and upload a file
 command | vn           Encrypt and upload from stdin
+vn read <URL>          Decrypt and display content from a vnsh URL
+vn --version           Show version (v1.1.0)
+vn --help              Show help
 ```
 
 ## Examples
@@ -42,6 +60,22 @@ npm test 2>&1 | vn
 
 # Share with short expiry
 cat temp.txt | vn --ttl 1
+```
+
+### Reading Content
+
+```bash
+# Read and display decrypted content
+vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
+
+# Pipe to another command
+vn read "$URL" | grep "error"
+
+# Save to a file
+vn read "$URL" > downloaded.txt
+
+# View in pager
+vn read "$URL" | less
 ```
 
 ### Integration with Git
@@ -206,8 +240,23 @@ Re-run the installer and source your shell config:
 
 ```bash
 curl -sL vnsh.dev/i | sh
-source ~/.zshrc  # or ~/.bashrc
+
+# Then source the appropriate file for your shell:
+source ~/.zshrc        # zsh (macOS default)
+source ~/.bashrc       # bash (Linux default)
+source ~/.bash_profile # bash on macOS
+source ~/.profile      # sh/dash
 ```
+
+### Windows Users
+
+For native Windows PowerShell, the shell script won't work. Use npm instead:
+
+```powershell
+npm install -g vnsh-cli
+```
+
+For Git Bash or WSL, the shell script works normally.
 
 ### "Upload failed"
 

@@ -254,17 +254,15 @@ export default {
       return handleBlob(blobMatch[1], request, env);
     }
 
-    // Route: GET /v/:id - Redirect to /#v/{id} (client-side routing)
-    // Note: Hash fragments are preserved by the browser during redirect
+    // Route: GET /v/:id - Serve app directly (no redirect to preserve hash fragment)
+    // The hash fragment (#k=...&iv=...) contains encryption keys and must not be lost
     const viewerMatch = path.match(/^\/v\/([a-f0-9-]+)$/);
     if (request.method === 'GET' && viewerMatch) {
-      const id = viewerMatch[1];
-      // Use 302 redirect to root with hash-based route
-      // The hash fragment from the original URL will be preserved by the browser
-      return new Response(null, {
-        status: 302,
+      // Serve the same HTML - JavaScript will detect /v/:id path and extract keys from hash
+      return new Response(APP_HTML, {
+        status: 200,
         headers: {
-          'Location': `/#v/${id}`,
+          'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
         },
       });
@@ -331,93 +329,270 @@ export default {
 };
 
 // Install script (returned as text/plain)
-const INSTALL_SCRIPT = `#!/bin/bash
+const INSTALL_SCRIPT = `#!/bin/sh
 # ═══════════════════════════════════════════════════════════════════
-#  vnsh Installer
+#  vnsh Installer - Cross-platform (macOS, Linux, WSL, Git Bash)
 #  https://vnsh.dev
 #  The Ephemeral Dropbox for AI - Vaporizes in 24h
-#  We don't track you. Check the source.
 # ═══════════════════════════════════════════════════════════════════
 
 set -e
 
-# Colors
+# Detect OS
+detect_os() {
+  case "\$(uname -s)" in
+    Darwin*)  echo "macos" ;;
+    Linux*)   echo "linux" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *)        echo "unknown" ;;
+  esac
+}
+OS=\$(detect_os)
+
+# Windows notice
+if [ "\$OS" = "windows" ]; then
+  echo "Detected Windows (Git Bash/MSYS/Cygwin)"
+  echo "For native Windows PowerShell, use: npm install -g vnsh-cli"
+  echo ""
+fi
+
+# Colors - using printf %b for POSIX portability (echo -e is not portable)
 RED='\\033[0;31m'
 GREEN='\\033[0;32m'
 CYAN='\\033[0;36m'
-NC='\\033[0m' # No Color
+NC='\\033[0m'
 
-echo -e "\${CYAN}"
-echo " ██╗   ██╗███╗   ██╗███████╗██╗  ██╗"
-echo " ██║   ██║████╗  ██║██╔════╝██║  ██║"
-echo " ██║   ██║██╔██╗ ██║███████╗███████║"
-echo " ╚██╗ ██╔╝██║╚██╗██║╚════██║██╔══██║"
-echo "  ╚████╔╝ ██║ ╚████║███████║██║  ██║"
-echo "   ╚═══╝  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝"
-echo -e "\${NC}"
+printf "%b" "\$CYAN"
+cat << 'LOGO'
+ ██╗   ██╗███╗   ██╗███████╗██╗  ██╗
+ ██║   ██║████╗  ██║██╔════╝██║  ██║
+ ██║   ██║██╔██╗ ██║███████╗███████║
+ ╚██╗ ██╔╝██║╚██╗██║╚════██║██╔══██║
+  ╚████╔╝ ██║ ╚████║███████║██║  ██║
+   ╚═══╝  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
+LOGO
+printf "%b\\n" "\$NC"
 echo "Installing 'vn' CLI..."
 echo ""
 
-# Detect shell
-SHELL_NAME=\$(basename "$SHELL")
-case "$SHELL_NAME" in
-  zsh)  RC_FILE="$HOME/.zshrc" ;;
-  bash) RC_FILE="$HOME/.bashrc" ;;
-  *)    RC_FILE="$HOME/.profile" ;;
-esac
+# Check dependencies
+missing=""
+command -v openssl >/dev/null 2>&1 || missing="\$missing openssl"
+command -v curl >/dev/null 2>&1 || missing="\$missing curl"
+command -v base64 >/dev/null 2>&1 || missing="\$missing base64"
+if [ -n "\$missing" ]; then
+  printf "%bError:%b Missing:%s\\n" "\$RED" "\$NC" "\$missing"
+  exit 1
+fi
 
-# The vn function
+# Detect shell RC file
+detect_rc() {
+  shell_name=\$(basename "\${SHELL:-sh}")
+  case "\$shell_name" in
+    zsh)  echo "\$HOME/.zshrc" ;;
+    bash)
+      if [ "\$OS" = "macos" ] && [ -f "\$HOME/.bash_profile" ]; then
+        echo "\$HOME/.bash_profile"
+      else
+        echo "\$HOME/.bashrc"
+      fi
+      ;;
+    fish) echo "\$HOME/.config/fish/config.fish" ;;
+    *)    echo "\$HOME/.profile" ;;
+  esac
+}
+RC_FILE=\$(detect_rc)
+touch "\$RC_FILE" 2>/dev/null || true
+
+# The vn function - POSIX compatible, works on BSD (macOS) and GNU (Linux)
 VN_FUNCTION='
-# vnsh CLI - The Host-Blind Context Tunnel
-# Usage: vn [file] or echo "content" | vn
+# vnsh CLI v1.1.0 - Host-Blind Context Tunnel (https://vnsh.dev)
 vn() {
-  local HOST="https://vnsh.dev"
-  local KEY=\$(openssl rand -hex 32)
-  local IV=\$(openssl rand -hex 16)
+  _VN_HOST="\${VNSH_HOST:-https://vnsh.dev}"
+  _VN_VERSION="1.1.0"
+
+  # Handle --version and --help flags
+  case "\$1" in
+    -v|--version)
+      echo "vn \$_VN_VERSION"
+      return 0
+      ;;
+    -h|--help)
+      echo "vn - Host-Blind Context Tunnel (https://vnsh.dev)"
+      echo ""
+      echo "Usage:"
+      echo "  vn <file>       Encrypt and upload a file"
+      echo "  echo | vn       Encrypt and upload stdin"
+      echo "  vn read <url>   Decrypt and display"
+      echo ""
+      echo "Options:"
+      echo "  -v, --version   Show version"
+      echo "  -h, --help      Show this help"
+      echo ""
+      echo "Environment:"
+      echo "  VNSH_HOST       Override API host (default: https://vnsh.dev)"
+      return 0
+      ;;
+  esac
+
+  # Check for read subcommand
+  if [ "\$1" = "read" ]; then
+    shift
+    if [ -z "\$1" ]; then
+      echo "Usage: vn read <url>" >&2
+      return 1
+    fi
+    _VN_URL="\$1"
+    # Extract ID from URL path (handles /v/ID format)
+    _VN_ID=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*/v/\\([a-f0-9-]*\\).*|\\1|p")
+    # Extract key from hash fragment
+    _VN_KEY=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*k=\\([a-f0-9]*\\).*|\\1|p")
+    # Extract IV from hash fragment
+    _VN_IV=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*iv=\\([a-f0-9]*\\).*|\\1|p")
+    if [ -z "\$_VN_ID" ] || [ -z "\$_VN_KEY" ] || [ -z "\$_VN_IV" ]; then
+      echo "Error: Invalid or incomplete URL." >&2
+      if [ -n "\$_VN_KEY" ] && [ -z "\$_VN_IV" ]; then
+        echo "Hint: The &iv= part is missing. Did you forget to quote the URL?" >&2
+        echo "      vn read \\"https://vnsh.dev/v/...#k=...&iv=...\\"" >&2
+      else
+        echo "Expected: vn read \\"https://vnsh.dev/v/ID#k=KEY&iv=IV\\"" >&2
+      fi
+      return 1
+    fi
+    # Fetch and decrypt with temp file cleanup trap (P1: prevents plaintext leakage)
+    _VN_TMP=\$(mktemp)
+    _vn_cleanup() { rm -f "\$_VN_TMP" 2>/dev/null; }
+    trap _vn_cleanup EXIT INT TERM
+    if [ -t 2 ]; then
+      curl -f --progress-bar "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+    else
+      curl -sf "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+    fi
+    _VN_RET=\$?
+    if [ \$_VN_RET -ne 0 ] || [ ! -s "\$_VN_TMP" ]; then
+      echo "Error: Failed to fetch or decrypt" >&2
+      trap - EXIT INT TERM
+      _vn_cleanup
+      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+      unset -f _vn_cleanup 2>/dev/null
+      return 1
+    fi
+    # If outputting to terminal, check for binary content
+    if [ -t 1 ]; then
+      if head -c 100 "\$_VN_TMP" | grep -q "\$(printf '\\0')" 2>/dev/null || \\
+         head -c 4 "\$_VN_TMP" | grep -q "%PDF" 2>/dev/null || \\
+         head -c 8 "\$_VN_TMP" | grep -qE "PNG|GIF8|JFIF" 2>/dev/null; then
+        echo "Warning: Binary content detected (PDF, image, etc.)" >&2
+        echo "Save to file: vn read \\"<url>\\" > filename" >&2
+        trap - EXIT INT TERM
+        _vn_cleanup
+        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+        unset -f _vn_cleanup 2>/dev/null
+        return 1
+      fi
+    fi
+    cat "\$_VN_TMP"
+    trap - EXIT INT TERM
+    _vn_cleanup
+    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+    unset -f _vn_cleanup 2>/dev/null
+    return 0
+  fi
+
+  # Upload mode
+  _VN_KEY=\$(openssl rand -hex 32)
+  _VN_IV=\$(openssl rand -hex 16)
+
+  # Determine curl verbosity (progress bar if interactive terminal)
+  _VN_CURL_OPTS="-s"
+  if [ -t 2 ]; then
+    _VN_CURL_OPTS="--progress-bar"
+  fi
 
   if [ -n "\$1" ] && [ -f "\$1" ]; then
-    # File mode
-    local BLOB=\$(cat "\$1" | openssl enc -aes-256-cbc -K "\$KEY" -iv "\$IV" 2>/dev/null | base64)
+    _VN_SIZE=\$(wc -c < "\$1" | tr -d " ")
+    # Check 25MB limit (26214400 bytes) - using awk for POSIX portability (P1: no bc dependency)
+    if [ "\$_VN_SIZE" -gt 26214400 ]; then
+      printf "Error: File too large (%s). Maximum is 25MB.\\n" "\$(awk "BEGIN {printf \\"%.1fMB\\", \$_VN_SIZE/1048576}")" >&2
+      echo "Tip: Compress first with: gzip -c file | vn" >&2
+      return 1
+    fi
+    if [ "\$_VN_SIZE" -gt 1048576 ]; then
+      printf "Encrypting %s (%s)...\\n" "\$1" "\$(awk "BEGIN {printf \\"%.1fMB\\", \$_VN_SIZE/1048576}")" >&2
+    else
+      printf "Encrypting %s (%sB)...\\n" "\$1" "\$_VN_SIZE" >&2
+    fi
+    _VN_ENC=\$(openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" -in "\$1" 2>/dev/null | base64 | tr -d "\\n\\r")
   elif [ ! -t 0 ]; then
-    # Stdin mode
-    local BLOB=\$(cat | openssl enc -aes-256-cbc -K "\$KEY" -iv "\$IV" 2>/dev/null | base64)
+    # P2: Buffer stdin to temp file for size check before encryption
+    _VN_STDIN_TMP=\$(mktemp)
+    cat > "\$_VN_STDIN_TMP"
+    _VN_SIZE=\$(wc -c < "\$_VN_STDIN_TMP" | tr -d " ")
+    if [ "\$_VN_SIZE" -gt 26214400 ]; then
+      printf "Error: Input too large (%s). Maximum is 25MB.\\n" "\$(awk "BEGIN {printf \\"%.1fMB\\", \$_VN_SIZE/1048576}")" >&2
+      echo "Tip: Compress first with: gzip | vn" >&2
+      rm -f "\$_VN_STDIN_TMP"
+      return 1
+    fi
+    if [ "\$_VN_SIZE" -gt 1048576 ]; then
+      printf "Encrypting stdin (%s)...\\n" "\$(awk "BEGIN {printf \\"%.1fMB\\", \$_VN_SIZE/1048576}")" >&2
+    fi
+    _VN_ENC=\$(openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" -in "\$_VN_STDIN_TMP" 2>/dev/null | base64 | tr -d "\\n\\r")
+    rm -f "\$_VN_STDIN_TMP"
   else
-    echo "Usage: vn <file> or echo \\"content\\" | vn" >&2
+    echo "Usage: vn <file>       Encrypt and upload a file" >&2
+    echo "       echo | vn       Encrypt and upload stdin" >&2
+    echo "       vn read <url>   Decrypt and display" >&2
+    echo "       vn --help       Show help" >&2
     return 1
   fi
-
-  # Upload and get ID
-  local RESPONSE=\$(echo "\$BLOB" | base64 -d | curl -s -X POST --data-binary @- "\$HOST/api/drop")
-  local ID=\$(echo "\$RESPONSE" | grep -o '"'"'"id":"[^"]*"'"'" | cut -d'"'"'"' -f4)
-
-  if [ -z "\$ID" ]; then
-    echo "Error: Upload failed" >&2
+  [ -t 2 ] && printf "Uploading...\\n" >&2
+  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- "\$_VN_HOST/api/drop")
+  _VN_ID=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"id\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
+  if [ -z "\$_VN_ID" ]; then
+    _VN_ERR=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"error\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
+    if [ -n "\$_VN_ERR" ]; then
+      echo "Error: \$_VN_ERR" >&2
+    else
+      echo "Error: Upload failed" >&2
+    fi
     return 1
   fi
-
-  echo "\$HOST/v/\$ID#k=\$KEY&iv=\$IV"
+  printf "%s/v/%s#k=%s&iv=%s\\n" "\$_VN_HOST" "\$_VN_ID" "\$_VN_KEY" "\$_VN_IV"
+  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP
 }
+# vnsh CLI END
 '
 
-# Check if already installed
-if grep -q "vn()" "$RC_FILE" 2>/dev/null; then
-  echo -e "\${GREEN}✓\${NC} vn is already installed in $RC_FILE"
+# Install or upgrade
+if grep -q "# vnsh CLI END" "\$RC_FILE" 2>/dev/null; then
+  # New format with END marker - remove between markers
+  sed -i.bak '/# vnsh CLI - Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null || \\
+    sed -i '' '/# vnsh CLI - Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null
+  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  printf "%b✓%b Upgraded vn in %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
+elif grep -q "vnsh CLI" "\$RC_FILE" 2>/dev/null; then
+  # Old format without END marker - remove function definition to closing brace
+  # Create temp file, filter out old function, replace
+  awk '/# vnsh CLI/{skip=1} /^}$/{if(skip){skip=0;next}} !skip' "\$RC_FILE" > "\$RC_FILE.tmp" && mv "\$RC_FILE.tmp" "\$RC_FILE"
+  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  printf "%b✓%b Upgraded vn in %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
 else
-  echo "$VN_FUNCTION" >> "$RC_FILE"
-  echo -e "\${GREEN}✓\${NC} Added vn function to $RC_FILE"
+  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  printf "%b✓%b Added vn to %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
 fi
 
 echo ""
-echo -e "\${GREEN}Installation complete!\${NC}"
+printf "%bInstallation complete!%b\\n" "\$GREEN" "\$NC"
 echo ""
-echo "Restart your terminal or run:"
-echo -e "  \${CYAN}source $RC_FILE\${NC}"
+printf "Restart terminal or run: %bsource %s%b\\n" "\$CYAN" "\$RC_FILE" "\$NC"
 echo ""
 echo "Usage:"
-echo -e "  \${CYAN}echo 'hello' | vn\${NC}     # Pipe content"
-echo -e "  \${CYAN}vn myfile.txt\${NC}         # Upload a file"
+printf "  %becho 'secret' | vn%b       # Encrypt stdin, get URL\\n" "\$CYAN" "\$NC"
+printf "  %bvn config.yaml%b           # Encrypt file, get URL\\n" "\$CYAN" "\$NC"
+printf "  %bvn read \\"<url>\\"%b         # Decrypt and display\\n" "\$CYAN" "\$NC"
 echo ""
-echo "The URL is printed to stdout. The server never sees your keys."
+echo "Keys stay in URL fragment - server never sees them."
 `;
 
 // robots.txt - Allow all crawlers
@@ -1517,9 +1692,9 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     function openViewer() {
-      const parts = generatedUrl.match(/\\/v\\/([a-f0-9-]+)/);
-      if (parts) {
-        window.location.hash = 'v/' + parts[1] + '&' + generatedUrl.split('#')[1];
+      // Navigate directly to the generated URL (uses /v/:id#k=...&iv=... format)
+      if (generatedUrl) {
+        window.location.href = generatedUrl;
       }
     }
 
@@ -1539,7 +1714,12 @@ const APP_HTML = `<!DOCTYPE html>
     function closeViewer() {
       overlay.classList.remove('show');
       document.body.style.overflow = '';
-      history.pushState(null, '', location.pathname);
+      // If on /v/:id path, navigate to home; otherwise just clear hash
+      if (location.pathname.startsWith('/v/')) {
+        history.pushState(null, '', '/');
+      } else {
+        history.pushState(null, '', location.pathname);
+      }
       document.title = 'vnsh';
     }
 
@@ -1668,9 +1848,25 @@ const APP_HTML = `<!DOCTYPE html>
       setTimeout(updateTimer, 60000);
     }
 
-    // Hash routing
+    // Hash routing - handles both /v/:id#k=...&iv=... and legacy /#v/:id&k=...&iv=...
     function handleHash() {
       const hash = location.hash.slice(1);
+      const path = location.pathname;
+
+      // Check for /v/:id path format (new format from CLI)
+      const pathMatch = path.match(/^\\/v\\/([a-f0-9-]+)$/);
+      if (pathMatch) {
+        const id = pathMatch[1];
+        const params = new URLSearchParams(hash);
+        const keyHex = params.get('k');
+        const ivHex = params.get('iv');
+        if (keyHex && ivHex) {
+          showViewer(id, keyHex, ivHex);
+          return;
+        }
+      }
+
+      // Legacy: check for #v/:id&k=...&iv=... hash format
       if (!hash) return;
       const viewerMatch = hash.match(/^v\\/([a-f0-9-]+)/);
       if (viewerMatch) {
