@@ -1,0 +1,23 @@
+name = "opaque"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket for blob storage
+[[r2_buckets]]
+binding = "OPAQUE_STORE"
+bucket_name = "opaque-store"
+
+# KV namespace for metadata (expiry, payment info)
+[[kv_namespaces]]
+binding = "OPAQUE_META"
+id = "placeholder-replace-after-creation"
+
+# Static assets for viewer
+[site]
+bucket = "../viewer"
+
+# Environment variables (set via wrangler secret)
+# JWT_SECRET - for signing payment tokens
+# STRIPE_SECRET_KEY - for Stripe API
+# LIGHTNING_API_KEY - for Lightning payments

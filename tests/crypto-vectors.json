@@ -1,0 +1,50 @@
+{
+  "description": "AES-256-CBC test vectors for cross-platform validation",
+  "note": "All implementations (CLI/openssl, Viewer/WebCrypto, MCP/node:crypto) must produce identical results",
+  "algorithm": "AES-256-CBC",
+  "padding": "PKCS#7",
+  "vectors": [
+    {
+      "name": "simple_text",
+      "plaintext": "Hello World",
+      "plaintext_hex": "48656c6c6f20576f726c64",
+      "key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "iv": "fedcba9876543210fedcba9876543210",
+      "ciphertext_base64": "hQBHrVWJhJfJJBpNJwLYbQ=="
+    },
+    {
+      "name": "empty_string",
+      "plaintext": "",
+      "plaintext_hex": "",
+      "key": "aaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccdddd",
+      "iv": "11112222333344441111222233334444",
+      "ciphertext_base64": "note: empty string still produces 16-byte ciphertext due to PKCS#7 padding"
+    },
+    {
+      "name": "json_content",
+      "plaintext": "{\"key\": \"value\", \"number\": 42}",
+      "key": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      "iv": "cafebabecafebabecafebabecafebabe",
+      "ciphertext_base64": "note: generate with openssl and verify across implementations"
+    },
+    {
+      "name": "unicode_text",
+      "plaintext": "Hello 世界 🌍",
+      "key": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "iv": "abcdef1234567890abcdef1234567890",
+      "ciphertext_base64": "note: ensure UTF-8 encoding consistency"
+    },
+    {
+      "name": "exact_block_size",
+      "plaintext": "0123456789abcdef",
+      "note": "16 bytes = exactly one block, tests PKCS#7 padding of full block",
+      "key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "iv": "00000000000000000000000000000000",
+      "ciphertext_base64": "note: should produce 32 bytes (original + padding block)"
+    }
+  ],
+  "validation_commands": {
+    "encrypt_with_openssl": "echo -n 'Hello World' | openssl enc -aes-256-cbc -K <key> -iv <iv> | base64",
+    "decrypt_with_openssl": "echo '<base64>' | base64 -d | openssl enc -d -aes-256-cbc -K <key> -iv <iv>"
+  }
+}

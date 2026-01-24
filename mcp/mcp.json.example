@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "opaque": {
+      "command": "node",
+      "args": ["/path/to/opaque/mcp/dist/index.js"],
+      "env": {
+        "OPAQUE_HOST": "https://opaque.dev"
+      }
+    }
+  }
+}

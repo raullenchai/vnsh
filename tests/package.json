@@ -1,0 +1,19 @@
+{
+  "name": "opaque-tests",
+  "version": "1.0.0",
+  "description": "Opaque E2E and integration tests",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:crypto": "vitest run crypto.test.ts",
+    "test:e2e": "vitest run e2e.test.ts",
+    "test:integration": "./integration.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.0"
+  }
+}

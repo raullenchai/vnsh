@@ -1,0 +1,26 @@
+{
+  "name": "opaque",
+  "version": "1.0.0",
+  "description": "Host-blind data tunnel for AI agents",
+  "private": true,
+  "scripts": {
+    "dev": "cd worker && npm run dev",
+    "deploy": "cd worker && npm run deploy",
+    "test": "npm run test:worker && npm run test:crypto",
+    "test:worker": "cd worker && npm test",
+    "test:crypto": "cd tests && npm test -- crypto.test.ts",
+    "test:e2e": "cd tests && npm test -- e2e.test.ts",
+    "test:integration": "cd tests && ./integration.sh",
+    "test:all": "npm run test:worker && npm run test:crypto && npm run test:e2e && npm run test:integration",
+    "install:all": "npm install && cd worker && npm install && cd ../tests && npm install"
+  },
+  "keywords": [
+    "opaque",
+    "encryption",
+    "privacy",
+    "ai",
+    "mcp",
+    "cloudflare-workers"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Opaque - Secure Viewer</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.opaque.dev https://opaque.dev; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:">
+  <meta name="description" content="Secure, encrypted content viewer">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --bg-secondary: #141414;
+      --fg: #e5e5e5;
+      --fg-muted: #a3a3a3;
+      --accent: #10b981;
+      --accent-dim: rgba(16, 185, 129, 0.1);
+      --error: #ef4444;
+      --error-dim: rgba(239, 68, 68, 0.1);
+      --warning: #f59e0b;
+      --border: #262626;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .logo::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent);
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      font-size: 0.8rem;
+      color: var(--fg-muted);
+      margin-bottom: 1rem;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .meta-item::before {
+      content: '';
+      width: 4px;
+      height: 4px;
+      background: var(--fg-muted);
+      border-radius: 50%;
+    }
+
+    .content-wrapper {
+      position: relative;
+    }
+
+    .content {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      min-height: 200px;
+      max-height: 70vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.875rem;
+    }
+
+    .content.loading {
+      color: var(--fg-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .content.error {
+      color: var(--error);
+      background: var(--error-dim);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 0.75rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      background: var(--bg-secondary);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      padding: 0.6rem 1rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      transition: all 0.15s ease;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+
+    button.primary:hover {
+      opacity: 0.9;
+    }
+
+    /* Payment UI */
+    .payment-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 2rem;
+      text-align: center;
+      display: none;
+    }
+
+    .payment-card.visible {
+      display: block;
+    }
+
+    .payment-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .payment-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--accent);
+    }
+
+    .payment-price {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin: 1rem 0;
+    }
+
+    .payment-methods {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-top: 1.5rem;
+    }
+
+    /* Image/binary content display */
+    .image-preview {
+      max-width: 100%;
+      border-radius: var(--radius);
+    }
+
+    /* Security notice */
+    .security-notice {
+      background: var(--accent-dim);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      color: var(--accent);
+      margin-top: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      text-align: center;
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">Opaque</div>
+    </header>
+
+    <div id="meta" class="meta"></div>
+
+    <div class="content-wrapper">
+      <div id="content" class="content loading">
+        <div class="spinner"></div>
+        <span>Fetching & decrypting...</span>
+      </div>
+    </div>
+
+    <div id="actions" class="actions" style="display: none;">
+      <button class="primary" onclick="copyContent()">Copy to Clipboard</button>
+      <button onclick="downloadContent()">Download</button>
+    </div>
+
+    <div id="payment" class="payment-card">
+      <div class="payment-icon">🔐</div>
+      <div class="payment-title">Payment Required</div>
+      <p style="color: var(--fg-muted); margin-bottom: 1rem;">This content requires payment to access</p>
+      <div class="payment-price">$<span id="price">0.00</span></div>
+      <div class="payment-methods">
+        <button id="btn-lightning">⚡ Pay with Lightning</button>
+        <button id="btn-stripe">💳 Pay with Card</button>
+      </div>
+    </div>
+
+    <div id="security-notice" class="security-notice" style="display: none;">
+      🔒 Content decrypted locally. The server never sees your data or keys.
+    </div>
+
+    <footer>
+      <a href="https://github.com/your-repo/opaque">Opaque</a> — Host-blind data tunnel
+    </footer>
+  </div>
+
+  <script>
+    // DOM elements
+    const contentEl = document.getElementById('content');
+    const metaEl = document.getElementById('meta');
+    const actionsEl = document.getElementById('actions');
+    const paymentEl = document.getElementById('payment');
+    const securityNotice = document.getElementById('security-notice');
+
+    // State
+    let decryptedContent = '';
+    let decryptedBytes = null;
+    let detectedType = 'text';
+
+    // Parse URL
+    const pathMatch = location.pathname.match(/\/v\/([a-f0-9-]+)/);
+    const id = pathMatch ? pathMatch[1] : null;
+    const params = new URLSearchParams(location.hash.slice(1));
+    const keyHex = params.get('k');
+    const ivHex = params.get('iv');
+
+    // Validate inputs
+    function validate() {
+      if (!id) {
+        return 'Invalid URL: missing blob ID';
+      }
+      if (!keyHex || keyHex.length !== 64) {
+        return 'Invalid URL: missing or malformed key (expected 64 hex characters)';
+      }
+      if (!ivHex || ivHex.length !== 32) {
+        return 'Invalid URL: missing or malformed IV (expected 32 hex characters)';
+      }
+      return null;
+    }
+
+    // Hex to bytes conversion
+    function hexToBytes(hex) {
+      const bytes = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+      }
+      return bytes;
+    }
+
+    // Format bytes for display
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    // Detect content type from magic bytes
+    function detectContentType(bytes) {
+      if (bytes.length < 4) return 'text';
+
+      // PNG
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+        return 'image/png';
+      }
+      // JPEG
+      if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+        return 'image/jpeg';
+      }
+      // GIF
+      if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+        return 'image/gif';
+      }
+      // WebP
+      if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+        return 'image/webp';
+      }
+      // PDF
+      if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+        return 'application/pdf';
+      }
+
+      // Check if it looks like JSON
+      const start = String.fromCharCode(...bytes.slice(0, 20));
+      if (start.trim().startsWith('{') || start.trim().startsWith('[')) {
+        return 'application/json';
+      }
+
+      return 'text';
+    }
+
+    // Main fetch and decrypt function
+    async function fetchAndDecrypt() {
+      try {
+        // Show blob ID in meta
+        addMeta('ID', id.slice(0, 8) + '...');
+
+        // Fetch encrypted blob
+        const res = await fetch('/api/blob/' + id);
+
+        if (res.status === 402) {
+          // Payment required
+          const data = await res.json();
+          document.getElementById('price').textContent = data.payment.price.toFixed(2);
+          contentEl.style.display = 'none';
+          paymentEl.classList.add('visible');
+          return;
+        }
+
+        if (res.status === 404) {
+          showError('Blob not found. It may have been deleted or never existed.');
+          return;
+        }
+
+        if (res.status === 410) {
+          showError('This blob has expired and is no longer available.');
+          return;
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          showError(data.message || 'Failed to fetch blob: HTTP ' + res.status);
+          return;
+        }
+
+        const encrypted = await res.arrayBuffer();
+        addMeta('Encrypted size', formatBytes(encrypted.byteLength));
+
+        // Import key using WebCrypto
+        const keyBytes = hexToBytes(keyHex);
+        const key = await crypto.subtle.importKey(
+          'raw',
+          keyBytes,
+          { name: 'AES-CBC' },
+          false,
+          ['decrypt']
+        );
+
+        // Decrypt
+        const ivBytes = hexToBytes(ivHex);
+        const decrypted = await crypto.subtle.decrypt(
+          { name: 'AES-CBC', iv: ivBytes },
+          key,
+          encrypted
+        );
+
+        decryptedBytes = new Uint8Array(decrypted);
+        addMeta('Decrypted size', formatBytes(decryptedBytes.length));
+
+        // Detect content type
+        detectedType = detectContentType(decryptedBytes);
+        addMeta('Type', detectedType);
+
+        // Display based on type
+        if (detectedType.startsWith('image/')) {
+          displayImage(decryptedBytes, detectedType);
+        } else if (detectedType === 'application/json') {
+          displayJson(decryptedBytes);
+        } else {
+          displayText(decryptedBytes);
+        }
+
+        // Show actions and security notice
+        actionsEl.style.display = 'flex';
+        securityNotice.style.display = 'flex';
+
+      } catch (err) {
+        console.error('Decryption error:', err);
+        if (err.name === 'OperationError') {
+          showError('Decryption failed. The key or IV may be incorrect, or the data is corrupted.');
+        } else {
+          showError('Error: ' + err.message);
+        }
+      }
+    }
+
+    function addMeta(label, value) {
+      const item = document.createElement('span');
+      item.className = 'meta-item';
+      item.textContent = label + ': ' + value;
+      metaEl.appendChild(item);
+    }
+
+    function displayText(bytes) {
+      const decoder = new TextDecoder();
+      decryptedContent = decoder.decode(bytes);
+      contentEl.textContent = decryptedContent;
+      contentEl.classList.remove('loading');
+    }
+
+    function displayJson(bytes) {
+      const decoder = new TextDecoder();
+      const text = decoder.decode(bytes);
+      try {
+        const parsed = JSON.parse(text);
+        decryptedContent = JSON.stringify(parsed, null, 2);
+      } catch {
+        decryptedContent = text;
+      }
+      contentEl.textContent = decryptedContent;
+      contentEl.classList.remove('loading');
+    }
+
+    function displayImage(bytes, mimeType) {
+      const blob = new Blob([bytes], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      contentEl.innerHTML = '<img src="' + url + '" class="image-preview" alt="Decrypted image">';
+      contentEl.classList.remove('loading');
+      decryptedContent = '[Binary image data]';
+    }
+
+    function showError(msg) {
+      contentEl.textContent = msg;
+      contentEl.classList.remove('loading');
+      contentEl.classList.add('error');
+    }
+
+    function copyContent() {
+      navigator.clipboard.writeText(decryptedContent).then(() => {
+        const btn = document.querySelector('button.primary');
+        const original = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => btn.textContent = original, 2000);
+      }).catch(err => {
+        console.error('Copy failed:', err);
+      });
+    }
+
+    function downloadContent() {
+      if (!decryptedBytes) return;
+
+      const blob = new Blob([decryptedBytes]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'opaque-' + id.slice(0, 8) + (detectedType.startsWith('image/') ? '.' + detectedType.split('/')[1] : '.txt');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Initialize
+    const validationError = validate();
+    if (validationError) {
+      showError(validationError);
+    } else {
+      fetchAndDecrypt();
+    }
+  </script>
+</body>
+</html>
