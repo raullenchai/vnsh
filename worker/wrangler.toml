@@ -13,9 +13,7 @@ bucket_name = "vnsh-store"
 binding = "VNSH_META"
 id = "67d2bdbe539e4620a20a65be26744a5e"
 
-# Static assets for viewer
-[site]
-bucket = "../viewer"
+# Note: Static assets removed - all HTML is served inline from worker
 
 # Environment variables (set via wrangler secret)
 # JWT_SECRET - for signing payment tokens
