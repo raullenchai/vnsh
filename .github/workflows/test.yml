@@ -1,0 +1,88 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-worker:
+    name: Worker Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: cd worker && npm ci
+
+      - name: Run tests
+        run: cd worker && npm test
+
+  test-mcp:
+    name: MCP Server Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Install dependencies
+        run: cd mcp && npm ci
+
+      - name: Run tests
+        run: cd mcp && npm test
+
+      - name: Build
+        run: cd mcp && npm run build
+
+  test-cli:
+    name: CLI Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/npm/package-lock.json
+
+      - name: Install dependencies
+        run: cd cli/npm && npm ci
+
+      - name: Build
+        run: cd cli/npm && npm run build
+
+      - name: Test CLI help
+        run: node cli/npm/dist/cli.js --help
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check formatting (worker)
+        run: cd worker && npm ci && npx tsc --noEmit
+
+      - name: Check formatting (mcp)
+        run: cd mcp && npm ci && npx tsc --noEmit

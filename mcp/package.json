@@ -2,17 +2,42 @@
   "name": "vnsh-mcp",
   "version": "1.0.0",
   "description": "MCP server for vnsh - secure content sharing for Claude Code",
+  "keywords": [
+    "vnsh",
+    "mcp",
+    "claude",
+    "anthropic",
+    "encryption",
+    "file-sharing",
+    "ai",
+    "model-context-protocol"
+  ],
+  "author": "raullenchai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raullenchai/vnsh.git"
+  },
+  "homepage": "https://vnsh.dev",
+  "bugs": {
+    "url": "https://github.com/raullenchai/vnsh/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "vnsh-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -24,5 +49,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
