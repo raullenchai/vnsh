@@ -10,7 +10,8 @@
 
 <p align="center">
   <a href="https://github.com/raullenchai/vnsh/actions"><img src="https://img.shields.io/github/actions/workflow/status/raullenchai/vnsh/test.yml?branch=main&style=flat-square" alt="Build Status"></a>
-  <a href="https://www.npmjs.com/package/vnsh-mcp"><img src="https://img.shields.io/npm/v/vnsh-mcp?style=flat-square" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/vnsh-cli"><img src="https://img.shields.io/npm/v/vnsh-cli?style=flat-square&label=vnsh-cli" alt="npm vnsh-cli"></a>
+  <a href="https://www.npmjs.com/package/vnsh-mcp"><img src="https://img.shields.io/npm/v/vnsh-mcp?style=flat-square&label=vnsh-mcp" alt="npm vnsh-mcp"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
 </p>
 
@@ -61,12 +62,27 @@ Unlike Dropbox or pastebins, vnsh implements a **Zero-Access Architecture** with
 
 Visit **[vnsh.dev](https://vnsh.dev)**, drag & drop a file, or paste text. Get an encrypted link instantly.
 
-### Option 2: CLI
+### Option 2: CLI Installation
+
+**NPM** (recommended for Node.js users):
+```bash
+npm install -g vnsh-cli
+```
+
+**Homebrew** (macOS/Linux):
+```bash
+brew tap raullenchai/vnsh
+brew install vnsh
+```
+
+**Shell script** (universal):
+```bash
+curl -sL https://vnsh.dev/i | sh
+```
+
+### CLI Usage
 
 ```bash
-# Install (adds `vn` to your shell)
-curl -sL https://vnsh.dev/i | sh
-
 # Upload a file
 vn secrets.env
 
@@ -74,6 +90,9 @@ vn secrets.env
 cat crash.log | vn
 docker logs app | vn
 git diff HEAD~5 | vn
+
+# Read/decrypt a URL
+vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
 
 # Custom expiry (1-168 hours)
 vn --ttl 1 temp-file.txt   # expires in 1 hour
@@ -260,11 +279,27 @@ vnsh/
 │   │   ├── index.ts # MCP tool handlers
 │   │   └── crypto.ts # Encryption utilities
 │   └── package.json
-├── cli/             # Shell CLI
-│   ├── vn           # Main CLI script
-│   └── install.sh   # Installer
+├── cli/
+│   ├── vn           # Bash CLI script
+│   ├── npm/         # NPM package (vnsh-cli)
+│   │   ├── src/
+│   │   │   ├── cli.ts
+│   │   │   └── crypto.ts
+│   │   └── package.json
+│   └── install.sh   # Shell installer
+├── homebrew-tap/    # Homebrew formula
+│   └── Formula/
+│       └── vnsh.rb
 └── docs/            # Documentation
 ```
+
+## Packages
+
+| Package | Description | Install |
+|---------|-------------|---------|
+| [vnsh-cli](https://www.npmjs.com/package/vnsh-cli) | CLI tool | `npm i -g vnsh-cli` |
+| [vnsh-mcp](https://www.npmjs.com/package/vnsh-mcp) | MCP server for Claude | `npx vnsh-mcp` |
+| [homebrew-vnsh](https://github.com/raullenchai/homebrew-vnsh) | Homebrew tap | `brew install raullenchai/vnsh/vnsh` |
 
 ## Development
 
