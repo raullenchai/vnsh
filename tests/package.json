@@ -1,7 +1,7 @@
 {
-  "name": "opaque-tests",
+  "name": "vnsh-tests",
   "version": "1.0.0",
-  "description": "Opaque E2E and integration tests",
+  "description": "vnsh E2E and integration tests",
   "type": "module",
   "scripts": {
     "test": "vitest run",

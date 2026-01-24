@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# Opaque Integration Tests
+# vnsh Integration Tests
 #
 # Prerequisites:
 #   - Worker deployed or running locally (wrangler dev)
-#   - oq CLI installed
+#   - vn CLI installed (curl -sL vnsh.dev/i | sh)
 #
 # Usage:
 #   ./integration.sh [host]
@@ -39,7 +39,7 @@ info() {
 }
 
 echo "================================"
-echo "Opaque Integration Tests"
+echo "vnsh Integration Tests"
 echo "Host: $HOST"
 echo "================================"
 echo ""
@@ -131,42 +131,42 @@ else
   fail "Expected 400 for empty body, got $EMPTY_CODE"
 fi
 
-# Test 9: CLI local mode (if oq is available)
+# Test 9: CLI local mode (if vn is available)
 info "Test 9: CLI local mode"
-if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
-  OQ_CMD="${OQ_CMD:-../cli/oq}"
-  LOCAL_OUTPUT=$(echo "local-test" | OPAQUE_HOST="$HOST" "$OQ_CMD" --local 2>/dev/null || echo "")
+if command -v vn &> /dev/null; then
+  VN_CMD="vn"
+  LOCAL_OUTPUT=$(echo "local-test" | VNSH_HOST="$HOST" "$VN_CMD" --local 2>/dev/null || echo "")
   if echo "$LOCAL_OUTPUT" | grep -q "Decryption key:"; then
     pass "CLI local mode works"
   else
     fail "CLI local mode failed" "$LOCAL_OUTPUT"
   fi
 else
-  echo "  (skipped - oq not found)"
+  echo "  (skipped - vn not found)"
 fi
 
-# Test 10: CLI upload (if oq is available)
+# Test 10: CLI upload (if vn is available)
 info "Test 10: CLI end-to-end upload"
-if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
-  OQ_CMD="${OQ_CMD:-../cli/oq}"
-  CLI_URL=$(echo "cli-test-$(date +%s)" | OPAQUE_HOST="$HOST" "$OQ_CMD" 2>/dev/null | grep -o "http.*")
+if command -v vn &> /dev/null; then
+  VN_CMD="vn"
+  CLI_URL=$(echo "cli-test-$(date +%s)" | VNSH_HOST="$HOST" "$VN_CMD" 2>/dev/null | grep -o "http.*")
   if echo "$CLI_URL" | grep -q "#k="; then
     pass "CLI upload returns URL with key fragment"
   else
     fail "CLI upload failed" "$CLI_URL"
   fi
 else
-  echo "  (skipped - oq not found)"
+  echo "  (skipped - vn not found)"
 fi
 
 # Test 11: Full crypto round-trip (CLI encrypt -> API -> OpenSSL decrypt)
 info "Test 11: Full crypto round-trip"
-if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
-  OQ_CMD="${OQ_CMD:-../cli/oq}"
+if command -v vn &> /dev/null; then
+  VN_CMD="vn"
   CRYPTO_CONTENT="crypto-roundtrip-$(date +%s)"
 
   # Upload via CLI
-  CRYPTO_OUTPUT=$(printf '%s' "$CRYPTO_CONTENT" | OPAQUE_HOST="$HOST" "$OQ_CMD" 2>&1)
+  CRYPTO_OUTPUT=$(printf '%s' "$CRYPTO_CONTENT" | VNSH_HOST="$HOST" "$VN_CMD" 2>&1)
   CRYPTO_URL=$(echo "$CRYPTO_OUTPUT" | grep -o "http[^ ]*#k=[^ ]*")
 
   if [ -n "$CRYPTO_URL" ]; then
@@ -192,13 +192,13 @@ if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
     fail "Failed to get URL from CLI" "$CRYPTO_OUTPUT"
   fi
 else
-  echo "  (skipped - oq not found)"
+  echo "  (skipped - vn not found)"
 fi
 
 # Test 12: Viewer HTML served correctly
 info "Test 12: Viewer HTML served"
 VIEWER_RESPONSE=$(curl -s "$HOST/v/12345678-1234-1234-1234-123456789abc")
-if echo "$VIEWER_RESPONSE" | grep -q "<!DOCTYPE html>" && echo "$VIEWER_RESPONSE" | grep -q "Opaque"; then
+if echo "$VIEWER_RESPONSE" | grep -q "<!DOCTYPE html>" && echo "$VIEWER_RESPONSE" | grep -q "vnsh"; then
   pass "Viewer HTML served correctly"
 else
   fail "Viewer HTML not served" "${VIEWER_RESPONSE:0:100}..."
@@ -253,7 +253,7 @@ fi
 # Test 16: Upload page served
 info "Test 16: Upload page served"
 UPLOAD_PAGE=$(curl -s "$HOST/")
-if echo "$UPLOAD_PAGE" | grep -q "<!DOCTYPE html>" && echo "$UPLOAD_PAGE" | grep -q "Encrypt & Upload"; then
+if echo "$UPLOAD_PAGE" | grep -q "<!DOCTYPE html>" && echo "$UPLOAD_PAGE" | grep -q "Encrypt"; then
   pass "Upload page served correctly"
 else
   fail "Upload page not served" "${UPLOAD_PAGE:0:100}..."
@@ -261,19 +261,19 @@ fi
 
 # Test 17: CLI read command
 info "Test 17: CLI read command"
-if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
-  OQ_CMD="${OQ_CMD:-../cli/oq}"
+if command -v vn &> /dev/null; then
+  VN_CMD="vn"
   READ_CONTENT="cli-read-test-$(date +%s)"
 
   # Upload via CLI
-  CLI_OUTPUT=$(printf '%s' "$READ_CONTENT" | OPAQUE_HOST="$HOST" "$OQ_CMD" 2>&1)
+  CLI_OUTPUT=$(printf '%s' "$READ_CONTENT" | VNSH_HOST="$HOST" "$VN_CMD" 2>&1)
   CLI_URL=$(echo "$CLI_OUTPUT" | grep -o "http[^ ]*#k=[^ ]*")
 
   if [ -n "$CLI_URL" ]; then
     # Read back via CLI
-    DECRYPTED=$(OPAQUE_HOST="$HOST" "$OQ_CMD" read "$CLI_URL" 2>/dev/null)
+    DECRYPTED=$(VNSH_HOST="$HOST" "$VN_CMD" read "$CLI_URL" 2>/dev/null)
     if [ "$DECRYPTED" = "$READ_CONTENT" ]; then
-      pass "CLI read command works (oq -> oq read round-trip)"
+      pass "CLI read command works (vn -> vn read round-trip)"
     else
       fail "CLI read failed" "Expected: $READ_CONTENT, Got: $DECRYPTED"
     fi
@@ -281,7 +281,7 @@ if command -v oq &> /dev/null || [ -x "../cli/oq" ]; then
     fail "CLI upload failed for read test" "$CLI_OUTPUT"
   fi
 else
-  echo "  (skipped - oq not found)"
+  echo "  (skipped - vn not found)"
 fi
 
 # Summary

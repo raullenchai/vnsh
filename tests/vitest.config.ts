@@ -6,9 +6,9 @@ export default defineConfig({
     testTimeout: 30000, // E2E tests may take longer
     hookTimeout: 10000,
     // Skip E2E tests if no server is running
-    // Run with: OPAQUE_HOST=http://localhost:8787 npm test
+    // Run with: VNSH_HOST=http://localhost:8787 npm test
     env: {
-      OPAQUE_HOST: process.env.OPAQUE_HOST || 'http://localhost:8787',
+      VNSH_HOST: process.env.VNSH_HOST || 'http://localhost:8787',
     },
   },
 });

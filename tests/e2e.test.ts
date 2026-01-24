@@ -1,5 +1,5 @@
 /**
- * End-to-End Tests for Opaque
+ * End-to-End Tests for vnsh
  *
  * These tests validate the complete flow:
  * - CLI upload → API storage → Download → Decryption
@@ -8,9 +8,9 @@
  *
  * Prerequisites:
  * - Worker running locally: cd worker && npm run dev
- * - CLI available: ../cli/oq
+ * - CLI available: vn (install via: curl -sL vnsh.dev/i | sh)
  *
- * Run with: OPAQUE_HOST=http://localhost:8787 npx vitest run tests/e2e.test.ts
+ * Run with: VNSH_HOST=http://localhost:8787 npx vitest run tests/e2e.test.ts
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -20,12 +20,12 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const HOST = process.env.OPAQUE_HOST || 'http://localhost:8787';
-const CLI_PATH = process.env.OQ_PATH || './cli/oq';
+const HOST = process.env.VNSH_HOST || 'http://localhost:8787';
+const CLI_PATH = process.env.VN_PATH || 'vn';
 
 // Helper to run CLI commands
 function runCLI(args: string, input?: string): string {
-  const env = { ...process.env, OPAQUE_HOST: HOST };
+  const env = { ...process.env, VNSH_HOST: HOST };
   if (input) {
     return execSync(`echo -n '${input}' | ${CLI_PATH} ${args}`, { env, encoding: 'utf-8' });
   }
@@ -91,7 +91,7 @@ describe('E2E: Basic Upload/Download Flow', () => {
 
   it('uploads file via CLI', async () => {
     // Create temp file
-    const tempFile = `/tmp/opaque-test-${Date.now()}.txt`;
+    const tempFile = `/tmp/vnsh-test-${Date.now()}.txt`;
     const fileContent = `file-content-${Date.now()}`;
     execSync(`echo -n '${fileContent}' > ${tempFile}`);
 
@@ -273,7 +273,7 @@ describe('E2E: Viewer', () => {
 
     const html = await response.text();
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('Opaque');
+    expect(html).toContain('vnsh');
     expect(html).toContain('crypto.subtle'); // WebCrypto API usage
   });
 });

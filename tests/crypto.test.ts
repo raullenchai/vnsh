@@ -4,7 +4,7 @@
  * These tests validate that AES-256-CBC encryption/decryption works
  * consistently across all platforms:
  * - Node.js crypto (used by MCP server)
- * - OpenSSL CLI (used by oq CLI)
+ * - OpenSSL CLI (used by vn CLI)
  * - WebCrypto (used by browser viewer)
  *
  * Run with: npx tsx tests/crypto.test.ts
@@ -75,7 +75,7 @@ function decryptNode(ciphertext: Buffer, keyHex: string, ivHex: string): string 
 }
 
 /**
- * Encrypt using OpenSSL CLI (matches oq CLI behavior)
+ * Encrypt using OpenSSL CLI (matches vn CLI behavior)
  */
 function encryptOpenSSL(plaintext: string, keyHex: string, ivHex: string): Buffer {
   // Use printf for cross-platform compatibility (echo -n behaves differently on macOS)
