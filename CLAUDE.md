@@ -127,3 +127,13 @@ Step 2 (The Bridge): Please write the index.ts for the MCP Server (/mcp). It nee
 Metadata Leakage: The server knows when and how much data is uploaded, but not what.
 
 Link Hygiene: If the user shares the full URL (w/ hash) in a public channel, the data is compromised. vnsh is safe against Server Compromise, not User Negligence.
+
+8. Development Guidelines
+
+**Language**: All code, comments, documentation, and commit messages MUST be in English. No exceptions.
+
+**Repository**: https://github.com/raullenchai/vnsh
+
+**Testing**: Maintain 70%+ test coverage. Run `npm test` before pushing.
+
+**Commits**: Use conventional commit messages. Always include `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>` when Claude contributes.
