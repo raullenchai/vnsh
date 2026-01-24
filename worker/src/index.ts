@@ -27,8 +27,22 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 };
 
-// Standard error response
-function errorResponse(code: string, message: string, status: number): Response {
+// Standard error response (JSON for API, HTML for browser)
+function errorResponse(code: string, message: string, status: number, request?: Request): Response {
+  // Check if request is from browser (Accept header includes text/html)
+  const acceptHeader = request?.headers.get('Accept') || '';
+  const isBrowser = acceptHeader.includes('text/html');
+
+  if (isBrowser && (status === 404 || status === 410)) {
+    return new Response(ERROR_HTML(code, message, status), {
+      status,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        ...corsHeaders,
+      },
+    });
+  }
+
   return new Response(
     JSON.stringify({ error: code, message }),
     {
@@ -39,6 +53,78 @@ function errorResponse(code: string, message: string, status: number): Response 
       },
     }
   );
+}
+
+// Styled error page HTML
+function ERROR_HTML(code: string, message: string, status: number): string {
+  const isExpired = code === 'EXPIRED' || status === 410;
+  const title = isExpired ? 'Link Expired' : 'Link Not Found';
+  const description = isExpired
+    ? 'This vnsh link has expired. All data auto-vaporizes after 24 hours for your security.'
+    : 'This vnsh link doesn\'t exist or has already expired.';
+  const icon = isExpired ? '🔥' : '🔍';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | vnsh</title>
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist Mono', monospace;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .container {
+      text-align: center;
+      max-width: 500px;
+    }
+    .icon { font-size: 4rem; margin-bottom: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; color: #fff; }
+    p { color: #a3a3a3; margin-bottom: 2rem; line-height: 1.6; }
+    .code { font-size: 0.75rem; color: #525252; margin-bottom: 2rem; }
+    a {
+      display: inline-block;
+      background: #22c55e;
+      color: #000;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    a:hover { background: #16a34a; }
+    .features {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid #2a2a2a;
+      font-size: 0.8rem;
+      color: #525252;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">${icon}</div>
+    <h1>${title}</h1>
+    <p>${description}</p>
+    <div class="code">Error ${status}: ${code}</div>
+    <a href="/">Create New Link</a>
+    <div class="features">
+      vnsh links auto-vaporize after 24 hours<br>
+      Server never sees your data — keys stay in URL fragment
+    </div>
+  </div>
+</body>
+</html>`;
 }
 
 // Handle CORS preflight
@@ -155,7 +241,7 @@ async function handleBlob(id: string, request: Request, env: Env): Promise<Respo
 
   if (!metaJson) {
     // Blob not found or expired (KV auto-deletes expired entries)
-    return errorResponse('NOT_FOUND', 'Blob not found or expired', 404);
+    return errorResponse('NOT_FOUND', 'Blob not found or expired', 404, request);
   }
 
   const meta = JSON.parse(metaJson) as {
@@ -172,7 +258,7 @@ async function handleBlob(id: string, request: Request, env: Env): Promise<Respo
       env.VNSH_STORE.delete(id),
       env.VNSH_META.delete(`blob:${id}`),
     ]);
-    return errorResponse('EXPIRED', 'Blob has expired', 410);
+    return errorResponse('EXPIRED', 'Blob has expired', 410, request);
   }
 
   // Check for payment requirement
@@ -215,7 +301,7 @@ async function handleBlob(id: string, request: Request, env: Env): Promise<Respo
   if (!object) {
     // R2 object missing but metadata exists - inconsistent state
     await env.VNSH_META.delete(`blob:${id}`);
-    return errorResponse('NOT_FOUND', 'Blob not found', 404);
+    return errorResponse('NOT_FOUND', 'Blob not found', 404, request);
   }
 
   // Stream response with proper headers
@@ -324,7 +410,7 @@ export default {
     }
 
     // 404 for unknown routes
-    return errorResponse('NOT_FOUND', 'Endpoint not found', 404);
+    return errorResponse('NOT_FOUND', 'Endpoint not found', 404, request);
   },
 };
 
@@ -1303,6 +1389,101 @@ const APP_HTML = `<!DOCTYPE html>
       font-family: inherit;
     }
 
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--bg-elevated);
+      border: 1px solid var(--accent);
+      color: var(--fg);
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      z-index: 1000;
+      opacity: 0;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast-icon { color: var(--accent); }
+
+    /* Tooltip */
+    [data-tooltip] {
+      position: relative;
+    }
+    [data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      white-space: nowrap;
+      margin-bottom: 0.5rem;
+      z-index: 100;
+    }
+
+    /* URL Truncation */
+    .result-url-truncated {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .result-url-short {
+      color: var(--fg-muted);
+      font-size: 0.8rem;
+    }
+    .result-url-full {
+      font-size: 0.65rem;
+      color: var(--fg-dim);
+      word-break: break-all;
+      display: none;
+      margin-top: 0.5rem;
+    }
+    .result-url-full.show { display: block; }
+    .show-full-btn {
+      background: none;
+      border: none;
+      color: var(--fg-dim);
+      cursor: pointer;
+      font-size: 0.7rem;
+      text-decoration: underline;
+    }
+    .show-full-btn:hover { color: var(--accent); }
+
+    /* Expiry Badge */
+    .result-expiry {
+      font-size: 0.75rem;
+      color: #f59e0b;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    /* Security Badge */
+    .security-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.7rem;
+      color: var(--fg-dim);
+      margin-top: 0.5rem;
+    }
+    .security-badge span { color: var(--accent); }
+
     /* Responsive */
     @media (max-width: 600px) {
       body { padding: 1rem; }
@@ -1320,6 +1501,12 @@ const APP_HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <span class="toast-icon">✓</span>
+    <span id="toast-message">Copied!</span>
+  </div>
+
   <!-- Hero -->
   <section class="hero">
     <h1 class="hero-title">
@@ -1328,6 +1515,9 @@ const APP_HTML = `<!DOCTYPE html>
     <p class="hero-subtitle">
       <span class="dim">Stop pasting walls of text.</span> <span class="bright">Pipe it. Share it. Vaporize it.</span>
     </p>
+    <div class="security-badge">
+      <span>🔒</span> AES-256 encrypted · Server never sees your data · Auto-vaporizes in 24h
+    </div>
   </section>
 
   <!-- Console with Tabs -->
@@ -1346,6 +1536,7 @@ const APP_HTML = `<!DOCTYPE html>
 └──────────┘</div>
         <div class="dropzone-text">Drop files here to encrypt & share</div>
         <div class="dropzone-hint">⌘V / Ctrl+V to paste</div>
+        <button class="btn" style="margin-top: 1rem;" onclick="event.stopPropagation(); document.getElementById('file-input').click();">or click to select file</button>
       </div>
       <input type="file" id="file-input">
 
@@ -1358,10 +1549,17 @@ const APP_HTML = `<!DOCTYPE html>
 
       <div class="result-box" id="result">
         <div class="result-header">✓ Secure Link Ready</div>
-        <div class="result-url" id="result-url"></div>
+        <div class="result-expiry">🔥 Expires in 24 hours</div>
+        <div class="result-url">
+          <div class="result-url-truncated">
+            <span class="result-url-short" id="result-url-short"></span>
+            <button class="show-full-btn" onclick="toggleFullUrl()">show full</button>
+          </div>
+          <div class="result-url-full" id="result-url-full"></div>
+        </div>
         <div class="result-actions">
           <button class="btn btn-primary" onclick="copyUrl()">Copy URL</button>
-          <button class="btn" onclick="copyForClaude()">For Claude</button>
+          <button class="btn" onclick="copyForClaude()" data-tooltip="Copy URL with markdown instruction for Claude">For Claude</button>
           <button class="btn" onclick="openViewer()">Preview</button>
         </div>
       </div>
@@ -1375,47 +1573,54 @@ const APP_HTML = `<!DOCTYPE html>
           <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
           <button class="copy-btn" title="Copy">⧉</button>
         </div>
+        <div class="code-block" style="margin-bottom: 1rem;" onclick="copyCommand('npm install -g vnsh-cli', this)">
+          <code><span class="prompt">$ </span>npm i -g vnsh-cli</code>
+          <button class="copy-btn" title="Copy">⧉</button>
+        </div>
 
-        <div class="section-label" style="margin-top: 1.5rem;">// 2. Usage Examples</div>
+        <div class="section-label" style="margin-top: 1rem;">// 2. Usage Examples</div>
         <div class="terminal-window">
           <div class="terminal-header">
             <div class="terminal-dots"><span></span><span></span><span></span></div>
             <span>terminal</span>
           </div>
           <div class="terminal-body">
-            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Share k8s logs securely</span></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">kubectl logs pod/app-xyz | vn</span></div>
+            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Upload: pipe or file</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">kubectl logs pod/app | vn</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/a3f...#k=...</span></div>
-            <div class="line" style="height: 0.5rem;"></div>
-            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Upload sensitive config files</span></div>
+            <div class="line" style="height: 0.35rem;"></div>
             <div class="line"><span class="prompt">$ </span><span class="cmd">vn .env.production</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/b7c...#k=...</span></div>
             <div class="line" style="height: 0.5rem;"></div>
-            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Share git diff with Claude</span></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">git diff HEAD~5 | vn</span></div>
-            <div class="line"><span class="output">https://vnsh.dev/v/f9d...#k=...</span></div>
+            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Download: decrypt and view</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">vn read "https://vnsh.dev/v/...#k=...&iv=..."</span></div>
+            <div class="line"><span class="output">(decrypted content)</span></div>
           </div>
         </div>
 
-        <div class="code-block" style="margin-top: 1rem;" onclick="copyCommand('cat myfile.txt | vn', this)">
-          <code><span class="prompt">$ </span>cat myfile.txt | vn</code>
-          <button class="copy-btn" title="Copy">⧉</button>
-        </div>
-
-        <p class="cli-desc">Pipe anything to <code style="color:var(--accent)">vn</code> — share the URL with Claude.</p>
+        <p class="cli-desc">Pipe anything to <code style="color:var(--accent)">vn</code> — share the URL with Claude.<br><span style="font-size:0.7rem;color:var(--fg-dim)">Use <code>vn read "URL"</code> to decrypt. Quote the URL to preserve &iv= part.</span></p>
       </div>
     </div>
 
     <!-- Agent Panel -->
     <div class="tab-panel" id="panel-agent">
       <div class="mcp-section">
+        <div class="section-label">// What is MCP?</div>
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 1.5rem; line-height: 1.6;">
+          <strong style="color: var(--fg);">Model Context Protocol (MCP)</strong> lets Claude read vnsh links directly.
+          Instead of copy-pasting content, just share the URL — Claude decrypts it locally.
+        </p>
+
         <div class="section-label">// Quick Start</div>
         <div class="code-block" id="mcp-box" onclick="copyCommand('npx -y vnsh-mcp', this)">
           <code><span class="prompt">$ </span>npx -y vnsh-mcp</code>
           <button class="copy-btn" title="Copy">⧉</button>
         </div>
 
-        <div class="section-label" style="margin-top: 1.5rem;">// Add to your MCP config</div>
+        <div class="section-label" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+          <span>// Add to your MCP config</span>
+          <button class="copy-btn" style="font-size: 0.7rem; cursor: pointer; background: none; border: none; color: var(--fg-dim);" onclick="copyMcpConfig()" id="mcp-config-copy">⧉ Copy JSON</button>
+        </div>
         <div class="mcp-config">
           <div class="comment">// Claude Code: .mcp.json (project) or ~/.claude/settings.json</div>
           <div class="comment">// Claude Desktop: ~/.config/claude/claude_desktop_config.json</div>
@@ -1427,7 +1632,7 @@ const APP_HTML = `<!DOCTYPE html>
           <div class="line">}</div>
         </div>
 
-        <p class="mcp-desc">Claude can now read vnsh.dev URLs and decrypt content locally.<br><span style="font-size: 0.7rem;">Restart Claude after adding config.</span></p>
+        <p class="mcp-desc">After setup, share any vnsh.dev URL with Claude — it decrypts automatically.<br><span style="font-size: 0.7rem;">Restart Claude after adding config.</span></p>
       </div>
     </div>
   </div>
@@ -1527,13 +1732,61 @@ const APP_HTML = `<!DOCTYPE html>
     const progressText = document.getElementById('progress-text');
     const progressFill = document.getElementById('progress-fill');
     const resultEl = document.getElementById('result');
-    const resultUrl = document.getElementById('result-url');
+    const resultUrlShort = document.getElementById('result-url-short');
+    const resultUrlFull = document.getElementById('result-url-full');
     const overlay = document.getElementById('overlay');
     const viewerLoading = document.getElementById('viewer-loading');
     const viewerResult = document.getElementById('viewer-result');
     const shortcutsModal = document.getElementById('shortcuts-modal');
+    const toastEl = document.getElementById('toast');
+    const toastMessage = document.getElementById('toast-message');
     const tabs = document.querySelectorAll('.tab');
     const tabPanels = document.querySelectorAll('.tab-panel');
+
+    // Toast notification
+    let toastTimeout = null;
+    function showToast(message) {
+      toastMessage.textContent = message;
+      toastEl.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 2500);
+    }
+
+    // URL truncation toggle
+    function toggleFullUrl() {
+      const fullEl = document.getElementById('result-url-full');
+      const btn = event.target;
+      if (fullEl.classList.contains('show')) {
+        fullEl.classList.remove('show');
+        btn.textContent = 'show full';
+      } else {
+        fullEl.classList.add('show');
+        btn.textContent = 'hide';
+      }
+    }
+
+    // Truncate URL for display
+    function truncateUrl(url) {
+      const match = url.match(/vnsh\\.dev\\/v\\/([a-f0-9-]{8})[^#]*#k=([a-f0-9]{8})/);
+      if (match) return 'vnsh.dev/v/' + match[1] + '...#k=' + match[2] + '...';
+      return url.length > 50 ? url.slice(0, 50) + '...' : url;
+    }
+
+    // Copy MCP config
+    function copyMcpConfig() {
+      const config = \`"mcpServers": {
+  "vnsh": {
+    "command": "npx",
+    "args": ["-y", "vnsh-mcp"]
+  }
+}\`;
+      navigator.clipboard.writeText(config).then(() => {
+        showToast('MCP config copied!');
+        const btn = document.getElementById('mcp-config-copy');
+        btn.textContent = '✓ Copied';
+        setTimeout(() => btn.textContent = '⧉ Copy JSON', 2000);
+      });
+    }
 
     // Tab switching
     tabs.forEach(tab => {
@@ -1549,6 +1802,7 @@ const APP_HTML = `<!DOCTYPE html>
     // Copy command helper
     function copyCommand(cmd, el) {
       navigator.clipboard.writeText(cmd).then(() => {
+        showToast('Command copied!');
         const btn = el.querySelector('.copy-btn');
         if (btn) {
           btn.textContent = '✓';
@@ -1649,7 +1903,8 @@ const APP_HTML = `<!DOCTYPE html>
 
         progressEl.classList.remove('show');
         resultEl.classList.add('show');
-        resultUrl.textContent = generatedUrl;
+        resultUrlShort.textContent = truncateUrl(generatedUrl);
+        resultUrlFull.textContent = generatedUrl;
         document.title = '✓ vnsh';
 
         // Scroll result into view
@@ -1677,14 +1932,17 @@ const APP_HTML = `<!DOCTYPE html>
 
     function copyUrl() {
       navigator.clipboard.writeText(generatedUrl).then(() => {
+        showToast('URL copied to clipboard!');
         const btn = event.target;
         btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = 'Copy', 2000);
+        setTimeout(() => btn.textContent = 'Copy URL', 2000);
       });
     }
 
     function copyForClaude() {
-      navigator.clipboard.writeText(generatedUrl).then(() => {
+      const formatted = 'Please read this vnsh link: ' + generatedUrl;
+      navigator.clipboard.writeText(formatted).then(() => {
+        showToast('Copied with instruction for Claude!');
         const btn = event.target;
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'For Claude', 2000);
@@ -1824,6 +2082,7 @@ const APP_HTML = `<!DOCTYPE html>
     function viewerCopyForClaude() {
       const formatted = 'Here is some context:\\n\\n\`\`\`\\n' + decryptedContent + '\\n\`\`\`';
       navigator.clipboard.writeText(formatted).then(() => {
+        showToast('Content copied with markdown formatting!');
         const btn = event.target;
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'Copy for Claude', 2000);
