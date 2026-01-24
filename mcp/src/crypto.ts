@@ -1,8 +1,8 @@
 /**
- * Crypto utilities for Opaque MCP Server
+ * Crypto utilities for vnsh MCP Server
  *
  * Implements AES-256-CBC encryption/decryption compatible with:
- * - OpenSSL CLI (used by oq)
+ * - OpenSSL CLI (used by vn)
  * - WebCrypto (used by browser viewer)
  */
 
@@ -64,11 +64,11 @@ export function bufferToHex(buffer: Buffer): string {
 }
 
 /**
- * Parse an Opaque URL to extract components
+ * Parse a vnsh URL to extract components
  *
  * URL format: https://host/v/{id}#k={key}&iv={iv}
  */
-export function parseOpaqueUrl(url: string): {
+export function parseVnshUrl(url: string): {
   host: string;
   id: string;
   key: Buffer;
@@ -78,7 +78,7 @@ export function parseOpaqueUrl(url: string): {
   const [urlPart, fragment] = url.split('#');
 
   if (!fragment) {
-    throw new Error('Invalid Opaque URL: missing fragment (#k=...&iv=...)');
+    throw new Error('Invalid vnsh URL: missing fragment (#k=...&iv=...)');
   }
 
   // Parse URL to get host and ID
@@ -86,7 +86,7 @@ export function parseOpaqueUrl(url: string): {
   const pathMatch = urlObj.pathname.match(/^\/v\/([a-f0-9-]+)$/);
 
   if (!pathMatch) {
-    throw new Error('Invalid Opaque URL: cannot extract blob ID from path');
+    throw new Error('Invalid vnsh URL: cannot extract blob ID from path');
   }
 
   const id = pathMatch[1];
@@ -98,11 +98,11 @@ export function parseOpaqueUrl(url: string): {
   const ivHex = params.get('iv');
 
   if (!keyHex || keyHex.length !== 64) {
-    throw new Error(`Invalid Opaque URL: key must be 64 hex chars (got ${keyHex?.length || 0})`);
+    throw new Error(`Invalid vnsh URL: key must be 64 hex chars (got ${keyHex?.length || 0})`);
   }
 
   if (!ivHex || ivHex.length !== 32) {
-    throw new Error(`Invalid Opaque URL: IV must be 32 hex chars (got ${ivHex?.length || 0})`);
+    throw new Error(`Invalid vnsh URL: IV must be 32 hex chars (got ${ivHex?.length || 0})`);
   }
 
   return {
@@ -114,9 +114,9 @@ export function parseOpaqueUrl(url: string): {
 }
 
 /**
- * Build an Opaque URL from components
+ * Build a vnsh URL from components
  */
-export function buildOpaqueUrl(host: string, id: string, key: Buffer, iv: Buffer): string {
+export function buildVnshUrl(host: string, id: string, key: Buffer, iv: Buffer): string {
   const keyHex = bufferToHex(key);
   const ivHex = bufferToHex(iv);
   return `${host}/v/${id}#k=${keyHex}&iv=${ivHex}`;

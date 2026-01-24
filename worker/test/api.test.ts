@@ -4,11 +4,11 @@ import worker from '../src/index';
 
 // Type for our worker's env
 type Env = {
-  OPAQUE_STORE: R2Bucket;
-  OPAQUE_META: KVNamespace;
+  VNSH_STORE: R2Bucket;
+  VNSH_META: KVNamespace;
 };
 
-describe('Opaque API', () => {
+describe('vnsh API', () => {
   describe('Health Check', () => {
     it('GET /health returns status ok', async () => {
       const request = new Request('http://localhost/health');
@@ -18,7 +18,7 @@ describe('Opaque API', () => {
 
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body).toEqual({ status: 'ok', service: 'opaque' });
+      expect(body).toEqual({ status: 'ok', service: 'vnsh' });
     });
   });
 
@@ -34,8 +34,8 @@ describe('Opaque API', () => {
 
       const html = await response.text();
       expect(html).toContain('<!DOCTYPE html>');
-      expect(html).toContain('Opaque');
-      expect(html).toContain('Host-Blind Context Tunnel');
+      expect(html).toContain('vnsh');
+      expect(html).toContain('Share then Vanish');
     });
   });
 
@@ -247,8 +247,8 @@ describe('Opaque API', () => {
 
       const script = await response.text();
       expect(script).toContain('#!/bin/bash');
-      expect(script).toContain('oq()');
-      expect(script).toContain('opaque.dev');
+      expect(script).toContain('vn()');
+      expect(script).toContain('vnsh.dev');
     });
   });
 

@@ -1,16 +1,18 @@
 {
-  "name": "opaque-mcp",
+  "name": "vnsh-mcp",
   "version": "1.0.0",
-  "description": "MCP server for Opaque - secure content sharing for Claude Code",
+  "description": "MCP server for vnsh - secure content sharing for Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "opaque-mcp": "./dist/index.js"
+    "vnsh-mcp": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -18,7 +20,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
   }
 }

@@ -1,0 +1,371 @@
+#!/bin/bash
+#
+# vn - vnsh CLI
+# Encrypt and share content via vnsh
+#
+# Usage:
+#   vn [file]           Encrypt and upload a file
+#   echo "text" | vn    Encrypt and upload from stdin
+#   vn read <url>       Decrypt and read a vnsh URL
+#   vn --local [file]   Output encrypted blob locally (no upload)
+#   vn --help           Show this help
+#
+# Environment:
+#   VNSH_HOST         API host (default: https://vnsh.dev)
+#
+
+set -e
+
+# Configuration
+VNSH_HOST="${VNSH_HOST:-https://vnsh.dev}"
+MAX_SIZE=$((25 * 1024 * 1024))  # 25MB
+
+# Colors (if terminal supports it)
+if [ -t 1 ]; then
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  CYAN='\033[0;36m'
+  NC='\033[0m' # No Color
+else
+  RED=''
+  GREEN=''
+  YELLOW=''
+  CYAN=''
+  NC=''
+fi
+
+# Print error and exit
+error() {
+  echo -e "${RED}error:${NC} $1" >&2
+  exit 1
+}
+
+# Print info
+info() {
+  echo -e "${CYAN}→${NC} $1" >&2
+}
+
+# Check dependencies
+check_deps() {
+  command -v openssl >/dev/null 2>&1 || error "openssl is required but not installed"
+  command -v curl >/dev/null 2>&1 || error "curl is required but not installed"
+}
+
+# Show help
+show_help() {
+  cat << 'EOF'
+vn - vnsh CLI
+
+Encrypt and share content via host-blind data tunnel.
+
+USAGE:
+    vn [OPTIONS] [FILE]        Encrypt and upload
+    command | vn [OPTIONS]     Encrypt and upload from stdin
+    vn read <URL>              Decrypt and read a vnsh URL
+
+COMMANDS:
+    read <url>          Decrypt and display content from a vnsh URL
+
+OPTIONS:
+    --local             Output encrypted blob locally (no upload)
+    --ttl <hours>       Set expiry time in hours (default: 24, max: 168)
+    --price <usd>       Set price in USD for x402 payment
+    --host <url>        Override API host
+    -h, --help          Show this help
+
+EXAMPLES:
+    # Upload a file
+    vn myfile.txt
+
+    # Upload from stdin
+    git diff | vn
+    cat error.log | vn
+
+    # Read/decrypt a URL
+    vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
+
+    # Local mode (no upload)
+    echo "secret" | vn --local
+
+    # Set expiry
+    vn --ttl 1 temp.txt    # Expires in 1 hour
+
+ENVIRONMENT:
+    VNSH_HOST         API host (default: https://vnsh.dev)
+
+The output URL contains the decryption key in the fragment (#).
+The server never sees the key - your data remains encrypted.
+EOF
+  exit 0
+}
+
+# Generate random hex string
+random_hex() {
+  openssl rand -hex "$1"
+}
+
+# Read and decrypt a vnsh URL
+read_url() {
+  local url="$1"
+
+  if [ -z "$url" ]; then
+    error "URL is required. Usage: vn read <url>"
+  fi
+
+  # Parse the URL to extract components
+  # URL format: https://host/v/{id}#k={key}&iv={iv}
+
+  # Extract the fragment (everything after #)
+  local fragment="${url#*#}"
+  if [ "$fragment" = "$url" ]; then
+    error "Invalid URL: missing fragment (#k=...&iv=...)"
+  fi
+
+  # Extract the path part (before #)
+  local path_part="${url%%#*}"
+
+  # Extract blob ID from path (/v/{id})
+  local blob_id
+  blob_id=$(echo "$path_part" | grep -oE '/v/[a-f0-9-]+' | sed 's|/v/||')
+  if [ -z "$blob_id" ]; then
+    error "Invalid URL: cannot extract blob ID"
+  fi
+
+  # Extract host from URL
+  local host
+  host=$(echo "$path_part" | grep -oE 'https?://[^/]+')
+  if [ -z "$host" ]; then
+    host="$VNSH_HOST"
+  fi
+
+  # Parse key and IV from fragment
+  local key=""
+  local iv=""
+
+  # Fragment format: k={key}&iv={iv}
+  IFS='&' read -ra params <<< "$fragment"
+  for param in "${params[@]}"; do
+    case "$param" in
+      k=*)
+        key="${param#k=}"
+        ;;
+      iv=*)
+        iv="${param#iv=}"
+        ;;
+    esac
+  done
+
+  # Validate key and IV
+  if [ -z "$key" ] || [ ${#key} -ne 64 ]; then
+    error "Invalid URL: missing or malformed key (expected 64 hex chars, got ${#key})"
+  fi
+  if [ -z "$iv" ] || [ ${#iv} -ne 32 ]; then
+    error "Invalid URL: missing or malformed IV (expected 32 hex chars, got ${#iv})"
+  fi
+
+  info "Fetching blob $blob_id from $host..."
+
+  # Fetch the encrypted blob
+  local temp_file
+  temp_file=$(mktemp)
+  trap "rm -f '$temp_file'" EXIT
+
+  # Use -k for self-signed certs (local dev)
+  local curl_opts="-s"
+  if [[ "$host" == *"localhost"* ]] || [[ "$host" == *"127.0.0.1"* ]] || [[ "$host" == *"100."* ]] || [[ "$host" == *"192.168."* ]]; then
+    curl_opts="-s -k"
+  fi
+
+  local http_code
+  http_code=$(curl $curl_opts -w "%{http_code}" -o "$temp_file" "${host}/api/blob/${blob_id}")
+
+  case "$http_code" in
+    200)
+      ;;
+    402)
+      error "Payment required. This blob requires payment to access."
+      ;;
+    404)
+      error "Blob not found. It may have expired or been deleted."
+      ;;
+    410)
+      error "Blob has expired and is no longer available."
+      ;;
+    *)
+      error "Failed to fetch blob (HTTP $http_code)"
+      ;;
+  esac
+
+  local blob_size
+  blob_size=$(wc -c < "$temp_file" | tr -d ' ')
+  info "Decrypting blob (${blob_size} bytes)..."
+
+  # Decrypt using OpenSSL
+  if ! openssl enc -d -aes-256-cbc -K "$key" -iv "$iv" -in "$temp_file" 2>/dev/null; then
+    error "Decryption failed. The key or IV may be incorrect."
+  fi
+}
+
+# Main function
+main() {
+  check_deps
+
+  # Handle subcommands
+  if [ "${1:-}" = "read" ]; then
+    shift
+    read_url "$@"
+    exit 0
+  fi
+
+  local input_file=""
+  local local_mode=false
+  local ttl=""
+  local price=""
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -h|--help)
+        show_help
+        ;;
+      --local)
+        local_mode=true
+        shift
+        ;;
+      --ttl)
+        ttl="$2"
+        shift 2
+        ;;
+      --price)
+        price="$2"
+        shift 2
+        ;;
+      --host)
+        VNSH_HOST="$2"
+        shift 2
+        ;;
+      -*)
+        error "Unknown option: $1"
+        ;;
+      *)
+        input_file="$1"
+        shift
+        ;;
+    esac
+  done
+
+  # Generate encryption key and IV
+  local key
+  local iv
+  key=$(random_hex 32)  # 32 bytes = 64 hex chars
+  iv=$(random_hex 16)   # 16 bytes = 32 hex chars
+
+  # Create temp file for encrypted data
+  local encrypted_file
+  encrypted_file=$(mktemp)
+  trap "rm -f '$encrypted_file'" EXIT
+
+  # Encrypt input
+  if [ -n "$input_file" ]; then
+    # File input
+    if [ ! -f "$input_file" ]; then
+      error "File not found: $input_file"
+    fi
+
+    # Check file size
+    local file_size
+    file_size=$(wc -c < "$input_file" | tr -d ' ')
+    if [ "$file_size" -gt "$MAX_SIZE" ]; then
+      error "File too large: $(echo "scale=2; $file_size / 1024 / 1024" | bc)MB (max: 25MB)"
+    fi
+
+    info "Encrypting ${input_file} ($(echo "scale=2; $file_size / 1024" | bc)KB)..."
+    openssl enc -aes-256-cbc -K "$key" -iv "$iv" -in "$input_file" -out "$encrypted_file" 2>/dev/null
+  else
+    # Stdin input
+    if [ -t 0 ]; then
+      error "No input provided. Use: echo 'text' | vn or vn <file>"
+    fi
+
+    info "Encrypting stdin..."
+    openssl enc -aes-256-cbc -K "$key" -iv "$iv" -out "$encrypted_file" 2>/dev/null
+  fi
+
+  local encrypted_size
+  encrypted_size=$(wc -c < "$encrypted_file" | tr -d ' ')
+
+  # Local mode - just output the encrypted blob
+  if [ "$local_mode" = true ]; then
+    echo -e "\n${GREEN}Encrypted blob (base64):${NC}"
+    base64 < "$encrypted_file"
+    echo -e "\n${GREEN}Decryption key:${NC} $key"
+    echo -e "${GREEN}IV:${NC} $iv"
+    exit 0
+  fi
+
+  # Upload to server
+  info "Uploading encrypted blob ($(echo "scale=2; $encrypted_size / 1024" | bc)KB)..."
+
+  local url_params=""
+  if [ -n "$ttl" ]; then
+    url_params="?ttl=$ttl"
+  fi
+  if [ -n "$price" ]; then
+    if [ -n "$url_params" ]; then
+      url_params="${url_params}&price=$price"
+    else
+      url_params="?price=$price"
+    fi
+  fi
+
+  # Use -k for self-signed certs (local dev)
+  local curl_opts="-s"
+  if [[ "$VNSH_HOST" == *"localhost"* ]] || [[ "$VNSH_HOST" == *"127.0.0.1"* ]] || [[ "$VNSH_HOST" == *"100."* ]] || [[ "$VNSH_HOST" == *"192.168."* ]]; then
+    curl_opts="-s -k"
+  fi
+
+  local response
+  local http_code
+  response=$(curl $curl_opts -w "\n%{http_code}" \
+    -X POST \
+    --data-binary @"$encrypted_file" \
+    -H "Content-Type: application/octet-stream" \
+    "${VNSH_HOST}/api/drop${url_params}")
+
+  http_code=$(echo "$response" | tail -n 1)
+  response=$(echo "$response" | sed '$d')
+
+  if [ "$http_code" != "201" ]; then
+    error "Upload failed (HTTP $http_code): $response"
+  fi
+
+  # Parse response to get ID
+  local blob_id
+  blob_id=$(echo "$response" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+
+  if [ -z "$blob_id" ]; then
+    error "Failed to parse response: $response"
+  fi
+
+  # Parse expiry
+  local expires
+  expires=$(echo "$response" | grep -o '"expires":"[^"]*"' | cut -d'"' -f4)
+
+  # Build final URL
+  local final_url="${VNSH_HOST}/v/${blob_id}#k=${key}&iv=${iv}"
+
+  echo ""
+  echo -e "${GREEN}✓ Uploaded successfully${NC}"
+  echo ""
+  echo "$final_url"
+  echo ""
+  if [ -n "$expires" ]; then
+    echo -e "${YELLOW}Expires:${NC} $expires"
+  fi
+  if [ -n "$price" ]; then
+    echo -e "${YELLOW}Price:${NC} \$$price (x402 payment required)"
+  fi
+}
+
+main "$@"

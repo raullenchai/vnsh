@@ -1,5 +1,5 @@
 {
-  "name": "opaque-worker",
+  "name": "vnsh-worker",
   "version": "1.0.0",
   "description": "Host-blind data tunnel API",
   "main": "src/index.ts",

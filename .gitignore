@@ -32,6 +32,9 @@ yarn-error.log*
 .env.*.local
 .dev.vars
 
+# User-specific MCP config
+.mcp.json
+
 # Test coverage
 coverage/
 
