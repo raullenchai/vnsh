@@ -1240,9 +1240,10 @@ const APP_HTML = `<!DOCTYPE html>
           <button class="copy-btn" title="Copy">⧉</button>
         </div>
 
-        <div class="section-label" style="margin-top: 1.5rem;">// Add to claude_desktop_config.json</div>
+        <div class="section-label" style="margin-top: 1.5rem;">// Add to your MCP config</div>
         <div class="mcp-config">
-          <div class="comment">// ~/.config/claude/claude_desktop_config.json</div>
+          <div class="comment">// Claude Code: .mcp.json (project) or ~/.claude/settings.json</div>
+          <div class="comment">// Claude Desktop: ~/.config/claude/claude_desktop_config.json</div>
           <div class="line"><span class="key">"mcpServers"</span>: {</div>
           <div class="line">&nbsp;&nbsp;<span class="key">"vnsh"</span>: {</div>
           <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"command"</span>: <span class="str">"npx"</span>,</div>
@@ -1251,7 +1252,7 @@ const APP_HTML = `<!DOCTYPE html>
           <div class="line">}</div>
         </div>
 
-        <p class="mcp-desc">Claude can now read vnsh.dev URLs and decrypt content locally.</p>
+        <p class="mcp-desc">Claude can now read vnsh.dev URLs and decrypt content locally.<br><span style="font-size: 0.7rem;">Restart Claude after adding config.</span></p>
       </div>
     </div>
   </div>
