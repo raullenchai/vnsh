@@ -70,6 +70,7 @@ function ERROR_HTML(code: string, message: string, status: number): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} | vnsh</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -716,6 +717,7 @@ const APP_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>vnsh | The Ephemeral Dropbox for AI & CLI Tool</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <meta name="description" content="A host-blind, client-side encrypted file sharing tool for AI agents like Claude. Pipe logs, diffs, and images from your terminal. AES-256 encryption. Vaporizes in 24 hours. Pastebin alternative for developers.">
   <meta name="keywords" content="vnsh, cli file sharing, secure file upload, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, vibecoding, pastebin alternative, share logs with claude, terminal file upload">
   <meta property="og:title" content="vnsh: Pipe context to Claude securely">
@@ -2026,7 +2028,7 @@ const APP_HTML = `<!DOCTYPE html>
         else if (isBinary(decryptedBytes)) displayBinary(decryptedBytes);
         else { decryptedContent = new TextDecoder().decode(decrypted); displayText(decryptedContent); }
 
-        document.title = 'Opaque - Viewing';
+        document.title = 'vnsh - Viewing';
       } catch (err) {
         viewerLoading.style.display = 'none';
         viewerResult.style.display = 'block';
