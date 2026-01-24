@@ -32,10 +32,37 @@ No installation needed — use npx:
 npx -y vnsh-mcp
 ```
 
-### Configure Claude Code
+### Configure Claude
 
-Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.mcp.json`):
+Add the vnsh MCP server to your Claude configuration:
 
+**Claude Code** (project-level):
+```bash
+# Create .mcp.json in your project root
+cat > .mcp.json << 'EOF'
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
+  }
+}
+EOF
+```
+
+**Claude Code** (global):
+```bash
+# Add to ~/.claude/settings.json
+```
+
+**Claude Desktop**:
+```bash
+# Add to ~/.config/claude/claude_desktop_config.json (Linux/macOS)
+# Add to %APPDATA%\Claude\claude_desktop_config.json (Windows)
+```
+
+Config content (same for all):
 ```json
 {
   "mcpServers": {
@@ -46,6 +73,8 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.mcp
   }
 }
 ```
+
+**Important**: Restart Claude after adding the config.
 
 ### Build from Source
 

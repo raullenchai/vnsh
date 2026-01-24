@@ -191,6 +191,58 @@ RESULT=$(curl -s "https://vnsh.dev/api/blob/$ID" | \
 [ "$RESULT" = "$TEST" ] && echo "✓ PASS" || echo "✗ FAIL"
 ```
 
+### Full Production Probe
+
+Run this to verify all endpoints:
+
+```bash
+#!/bin/bash
+HOST="https://vnsh.dev"
+
+echo "1. Health check..."
+curl -s "$HOST/health" | grep -q '"ok"' && echo "✓ /health" || echo "✗ /health"
+
+echo "2. Landing page..."
+[ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/)" = "200" ] && echo "✓ /" || echo "✗ /"
+
+echo "3. robots.txt..."
+curl -s "$HOST/robots.txt" | grep -q "User-agent" && echo "✓ /robots.txt" || echo "✗ /robots.txt"
+
+echo "4. sitemap.xml..."
+curl -s "$HOST/sitemap.xml" | grep -q "urlset" && echo "✓ /sitemap.xml" || echo "✗ /sitemap.xml"
+
+echo "5. og-image.png..."
+[ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/og-image.png)" = "200" ] && echo "✓ /og-image.png" || echo "✗ /og-image.png"
+
+echo "6. Install script..."
+curl -s "$HOST/i" | grep -q "#!/bin/bash" && echo "✓ /i" || echo "✗ /i"
+
+echo "7. CORS headers..."
+curl -s -X OPTIONS -I "$HOST/api/drop" | grep -q "access-control-allow-origin" && echo "✓ CORS" || echo "✗ CORS"
+
+echo "8. Upload/Download round-trip..."
+KEY=$(openssl rand -hex 32)
+IV=$(openssl rand -hex 16)
+TEST="probe-$(date +%s)"
+ID=$(echo -n "$TEST" | openssl enc -aes-256-cbc -K $KEY -iv $IV | \
+  curl -s -X POST --data-binary @- -H "Content-Type: application/octet-stream" "$HOST/api/drop" | \
+  grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+RESULT=$(curl -s "$HOST/api/blob/$ID" | openssl enc -d -aes-256-cbc -K $KEY -iv $IV 2>/dev/null)
+[ "$RESULT" = "$TEST" ] && echo "✓ Round-trip encryption" || echo "✗ Round-trip encryption"
+
+echo "9. Viewer redirect..."
+curl -s -o /dev/null -w '%{redirect_url}' "$HOST/v/$ID" | grep -q "/#v/" && echo "✓ /v/:id redirect" || echo "✗ /v/:id redirect"
+
+echo "10. 404 handling..."
+[ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/api/blob/00000000-0000-0000-0000-000000000000)" = "404" ] && echo "✓ 404" || echo "✗ 404"
+
+echo "Done!"
+```
+
+### Last Verified: 2026-01-24
+
+All endpoints passing. Production is healthy.
+
 ### MCP Tool Test
 
 After configuring MCP, test in Claude Code:
@@ -320,3 +372,61 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 git push origin main
 cd worker && CLOUDFLARE_API_TOKEN="token" npx wrangler deploy
 ```
+
+---
+
+## Quick Reference Card
+
+### Installation
+
+```bash
+# CLI
+curl -sL vnsh.dev/i | sh
+
+# MCP (add to .mcp.json)
+{"mcpServers":{"vnsh":{"command":"npx","args":["-y","vnsh-mcp"]}}}
+```
+
+### Usage
+
+```bash
+# Upload file
+vn myfile.txt
+
+# Pipe stdin
+cat logs.txt | vn
+git diff | vn
+kubectl logs pod/app | vn
+
+# Custom TTL (hours)
+vn --ttl 1 temp.txt
+```
+
+### Key URLs
+
+| URL | Purpose |
+|-----|---------|
+| https://vnsh.dev | Website |
+| https://vnsh.dev/i | CLI installer |
+| https://vnsh.dev/health | Health check |
+| https://vnsh.dev/api/drop | Upload API |
+| https://vnsh.dev/api/blob/:id | Download API |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `.mcp.json` | Project MCP config |
+| `~/.claude/settings.json` | Global MCP config |
+| `worker/wrangler.toml` | Cloudflare config |
+| `worker/src/index.ts` | Main worker code |
+| `mcp/src/index.ts` | MCP server code |
+
+### Key IDs
+
+| Resource | Value |
+|----------|-------|
+| KV Namespace ID | `67d2bdbe539e4620a20a65be26744a5e` |
+| R2 Bucket | `vnsh-store` |
+| Worker Name | `vnsh` |
+| GitHub | `raullenchai/vnsh` |
