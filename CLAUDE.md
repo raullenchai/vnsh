@@ -1,5 +1,5 @@
 Project: vnsh
-Identity: The Host-Blind Context Tunnel - Share then Vanish. Philosophy: "Server-Side Blindness, Client-Side Sovereignty." Stack: Cloudflare Workers (Edge) + R2 (Storage) + MCP (Agent Integration). License: MIT.
+Identity: The Ephemeral Dropbox for AI. Philosophy: "Server-Side Blindness, Client-Side Sovereignty." Stack: Cloudflare Workers (Edge) + R2 (Storage) + MCP (Agent Integration). License: MIT.
 
 1. Product Vision
 vnsh is a trustless infrastructure designed to solve the "Context Injection" problem in LLM workflows. It allows developers to securely pipe sensitive local context (logs, diffs, configs, images) into AI Agents (Claude Code, Cursor) via ephemeral, encrypted URLs.
