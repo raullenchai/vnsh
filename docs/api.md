@@ -108,23 +108,23 @@ X-Payment-Methods: lightning,stripe
 
 ### GET /v/:id
 
-Redirect to hash-based route for client-side routing.
+Serve the viewer HTML directly. This preserves the URL fragment containing encryption keys.
 
 **Request:**
 
 ```http
-GET /v/a1b2c3d4-e5f6-7890-abcd-ef1234567890 HTTP/1.1
+GET /v/a1b2c3d4-e5f6-7890-abcd-ef1234567890#k=...&iv=... HTTP/1.1
 ```
 
-**Response (302 Redirect):**
+**Response (200 OK):**
 
 ```http
-HTTP/1.1 302 Found
-Location: /#v/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
 Cache-Control: no-cache
 ```
 
-The browser preserves the original URL fragment (`#k=...&iv=...`) during redirect.
+**Why not redirect?** HTTP redirects replace URL fragments instead of merging them. If we redirected to `/#v/:id`, the encryption keys (`#k=...&iv=...`) would be lost. Serving HTML directly preserves the fragment.
 
 ---
 

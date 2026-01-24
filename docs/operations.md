@@ -77,7 +77,7 @@ echo "test" | openssl enc -aes-256-cbc -K $(openssl rand -hex 32) -iv $(openssl 
 | GET | `/i` | CLI install script | ✅ |
 | POST | `/api/drop` | Upload encrypted blob | ✅ |
 | GET | `/api/blob/:id` | Download blob | ✅ |
-| GET | `/v/:id` | Redirect to `/#v/:id` | ✅ |
+| GET | `/v/:id` | Serve viewer HTML (preserves hash fragment) | ✅ |
 | OPTIONS | `*` | CORS preflight | ✅ |
 
 ---
@@ -215,7 +215,7 @@ echo "5. og-image.png..."
 [ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/og-image.png)" = "200" ] && echo "✓ /og-image.png" || echo "✗ /og-image.png"
 
 echo "6. Install script..."
-curl -s "$HOST/i" | grep -q "#!/bin/bash" && echo "✓ /i" || echo "✗ /i"
+curl -s "$HOST/i" | grep -q "#!/bin/sh" && echo "✓ /i" || echo "✗ /i"
 
 echo "7. CORS headers..."
 curl -s -X OPTIONS -I "$HOST/api/drop" | grep -q "access-control-allow-origin" && echo "✓ CORS" || echo "✗ CORS"
@@ -230,8 +230,8 @@ ID=$(echo -n "$TEST" | openssl enc -aes-256-cbc -K $KEY -iv $IV | \
 RESULT=$(curl -s "$HOST/api/blob/$ID" | openssl enc -d -aes-256-cbc -K $KEY -iv $IV 2>/dev/null)
 [ "$RESULT" = "$TEST" ] && echo "✓ Round-trip encryption" || echo "✗ Round-trip encryption"
 
-echo "9. Viewer redirect..."
-curl -s -o /dev/null -w '%{redirect_url}' "$HOST/v/$ID" | grep -q "/#v/" && echo "✓ /v/:id redirect" || echo "✗ /v/:id redirect"
+echo "9. Viewer HTML..."
+[ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/v/$ID)" = "200" ] && echo "✓ /v/:id serves HTML" || echo "✗ /v/:id serves HTML"
 
 echo "10. 404 handling..."
 [ "$(curl -s -o /dev/null -w '%{http_code}' $HOST/api/blob/00000000-0000-0000-0000-000000000000)" = "404" ] && echo "✓ 404" || echo "✗ 404"
@@ -242,6 +242,16 @@ echo "Done!"
 ### Last Verified: 2026-01-24
 
 All endpoints passing. Production is healthy.
+
+### Recent Bug Fixes
+
+See [CHANGELOG.md](/CHANGELOG.md) for full details.
+
+| Date | Bug | Status |
+|------|-----|--------|
+| 2026-01-24 | Browser viewer lost hash fragment keys due to redirect | Fixed |
+| 2026-01-24 | CLI install "cut: bad delimiter" on macOS | Fixed |
+| 2026-01-24 | CLI install script not cross-platform (echo -e, bash-only) | Fixed |
 
 ### MCP Tool Test
 

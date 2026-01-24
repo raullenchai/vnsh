@@ -99,7 +99,7 @@ worker/
 | GET | `/og-image.png` | Social sharing image |
 | POST | `/api/drop` | Upload blob |
 | GET | `/api/blob/:id` | Download blob |
-| GET | `/v/:id` | Redirect to `/#v/{id}` |
+| GET | `/v/:id` | Serve viewer HTML (preserves hash fragment) |
 | OPTIONS | `*` | CORS preflight |
 
 **Bindings:**
@@ -109,7 +109,7 @@ worker/
 
 ### CLI (`/cli`)
 
-Zero-dependency shell script using `openssl` and `curl`.
+Cross-platform POSIX shell script using `openssl` and `curl`. Works on macOS, Linux, WSL, and Git Bash.
 
 **Install:**
 
