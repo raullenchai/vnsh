@@ -128,7 +128,34 @@ Metadata Leakage: The server knows when and how much data is uploaded, but not w
 
 Link Hygiene: If the user shares the full URL (w/ hash) in a public channel, the data is compromised. vnsh is safe against Server Compromise, not User Negligence.
 
-8. Development Guidelines
+8. Production Environment
+
+**URLs**:
+- Website: https://vnsh.dev
+- Worker: https://vnsh.raullenchai.workers.dev
+- GitHub: https://github.com/raullenchai/vnsh
+
+**Cloudflare Resources**:
+- Worker: `vnsh`
+- R2 Bucket: `vnsh-store`
+- KV Namespace: `VNSH_META` (ID: `67d2bdbe539e4620a20a65be26744a5e`)
+
+**Deploy**: `cd worker && CLOUDFLARE_API_TOKEN="token" npx wrangler deploy`
+
+**MCP Config** (`.mcp.json`):
+```json
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "node",
+      "args": ["/path/to/vnsh/mcp/dist/index.js"],
+      "env": { "VNSH_HOST": "https://vnsh.dev" }
+    }
+  }
+}
+```
+
+9. Development Guidelines
 
 **Language**: All code, comments, documentation, and commit messages MUST be in English. No exceptions.
 
@@ -137,3 +164,11 @@ Link Hygiene: If the user shares the full URL (w/ hash) in a public channel, the
 **Testing**: Maintain 70%+ test coverage. Run `npm test` before pushing.
 
 **Commits**: Use conventional commit messages. Always include `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>` when Claude contributes.
+
+**Documentation**: See `/docs` for detailed guides:
+- `architecture.md` - System design and data flow
+- `api.md` - API endpoint reference
+- `cli.md` - CLI usage and examples
+- `mcp.md` - MCP server setup and troubleshooting
+- `self-hosting.md` - Deploy your own instance
+- `operations.md` - Production operations guide

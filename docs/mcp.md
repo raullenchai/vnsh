@@ -280,6 +280,31 @@ MCP server implementation using `@modelcontextprotocol/sdk`.
 
 ## Troubleshooting
 
+### "fetch failed" Error
+
+This is the most common error. Causes:
+
+1. **Wrong VNSH_HOST**: Check your `.mcp.json` or `~/.claude/settings.json`
+   ```json
+   {
+     "env": {
+       "VNSH_HOST": "https://vnsh.dev"  // Must be production URL
+     }
+   }
+   ```
+
+2. **Local dev server not running**: If using a local URL like `http://localhost:8787`, start the worker:
+   ```bash
+   cd worker && npm run dev
+   ```
+
+3. **Network issues**: Test connectivity:
+   ```bash
+   curl https://vnsh.dev/health
+   ```
+
+**Fix**: After updating config, **restart Claude Code** for changes to take effect.
+
 ### "MCP server not found"
 
 1. Check MCP config path is correct
