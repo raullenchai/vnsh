@@ -1,10 +1,10 @@
 # Self-Hosting Guide
 
-Deploy your own Opaque instance on Cloudflare Workers.
+Deploy your own vnsh instance on Cloudflare Workers.
 
 ## Prerequisites
 
-- [Cloudflare account](https://dash.cloudflare.com/sign-up)
+- [Cloudflare account](https://dash.cloudflare.com/sign-up) with Workers & R2 enabled
 - [Node.js](https://nodejs.org/) 18+
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
 
@@ -13,84 +13,77 @@ Deploy your own Opaque instance on Cloudflare Workers.
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/yourusername/opaque.git
-cd opaque/worker
+git clone https://github.com/raullenchai/vnsh.git
+cd vnsh/worker
 npm install
 ```
 
-### 2. Create R2 Bucket
+### 2. Authenticate with Cloudflare
 
 ```bash
-wrangler r2 bucket create opaque-store
+wrangler login
+# Or use API token:
+export CLOUDFLARE_API_TOKEN="your-api-token"
 ```
 
-### 3. Create KV Namespace
+### 3. Create R2 Bucket
 
 ```bash
-wrangler kv:namespace create OPAQUE_META
+wrangler r2 bucket create vnsh-store
+```
+
+### 4. Create KV Namespace
+
+```bash
+wrangler kv namespace create VNSH_META
 
 # Note the ID from output, e.g.:
-# { binding = "OPAQUE_META", id = "abc123..." }
+# { binding = "VNSH_META", id = "abc123..." }
 ```
 
-### 4. Configure wrangler.toml
+### 5. Configure wrangler.toml
 
 ```toml
-name = "opaque"
+name = "vnsh"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
 [[r2_buckets]]
-binding = "OPAQUE_STORE"
-bucket_name = "opaque-store"
+binding = "VNSH_STORE"
+bucket_name = "vnsh-store"
 
 [[kv_namespaces]]
-binding = "OPAQUE_META"
+binding = "VNSH_META"
 id = "YOUR_KV_NAMESPACE_ID"  # Replace with actual ID
 ```
 
-### 5. Deploy
+### 6. Deploy
 
 ```bash
 wrangler deploy
 ```
 
-Your instance is now live at `https://opaque.<your-subdomain>.workers.dev`
+Your instance is now live at `https://vnsh.<your-subdomain>.workers.dev`
 
 ## Custom Domain
 
-### Add Route
+### Via Cloudflare Dashboard
 
-```bash
-wrangler route add opaque.yourdomain.com/* opaque
-```
+1. Go to Workers & Pages → your worker → Settings → Domains & Routes
+2. Click "Add" → "Custom Domain"
+3. Enter your domain (e.g., `vnsh.yourdomain.com`)
+4. Cloudflare handles DNS and SSL automatically
 
-Or in `wrangler.toml`:
+### Via wrangler.toml
 
 ```toml
 routes = [
-  { pattern = "opaque.yourdomain.com/*", zone_name = "yourdomain.com" }
+  { pattern = "vnsh.yourdomain.com/*", zone_name = "yourdomain.com" }
 ]
 ```
 
-### Configure DNS
-
-Add a CNAME record pointing to your workers.dev subdomain, or use Cloudflare's proxy.
-
 ## Configuration
-
-### Environment Variables
-
-Set via Wrangler secrets:
-
-```bash
-# For x402 payment support (optional)
-wrangler secret put STRIPE_SECRET_KEY
-wrangler secret put STRIPE_WEBHOOK_SECRET
-wrangler secret put LIGHTNING_API_KEY
-wrangler secret put JWT_SECRET
-```
 
 ### Worker Settings
 
@@ -102,14 +95,25 @@ const DEFAULT_TTL_HOURS = 24;
 const MAX_TTL_HOURS = 168; // 7 days
 ```
 
+### Environment Variables (Optional)
+
+Set via Wrangler secrets for x402 payment support:
+
+```bash
+wrangler secret put STRIPE_SECRET_KEY
+wrangler secret put STRIPE_WEBHOOK_SECRET
+wrangler secret put LIGHTNING_API_KEY
+wrangler secret put JWT_SECRET
+```
+
 ## R2 Lifecycle Rules (Optional)
 
 Auto-delete expired blobs:
 
 1. Go to Cloudflare Dashboard → R2
-2. Select `opaque-store` bucket
+2. Select `vnsh-store` bucket
 3. Settings → Lifecycle Rules
-4. Add rule: Delete objects where `expiresAt` metadata < current time
+4. Add rule: Delete objects older than X days
 
 Or use Cron Triggers:
 
@@ -151,6 +155,12 @@ View in Cloudflare Dashboard:
 - CPU time
 - Latency percentiles
 
+### Tail Logs
+
+```bash
+wrangler tail
+```
+
 ### Custom Logging
 
 ```typescript
@@ -163,12 +173,6 @@ console.log(JSON.stringify({
 }));
 ```
 
-View logs:
-
-```bash
-wrangler tail
-```
-
 ## Development
 
 ### Local Development
@@ -176,8 +180,7 @@ wrangler tail
 ```bash
 cd worker
 npm run dev
-# or
-wrangler dev --port 8787
+# Worker runs at http://localhost:8787
 ```
 
 ### With HTTPS (for WebCrypto)
@@ -200,25 +203,23 @@ npm test
 
 ## Production Checklist
 
-- [ ] R2 bucket created
+- [ ] R2 bucket created (`vnsh-store`)
 - [ ] KV namespace created and ID configured
 - [ ] Custom domain configured (optional)
 - [ ] Rate limiting rules added
-- [ ] CORS configured for your domain (if not using `*`)
-- [ ] Secrets configured (if using payments)
 - [ ] Monitoring/alerting set up
-- [ ] Backup strategy for R2 (if needed)
+- [ ] Test upload/download flow end-to-end
 
 ## Cost Estimation
 
-### Cloudflare Workers
+### Cloudflare Workers (Free Tier)
 
 | Resource | Free Tier | Paid ($5/month) |
 |----------|-----------|-----------------|
 | Requests | 100k/day | 10M/month |
 | CPU time | 10ms/request | 50ms/request |
 
-### R2 Storage
+### R2 Storage (Free Tier)
 
 | Resource | Free Tier | Paid |
 |----------|-----------|------|
@@ -226,7 +227,7 @@ npm test
 | Class A ops | 1M/month | $4.50/million |
 | Class B ops | 10M/month | $0.36/million |
 
-### KV
+### KV (Free Tier)
 
 | Resource | Free Tier | Paid |
 |----------|-----------|------|
@@ -234,7 +235,7 @@ npm test
 | Writes | 1k/day | $5.00/million |
 | Storage | 1GB | $0.50/GB |
 
-For a typical Opaque deployment with moderate usage, expect to stay well within free tiers.
+For a typical vnsh deployment with moderate usage, expect to stay well within free tiers.
 
 ## Troubleshooting
 
@@ -245,14 +246,14 @@ For a typical Opaque deployment with moderate usage, expect to stay well within 
 wrangler r2 bucket list
 
 # Create if missing
-wrangler r2 bucket create opaque-store
+wrangler r2 bucket create vnsh-store
 ```
 
 ### "KV namespace not found"
 
 ```bash
 # List namespaces
-wrangler kv:namespace list
+wrangler kv namespace list
 
 # Verify ID in wrangler.toml matches
 ```
@@ -287,10 +288,24 @@ npm install
 wrangler deploy
 ```
 
-### Breaking Changes
+## Security Considerations
 
-Check the CHANGELOG before upgrading. Major version bumps may require:
+### For Production
 
-- Database migrations
-- Configuration changes
-- API endpoint updates
+- Use a custom domain with Cloudflare proxy enabled
+- Enable rate limiting
+- Consider IP allowlisting for sensitive deployments
+- Monitor for abuse patterns
+
+### What Self-Hosting Provides
+
+- **Data sovereignty**: Your blobs stay on your infrastructure
+- **Custom TTL policies**: Adjust retention as needed
+- **Audit logging**: Full control over access logs
+- **Network isolation**: Deploy behind VPN/firewall if needed
+
+### What Self-Hosting Does NOT Change
+
+- **Encryption model**: Still client-side, server never sees keys
+- **URL fragment security**: Keys still travel in fragments
+- **User responsibility**: Full URLs must still be shared securely

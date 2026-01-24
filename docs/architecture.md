@@ -2,20 +2,20 @@
 
 ## System Design
 
-Opaque implements a **host-blind** architecture where the server acts as a "dumb pipe" — storing and serving encrypted blobs without any ability to decrypt or inspect them.
+vnsh implements a **host-blind** architecture where the server acts as a "dumb pipe" — storing and serving encrypted blobs without any ability to decrypt or inspect them.
 
 ### Core Principle: Fragment-Based Key Transport
 
 The critical security property relies on how browsers handle URL fragments:
 
 ```
-https://opaque.dev/v/abc123#k=deadbeef...&iv=cafebabe...
-                           └────────────────────────────┘
-                           Fragment: NEVER sent to server
+https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
+                         └────────────────────────────┘
+                         Fragment: NEVER sent to server
 ```
 
 When a user visits this URL:
-1. Browser sends request to `https://opaque.dev/v/abc123`
+1. Browser sends request to `https://vnsh.dev/v/abc123`
 2. Fragment (`#k=...&iv=...`) stays in browser, never transmitted
 3. JavaScript extracts key/IV from `location.hash`
 4. Blob is fetched and decrypted client-side
@@ -30,8 +30,8 @@ When a user visits this URL:
 │          │    │  Key + IV   │    │  AES-256-CBC│    │  /api/  │
 │          │    │  (32B+16B)  │    │             │    │  drop   │
 └──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                           │
-                                                           ▼
+                                                          │
+                                                          ▼
 ┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
 │  Return  │◀───│  Build URL  │◀───│  Store in   │◀───│  Worker │
 │   URL    │    │  with #k=   │    │     R2      │    │         │
@@ -46,8 +46,8 @@ When a user visits this URL:
 │   URL    │    │  #k= & #iv= │    │   Blob      │    │  /api/  │
 │          │    │  from hash  │    │             │    │ blob/id │
 └──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                           │
-                                                           ▼
+                                                          │
+                                                          ▼
 ┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
 │  Render  │◀───│  Decrypt    │◀───│  Receive    │◀───│  Worker │
 │ Content  │    │  WebCrypto  │    │  Ciphertext │    │         │
@@ -62,8 +62,8 @@ When a user visits this URL:
 │   URL    │    │  ID, Key,   │    │   Blob      │    │  /api/  │
 │          │    │  IV         │    │             │    │ blob/id │
 └──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                           │
-                                                           ▼
+                                                          │
+                                                          ▼
 ┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
 │  Output  │◀───│  Decrypt    │◀───│  Receive    │◀───│  Worker │
 │  stdout  │    │  OpenSSL/   │    │  Ciphertext │    │         │
@@ -93,47 +93,34 @@ worker/
 |--------|------|-------------|
 | GET | `/` | Upload page (HTML) |
 | GET | `/health` | Health check |
+| GET | `/i` | CLI install script |
+| GET | `/robots.txt` | Search engine rules |
+| GET | `/sitemap.xml` | Sitemap for SEO |
+| GET | `/og-image.png` | Social sharing image |
 | POST | `/api/drop` | Upload blob |
 | GET | `/api/blob/:id` | Download blob |
-| GET | `/v/:id` | Viewer page (HTML) |
+| GET | `/v/:id` | Redirect to `/#v/{id}` |
 | OPTIONS | `*` | CORS preflight |
 
 **Bindings:**
 
-- `OPAQUE_STORE` (R2 Bucket): Stores encrypted blobs
-- `OPAQUE_META` (KV Namespace): Stores metadata with TTL
-
-### Viewer (`/viewer`)
-
-Static HTML/JS for browser-based encryption/decryption.
-
-```
-viewer/
-└── index.html    # Upload page (also embedded in worker)
-```
-
-**Features:**
-
-- Drag & drop file upload
-- Text paste input
-- Client-side AES-256-CBC encryption via WebCrypto
-- Copy URL / Open viewer buttons
+- `VNSH_STORE` (R2 Bucket): Stores encrypted blobs
+- `VNSH_META` (KV Namespace): Stores metadata with TTL
 
 ### CLI (`/cli`)
 
 Zero-dependency shell script using `openssl` and `curl`.
 
-```
-cli/
-└── oq            # Executable script
+**Install:**
+
+```bash
+curl -sL vnsh.dev/i | sh
 ```
 
 **Commands:**
 
-- `oq <file>` — Encrypt and upload file
-- `oq` (stdin) — Encrypt and upload piped input
-- `oq read <url>` — Fetch and decrypt URL
-- `oq --local` — Output encrypted blob without upload
+- `vn <file>` — Encrypt and upload file
+- `echo "text" | vn` — Encrypt and upload piped input
 
 ### MCP Server (`/mcp`)
 
@@ -152,8 +139,8 @@ mcp/
 
 | Tool | Description |
 |------|-------------|
-| `opaque_read` | Decrypt and read content from Opaque URL |
-| `opaque_share` | Encrypt content and upload, return URL |
+| `vnsh_read` | Decrypt and read content from vnsh URL |
+| `vnsh_share` | Encrypt content and upload, return URL |
 
 ## Storage Architecture
 
@@ -185,7 +172,7 @@ mcp/
 
 ### Cross-Platform Compatibility
 
-All three clients produce identical ciphertext:
+All clients produce identical ciphertext:
 
 | Platform | Library | Compatibility |
 |----------|---------|---------------|
@@ -196,11 +183,11 @@ All three clients produce identical ciphertext:
 ### URL Format
 
 ```
-https://opaque.dev/v/{uuid}#k={key_hex}&iv={iv_hex}
-                     │        │           │
-                     │        │           └── 32 hex chars (16 bytes)
-                     │        └────────────── 64 hex chars (32 bytes)
-                     └─────────────────────── UUID v4
+https://vnsh.dev/v/{uuid}#k={key_hex}&iv={iv_hex}
+                   │        │           │
+                   │        │           └── 32 hex chars (16 bytes)
+                   │        └────────────── 64 hex chars (32 bytes)
+                   └─────────────────────── UUID v4
 ```
 
 ## Security Model
@@ -212,6 +199,7 @@ https://opaque.dev/v/{uuid}#k={key_hex}&iv={iv_hex}
 - Server compromise (DB dump, logs, backups)
 - Network sniffing (fragment never transmitted)
 - Cloudflare employee access (no plaintext exists)
+- Subpoenas (server operator cannot produce plaintext)
 
 **NOT Protected Against:**
 
@@ -236,6 +224,14 @@ The server does NOT know:
 - Relationship between blobs
 - Who the intended recipients are
 
+## Limits
+
+| Resource | Limit |
+|----------|-------|
+| Max blob size | 25MB |
+| Default TTL | 24 hours |
+| Max TTL | 7 days (168 hours) |
+
 ## Future Considerations
 
 ### Planned Features
@@ -243,13 +239,3 @@ The server does NOT know:
 - **x402 Payment**: Pay-per-read with Lightning/Stripe
 - **Burn-on-Read**: Self-destruct after first access
 - **File Type Detection**: Magic byte analysis post-decryption
-
-### Scalability
-
-Current limits:
-
-- Max blob size: 25MB (R2 single-request limit)
-- Default TTL: 24 hours
-- Max TTL: 7 days
-
-For larger files, consider chunked upload or presigned URLs.

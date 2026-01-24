@@ -1,6 +1,6 @@
 # MCP Server Reference
 
-The Opaque MCP (Model Context Protocol) server enables Claude Code to read and share encrypted content seamlessly.
+The vnsh MCP (Model Context Protocol) server enables Claude Code to read and share encrypted content seamlessly.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The MCP server acts as a **local crypto-proxy**:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Claude     │────▶│  MCP Server │────▶│   Opaque    │
+│  Claude     │────▶│  MCP Server │────▶│    vnsh     │
 │  (Remote)   │     │   (Local)   │     │    API      │
 │             │◀────│             │◀────│             │
 └─────────────┘     └─────────────┘     └─────────────┘
@@ -24,6 +24,29 @@ The MCP server acts as a **local crypto-proxy**:
 
 ## Installation
 
+### Quick Start (npx)
+
+No installation needed — use npx:
+
+```bash
+npx -y vnsh-mcp
+```
+
+### Configure Claude Code
+
+Add to your Claude Code MCP settings (`~/.claude/settings.json` or project `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
+  }
+}
+```
+
 ### Build from Source
 
 ```bash
@@ -32,29 +55,16 @@ npm install
 npm run build
 ```
 
-### Configure Claude Code
-
-Add to your project's `.mcp.json`:
+Then configure:
 
 ```json
 {
   "mcpServers": {
-    "opaque": {
+    "vnsh": {
       "command": "node",
-      "args": ["/path/to/opaque/mcp/dist/index.js"],
-      "env": {
-        "OPAQUE_HOST": "https://opaque.dev"
-      }
+      "args": ["/path/to/vnsh/mcp/dist/index.js"]
     }
   }
-}
-```
-
-Or enable globally in `~/.claude/settings.json`:
-
-```json
-{
-  "enableAllProjectMcpServers": true
 }
 ```
 
@@ -63,22 +73,22 @@ Or enable globally in `~/.claude/settings.json`:
 After restarting Claude Code, the tools should be available:
 
 ```
-You: What tools do you have for Opaque?
+You: What tools do you have for vnsh?
 
-Claude: I have two Opaque tools available:
-- opaque_read: Decrypt and read content from Opaque URLs
-- opaque_share: Encrypt content and upload to Opaque
+Claude: I have two vnsh tools available:
+- vnsh_read: Decrypt and read content from vnsh URLs
+- vnsh_share: Encrypt content and upload to vnsh
 ```
 
 ## Tools
 
-### opaque_read
+### vnsh_read
 
-Securely retrieves and decrypts content from an Opaque URL.
+Securely retrieves and decrypts content from a vnsh URL.
 
 **When to Use:**
 
-- User provides an `opaque.dev` link
+- User provides a `vnsh.dev` link
 - Any URL with `#k=` and `&iv=` in the fragment
 - Claude needs to "see" shared context
 
@@ -88,7 +98,7 @@ Securely retrieves and decrypts content from an Opaque URL.
 {
   "url": {
     "type": "string",
-    "description": "The full Opaque URL including the hash fragment (#k=...&iv=...)"
+    "description": "The full vnsh URL including the hash fragment (#k=...&iv=...)"
   }
 }
 ```
@@ -96,9 +106,9 @@ Securely retrieves and decrypts content from an Opaque URL.
 **Example Usage:**
 
 ```
-User: Can you read this? https://opaque.dev/v/abc123#k=dead...&iv=cafe...
+User: Can you read this? https://vnsh.dev/v/abc123#k=dead...&iv=cafe...
 
-Claude: [Uses opaque_read tool]
+Claude: [Uses vnsh_read tool]
 
 I can see the content. It appears to be an error log showing...
 ```
@@ -132,9 +142,9 @@ I can see the content. It appears to be an error log showing...
 
 ---
 
-### opaque_share
+### vnsh_share
 
-Encrypts content locally and uploads it to Opaque, returning a shareable URL.
+Encrypts content locally and uploads it to vnsh, returning a shareable URL.
 
 **When to Use:**
 
@@ -156,7 +166,7 @@ Encrypts content locally and uploads it to Opaque, returning a shareable URL.
   },
   "host": {
     "type": "string",
-    "description": "Override the Opaque host URL"
+    "description": "Override the vnsh host URL"
   }
 }
 ```
@@ -164,12 +174,12 @@ Encrypts content locally and uploads it to Opaque, returning a shareable URL.
 **Example Usage:**
 
 ```
-User: This build output is too long. Can you share it via Opaque?
+User: This build output is too long. Can you share it via vnsh?
 
-Claude: [Uses opaque_share tool with the build output]
+Claude: [Uses vnsh_share tool with the build output]
 
 I've uploaded the build output. Here's the shareable URL:
-https://opaque.dev/v/xyz789#k=beef...&iv=face...
+https://vnsh.dev/v/xyz789#k=beef...&iv=face...
 
 The link expires in 24 hours.
 ```
@@ -185,7 +195,7 @@ The link expires in 24 hours.
     }
   ],
   "metadata": {
-    "url": "https://opaque.dev/v/...",
+    "url": "https://vnsh.dev/v/...",
     "blobId": "xyz789...",
     "expires": "2024-01-25T12:00:00Z",
     "size": 5678
@@ -197,7 +207,7 @@ The link expires in 24 hours.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPAQUE_HOST` | `https://opaque.dev` | Default API host |
+| `VNSH_HOST` | `https://vnsh.dev` | Default API host |
 | `NODE_TLS_REJECT_UNAUTHORIZED` | - | Set to `0` for self-signed certs (dev only) |
 
 ## Development
@@ -222,10 +232,10 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | node dist/index.js
 ### Testing Tools
 
 ```bash
-# Test opaque_read
+# Test vnsh_read
 cat << 'EOF' | node dist/index.js
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"opaque_read","arguments":{"url":"https://opaque.dev/v/abc#k=...&iv=..."}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"vnsh_read","arguments":{"url":"https://vnsh.dev/v/abc#k=...&iv=..."}}}
 EOF
 ```
 
@@ -251,8 +261,8 @@ encrypt(plaintext, key, iv): Buffer
 decrypt(ciphertext, key, iv): Buffer
 
 // URL parsing
-parseOpaqueUrl(url): { host, id, key, iv }
-buildOpaqueUrl(host, id, key, iv): string
+parseVnshUrl(url): { host, id, key, iv }
+buildVnshUrl(host, id, key, iv): string
 
 // Hex conversion
 hexToBuffer(hex): Buffer
@@ -266,19 +276,19 @@ MCP server implementation using `@modelcontextprotocol/sdk`.
 **Handlers:**
 
 - `ListToolsRequestSchema` — Returns tool definitions
-- `CallToolRequestSchema` — Executes `opaque_read` or `opaque_share`
+- `CallToolRequestSchema` — Executes `vnsh_read` or `vnsh_share`
 
 ## Troubleshooting
 
 ### "MCP server not found"
 
-1. Check `.mcp.json` path is correct
+1. Check MCP config path is correct
 2. Ensure `dist/index.js` exists (run `npm run build`)
 3. Restart Claude Code
 
 ### "Certificate error" (self-signed)
 
-Add to `.mcp.json`:
+Add to MCP config:
 
 ```json
 {

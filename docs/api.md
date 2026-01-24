@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL: `https://opaque.dev` (or your self-hosted instance)
+Base URL: `https://vnsh.dev` (or your self-hosted instance)
 
 ## Endpoints
 
@@ -69,6 +69,7 @@ Content-Type: application/octet-stream
 Content-Length: 1234
 Cache-Control: private, no-store, no-cache
 X-Content-Type-Options: nosniff
+X-Opaque-Expires: 2024-01-25T12:00:00.000Z
 
 <binary encrypted data>
 ```
@@ -107,7 +108,7 @@ X-Payment-Methods: lightning,stripe
 
 ### GET /v/:id
 
-Serve the viewer HTML page for browser-based decryption.
+Redirect to hash-based route for client-side routing.
 
 **Request:**
 
@@ -115,26 +116,21 @@ Serve the viewer HTML page for browser-based decryption.
 GET /v/a1b2c3d4-e5f6-7890-abcd-ef1234567890 HTTP/1.1
 ```
 
-**Response (200 OK):**
+**Response (302 Redirect):**
 
 ```http
-HTTP/1.1 200 OK
-Content-Type: text/html; charset=utf-8
-Cache-Control: public, max-age=3600
-
-<!DOCTYPE html>
-<html>
-<!-- Viewer HTML -->
-</html>
+HTTP/1.1 302 Found
+Location: /#v/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+Cache-Control: no-cache
 ```
 
-The viewer extracts the blob ID from the path and key/IV from the URL fragment.
+The browser preserves the original URL fragment (`#k=...&iv=...`) during redirect.
 
 ---
 
 ### GET /
 
-Serve the upload page.
+Serve the unified app (landing page + upload + viewer overlay).
 
 **Response (200 OK):**
 
@@ -142,11 +138,24 @@ Serve the upload page.
 HTTP/1.1 200 OK
 Content-Type: text/html; charset=utf-8
 Cache-Control: public, max-age=3600
+```
 
-<!DOCTYPE html>
-<html>
-<!-- Upload page HTML -->
-</html>
+---
+
+### GET /i
+
+Serve the CLI install script.
+
+**Response (200 OK):**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+Cache-Control: public, max-age=3600
+
+#!/bin/bash
+# vnsh Installer
+...
 ```
 
 ---
@@ -160,8 +169,42 @@ Health check endpoint.
 ```json
 {
   "status": "ok",
-  "service": "opaque"
+  "service": "vnsh"
 }
+```
+
+---
+
+### GET /robots.txt
+
+Search engine crawler rules.
+
+**Response (200 OK):**
+
+```
+User-agent: *
+Allow: /
+
+Sitemap: https://vnsh.dev/sitemap.xml
+```
+
+---
+
+### GET /sitemap.xml
+
+Sitemap for search engines.
+
+**Response (200 OK):**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://vnsh.dev/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
 ```
 
 ---
@@ -216,7 +259,6 @@ All errors follow this format:
 |----------|-------|--------|
 | POST /api/drop | 10 requests | 1 minute |
 | GET /api/blob/:id | 100 requests | 1 minute |
-| Payment endpoints | 20 requests | 1 minute |
 
 ---
 
@@ -236,26 +278,26 @@ echo "Hello World" | openssl enc -aes-256-cbc -K $KEY -iv $IV > encrypted.bin
 RESPONSE=$(curl -s -X POST \
   --data-binary @encrypted.bin \
   -H "Content-Type: application/octet-stream" \
-  "https://opaque.dev/api/drop")
+  "https://vnsh.dev/api/drop")
 
 # Parse response
 ID=$(echo $RESPONSE | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
 
 # Build URL
-echo "https://opaque.dev/v/${ID}#k=${KEY}&iv=${IV}"
+echo "https://vnsh.dev/v/${ID}#k=${KEY}&iv=${IV}"
 ```
 
 ### Download with curl
 
 ```bash
 # Extract components from URL
-URL="https://opaque.dev/v/abc123#k=deadbeef...&iv=cafebabe..."
+URL="https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe..."
 ID=$(echo $URL | sed 's|.*/v/||' | sed 's|#.*||')
 KEY=$(echo $URL | sed 's|.*#k=||' | sed 's|&.*||')
 IV=$(echo $URL | sed 's|.*&iv=||')
 
 # Fetch and decrypt
-curl -s "https://opaque.dev/api/blob/${ID}" | \
+curl -s "https://vnsh.dev/api/blob/${ID}" | \
   openssl enc -d -aes-256-cbc -K $KEY -iv $IV
 ```
 

@@ -1,160 +1,144 @@
 # CLI Reference
 
-`oq` — The Opaque command-line interface for encrypting and sharing content.
+`vn` — The vnsh command-line interface for encrypting and sharing content.
 
 ## Installation
 
 ```bash
-# Download and install
-curl -sL https://opaque.dev/install.sh | bash
+# One-liner install (adds `vn` to your shell)
+curl -sL vnsh.dev/i | sh
 
-# Or manually copy to your PATH
-cp cli/oq /usr/local/bin/oq
-chmod +x /usr/local/bin/oq
+# Restart terminal or source your rc file
+source ~/.zshrc  # or ~/.bashrc
 ```
 
 ## Requirements
 
 - `openssl` — For AES-256-CBC encryption
 - `curl` — For HTTP requests
-- Bash shell
+- Bash or Zsh shell
 
 ## Usage
 
 ```
-oq [OPTIONS] [FILE]        Encrypt and upload
-command | oq [OPTIONS]     Encrypt and upload from stdin
-oq read <URL>              Decrypt and read an Opaque URL
+vn [FILE]              Encrypt and upload a file
+command | vn           Encrypt and upload from stdin
 ```
-
-## Commands
-
-### Upload (default)
-
-Encrypt and upload content to Opaque.
-
-```bash
-# Upload a file
-oq myfile.txt
-
-# Upload from stdin
-echo "secret data" | oq
-git diff | oq
-cat error.log | oq
-
-# With options
-oq --ttl 1 temp.txt           # 1 hour expiry
-oq --price 0.01 premium.txt   # Require payment
-```
-
-### Read
-
-Decrypt and display content from an Opaque URL.
-
-```bash
-oq read "https://opaque.dev/v/abc123#k=...&iv=..."
-
-# Output can be piped
-oq read "$URL" | less
-oq read "$URL" > decrypted.txt
-```
-
-### Local Mode
-
-Encrypt content locally without uploading (for air-gapped environments).
-
-```bash
-echo "secret" | oq --local
-
-# Output:
-# Encrypted blob (base64):
-# U2FsdGVkX1...
-#
-# Decryption key: deadbeef...
-# IV: cafebabe...
-```
-
-## Options
-
-| Option | Description |
-|--------|-------------|
-| `--local` | Output encrypted blob locally (no upload) |
-| `--ttl <hours>` | Set expiry time in hours (default: 24, max: 168) |
-| `--price <usd>` | Set price in USD for x402 payment |
-| `--host <url>` | Override API host |
-| `-h, --help` | Show help |
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPAQUE_HOST` | `https://opaque.dev` | API host URL |
 
 ## Examples
 
 ### Basic Usage
 
 ```bash
-# Share a config file
-oq ~/.ssh/config
-# Output: https://opaque.dev/v/abc123#k=...&iv=...
+# Upload a file
+vn myfile.txt
+# Output: https://vnsh.dev/v/abc123#k=...&iv=...
 
-# Share command output
-npm test 2>&1 | oq
+# Pipe command output
+echo "secret data" | vn
+
+# Share error logs
+npm test 2>&1 | vn
 
 # Share with short expiry
-oq --ttl 1 temp-notes.txt
+cat temp.txt | vn --ttl 1
 ```
 
 ### Integration with Git
 
 ```bash
 # Share current diff
-git diff | oq
+git diff | vn
 
 # Share specific commit
-git show abc123 | oq
+git show abc123 | vn
 
 # Share git log
-git log --oneline -20 | oq
+git log --oneline -20 | vn
+
+# Share staged changes
+git diff --cached | vn
 ```
 
-### Integration with System Tools
+### Integration with Kubernetes
+
+```bash
+# Share pod logs
+kubectl logs pod/app-xyz | vn
+
+# Share deployment yaml
+kubectl get deployment myapp -o yaml | vn
+
+# Share events
+kubectl get events --sort-by='.lastTimestamp' | vn
+```
+
+### Integration with Docker
+
+```bash
+# Share container logs
+docker logs mycontainer | vn
+
+# Share docker compose logs
+docker compose logs | vn
+
+# Share running processes
+docker ps | vn
+```
+
+### System Debugging
 
 ```bash
 # Share system logs
-tail -100 /var/log/system.log | oq
+tail -100 /var/log/system.log | vn
 
 # Share process list
-ps aux | oq
+ps aux | vn
 
-# Share environment (be careful!)
-env | oq
+# Share disk usage
+df -h | vn
+
+# Share network connections
+netstat -an | vn
 ```
 
-### Claude Code Integration
+### Claude Code Workflow
 
 ```bash
-# In your prompt to Claude Code:
-# "Here's my error log: $(cat error.log | oq)"
-
-# Or pipe directly:
-npm run build 2>&1 | oq
+# Share build errors with Claude
+npm run build 2>&1 | vn
 # Then paste the URL into Claude Code
+
+# Share test failures
+npm test 2>&1 | vn
+
+# Share a screenshot
+cat screenshot.png | vn
 ```
 
-### Reading Shared Content
+## How It Works
+
+1. **Generate Keys**: Creates random 32-byte key and 16-byte IV
+2. **Encrypt**: Uses OpenSSL AES-256-CBC encryption
+3. **Upload**: POSTs encrypted blob to vnsh.dev
+4. **Return URL**: Prints URL with key/IV in fragment
+
+```
+https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
+                         └────────────────────────────┘
+                         Fragment: Never sent to server
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VNSH_HOST` | `https://vnsh.dev` | Override API host |
 
 ```bash
-# Read and display
-oq read "https://opaque.dev/v/abc123#k=...&iv=..."
-
-# Save to file
-oq read "$URL" > downloaded.txt
-
-# Pipe to other commands
-oq read "$URL" | grep ERROR
-oq read "$URL" | wc -l
+# Use self-hosted instance
+export VNSH_HOST="https://vnsh.mycompany.com"
+echo "data" | vn
 ```
 
 ## Security Notes
@@ -164,43 +148,32 @@ oq read "$URL" | wc -l
 The URL contains the decryption key in the fragment:
 
 ```
-https://opaque.dev/v/abc123#k=deadbeef...&iv=cafebabe...
-                           └────────────────────────────┘
-                           This part is the secret!
+https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
+                         └────────────────────────────┘
+                         This part is the secret!
 ```
 
 - **Never share the full URL publicly** unless you want everyone to read it
 - The fragment is never sent to the server
 - Store URLs securely (password manager, encrypted notes)
+- Share URLs only with intended recipients
 
-### Local Mode
+### What the Server Sees
 
-Use `--local` when:
+The server only sees:
+- Encrypted binary blob (indistinguishable from random noise)
+- Upload timestamp
+- Blob size
+- Your IP address
 
-- You're on an air-gapped system
-- You want to transfer encrypted data manually
-- You're debugging encryption issues
-
-```bash
-# Encrypt locally
-echo "secret" | oq --local > encrypted.txt
-
-# Later, upload the base64 blob manually
-cat encrypted.txt | base64 -d | curl -X POST --data-binary @- https://opaque.dev/api/drop
-```
-
-### Self-Signed Certificates
-
-When developing locally with HTTPS, the CLI automatically uses `-k` (insecure) for:
-
-- `localhost`
-- `127.0.0.1`
-- `100.x.x.x` (Tailscale)
-- `192.168.x.x` (Local network)
+The server CANNOT see:
+- Your plaintext content
+- The encryption key
+- What type of file it is
 
 ## Troubleshooting
 
-### "openssl is required but not installed"
+### "openssl: command not found"
 
 Install OpenSSL:
 
@@ -215,7 +188,7 @@ sudo apt install openssl
 sudo dnf install openssl
 ```
 
-### "curl is required but not installed"
+### "curl: command not found"
 
 Install curl:
 
@@ -227,30 +200,47 @@ brew install curl
 sudo apt install curl
 ```
 
-### "Upload failed (HTTP 413)"
+### "vn: command not found"
 
-File is too large. Maximum size is 25MB.
-
-```bash
-# Check file size
-ls -lh largefile.txt
-
-# Consider compression
-gzip -c largefile.txt | oq
-```
-
-### "Decryption failed"
-
-The key or IV may be incorrect. Verify the URL was copied completely, including the fragment.
+Re-run the installer and source your shell config:
 
 ```bash
-# Check URL format
-echo "$URL" | grep '#k=.*&iv='
+curl -sL vnsh.dev/i | sh
+source ~/.zshrc  # or ~/.bashrc
 ```
 
-## Exit Codes
+### "Upload failed"
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Error (see stderr for details) |
+Check network connectivity:
+
+```bash
+curl -I https://vnsh.dev/health
+```
+
+### Large files (>25MB)
+
+vnsh has a 25MB limit. For larger files, consider compression:
+
+```bash
+# Compress before uploading
+gzip -c largefile.log | vn
+
+# Or split into chunks
+split -b 20M largefile.log chunk_
+for f in chunk_*; do vn "$f"; done
+```
+
+## Uninstall
+
+Remove the `vn` function from your shell config:
+
+```bash
+# Edit your rc file
+nano ~/.zshrc  # or ~/.bashrc
+
+# Remove the vn() function block
+# Save and exit
+
+# Reload
+source ~/.zshrc
+```
