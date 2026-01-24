@@ -44,3 +44,6 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# Large binary files
+docs/screenshot.png
