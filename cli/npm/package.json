@@ -1,0 +1,51 @@
+{
+  "name": "vnsh-cli",
+  "version": "1.0.0",
+  "description": "The Ephemeral Dropbox for AI - CLI tool for encrypted file sharing",
+  "keywords": [
+    "vnsh",
+    "encryption",
+    "file-sharing",
+    "cli",
+    "claude",
+    "ai",
+    "secure",
+    "ephemeral",
+    "pastebin"
+  ],
+  "author": "raullenchai",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raullenchai/vnsh.git"
+  },
+  "homepage": "https://vnsh.dev",
+  "bugs": {
+    "url": "https://github.com/raullenchai/vnsh/issues"
+  },
+  "bin": {
+    "vn": "./dist/cli.js",
+    "vnsh": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

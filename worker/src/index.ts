@@ -1477,6 +1477,9 @@ const APP_HTML = `<!DOCTYPE html>
         resultUrl.textContent = generatedUrl;
         document.title = '✓ vnsh';
 
+        // Scroll result into view
+        resultEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
         // Sound
         try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)();

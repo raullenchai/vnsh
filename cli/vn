@@ -16,6 +16,8 @@
 
 set -e
 
+VERSION="1.0.0"
+
 # Configuration
 VNSH_HOST="${VNSH_HOST:-https://vnsh.dev}"
 MAX_SIZE=$((25 * 1024 * 1024))  # 25MB
@@ -73,6 +75,7 @@ OPTIONS:
     --price <usd>       Set price in USD for x402 payment
     --host <url>        Override API host
     -h, --help          Show this help
+    -v, --version       Show version
 
 EXAMPLES:
     # Upload a file
@@ -228,6 +231,10 @@ main() {
     case $1 in
       -h|--help)
         show_help
+        ;;
+      -v|--version)
+        echo "vn $VERSION"
+        exit 0
         ;;
       --local)
         local_mode=true
