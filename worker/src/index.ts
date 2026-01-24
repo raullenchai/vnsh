@@ -300,6 +300,31 @@ export default {
       });
     }
 
+    // Route: GET /robots.txt - Search engine crawler rules
+    if (request.method === 'GET' && path === '/robots.txt') {
+      return new Response(ROBOTS_TXT, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+      });
+    }
+
+    // Route: GET/HEAD /og-image.png - Social sharing image
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/og-image.png') {
+      const body = request.method === 'GET' ? OG_IMAGE_SVG : null;
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' },
+      });
+    }
+
+    // Route: GET /sitemap.xml - Sitemap for search engines
+    if (request.method === 'GET' && path === '/sitemap.xml') {
+      return new Response(SITEMAP_XML, {
+        status: 200,
+        headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+      });
+    }
+
     // 404 for unknown routes
     return errorResponse('NOT_FOUND', 'Endpoint not found', 404);
   },
@@ -395,22 +420,54 @@ echo ""
 echo "The URL is printed to stdout. The server never sees your keys."
 `;
 
+// robots.txt - Allow all crawlers
+const ROBOTS_TXT = `User-agent: *
+Allow: /
+
+Sitemap: https://vnsh.dev/sitemap.xml
+`;
+
+// sitemap.xml - For search engine indexing
+const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://vnsh.dev/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+`;
+
+// OG Image - SVG social card (1200x630)
+const OG_IMAGE_SVG = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+  <text x="600" y="200" text-anchor="middle" font-family="monospace" font-size="72" fill="#22c55e" font-weight="bold">vnsh</text>
+  <text x="600" y="290" text-anchor="middle" font-family="monospace" font-size="32" fill="#e5e5e5">The Ephemeral Dropbox for AI</text>
+  <text x="600" y="380" text-anchor="middle" font-family="monospace" font-size="20" fill="#a3a3a3">Host-blind · AES-256 encrypted · Vaporizes in 24h</text>
+  <text x="600" y="480" text-anchor="middle" font-family="monospace" font-size="24" fill="#22c55e">$ curl -sL vnsh.dev/i | sh</text>
+  <text x="600" y="560" text-anchor="middle" font-family="monospace" font-size="16" fill="#525252">Server sees nothing. Keys stay in URL fragment.</text>
+</svg>`;
+
 // Unified App HTML - "Stacked Console" Tabbed Layout
 const APP_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>vnsh - The Ephemeral Dropbox for AI</title>
-  <meta name="description" content="Stop pasting walls of text into Claude. Pipe your logs, diffs, and images into a secure, host-blind URL. Server sees nothing. Data vaporizes in 24 hours.">
-  <meta name="keywords" content="vnsh, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, vibecoding">
-  <meta property="og:title" content="vnsh - The Ephemeral Dropbox for AI">
-  <meta property="og:description" content="Stop pasting walls of text into Claude. Host-blind encrypted sharing for logs, diffs, and images. Vaporizes in 24h.">
+  <title>vnsh | The Ephemeral Dropbox for AI & CLI Tool</title>
+  <meta name="description" content="A host-blind, client-side encrypted file sharing tool for AI agents like Claude. Pipe logs, diffs, and images from your terminal. AES-256 encryption. Vaporizes in 24 hours. Pastebin alternative for developers.">
+  <meta name="keywords" content="vnsh, cli file sharing, secure file upload, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, vibecoding, pastebin alternative, share logs with claude, terminal file upload">
+  <meta property="og:title" content="vnsh: Pipe context to Claude securely">
+  <meta property="og:description" content="End-to-end encrypted. Server is blind. 24h retention. The ultimate dead drop for vibecoding.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vnsh.dev">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="vnsh - The Ephemeral Dropbox for AI">
+  <meta property="og:image" content="https://vnsh.dev/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="vnsh | The Ephemeral Dropbox for AI">
   <meta name="twitter:description" content="Host-blind encrypted sharing for AI. Server sees nothing. Data vaporizes in 24h.">
+  <meta name="twitter:image" content="https://vnsh.dev/og-image.png">
   <link rel="canonical" href="https://vnsh.dev">
   <meta name="robots" content="index, follow">
   <meta name="author" content="vnsh">
@@ -419,13 +476,20 @@ const APP_HTML = `<!DOCTYPE html>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "WebApplication",
+    "@type": "SoftwareApplication",
     "name": "vnsh",
     "alternateName": "The Ephemeral Dropbox for AI",
-    "description": "Stop pasting walls of text into Claude. Pipe your logs, diffs, and images into a secure, host-blind URL. Server sees nothing. Data vaporizes in 24 hours.",
+    "description": "A host-blind, client-side encrypted file sharing CLI tool for AI agents like Claude. Pipe logs, diffs, and images from terminal. Pastebin alternative with AES-256 encryption.",
     "url": "https://vnsh.dev",
-    "applicationCategory": "SecurityApplication",
-    "operatingSystem": "Any",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Cross-platform (macOS, Linux, Windows)",
+    "downloadUrl": "https://vnsh.dev/i",
+    "softwareVersion": "1.0.0",
+    "author": {
+      "@type": "Organization",
+      "name": "vnsh",
+      "url": "https://github.com/raullenchai/vnsh"
+    },
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -437,8 +501,11 @@ const APP_HTML = `<!DOCTYPE html>
       "24-hour auto-vaporization",
       "Native MCP integration for Claude Code",
       "CLI tool for terminal workflows",
-      "Supports screenshots, logs, git diffs, PDFs, binaries"
-    ]
+      "Supports screenshots, logs, git diffs, PDFs, binaries",
+      "OpenSSL compatible encryption",
+      "Secure dead drop for sensitive files"
+    ],
+    "keywords": "cli, security, encryption, claude, mcp, file-sharing, pastebin alternative"
   }
   </script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' http://localhost:* https://*.vnsh.dev https://vnsh.dev; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:">
@@ -1141,13 +1208,16 @@ const APP_HTML = `<!DOCTYPE html>
             <span>terminal</span>
           </div>
           <div class="terminal-body">
-            <div class="line"><span class="prompt">$ </span><span class="cmd">cat screenshot.png | vn</span></div>
+            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Share k8s logs securely</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">kubectl logs pod/app-xyz | vn</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/a3f...#k=...</span></div>
             <div class="line" style="height: 0.5rem;"></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">git diff HEAD~3 | vn</span></div>
+            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Upload sensitive config files</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">vn .env.production</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/b7c...#k=...</span></div>
             <div class="line" style="height: 0.5rem;"></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">echo "debug log" | vn</span></div>
+            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Share git diff with Claude</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">git diff HEAD~5 | vn</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/f9d...#k=...</span></div>
           </div>
         </div>
@@ -1186,9 +1256,20 @@ const APP_HTML = `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Architecture Section -->
+  <details class="architecture" style="margin-top: 2rem; max-width: 700px; width: 100%;">
+    <summary style="cursor: pointer; color: var(--fg-dim); font-size: 0.75rem; margin-bottom: 1rem;">// Architecture & Security</summary>
+    <div style="color: var(--fg-muted); font-size: 0.8rem; line-height: 1.7; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;">
+      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Zero-Access Architecture:</strong> vnsh implements true client-side encryption using AES-256-CBC with OpenSSL compatibility. Your data is encrypted entirely on your device before upload.</p>
+      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Host-Blind Storage:</strong> The server stores only opaque binary blobs. Decryption keys travel exclusively in the URL fragment (#k=...) which is never sent to servers per HTTP specification.</p>
+      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Secure Dead Drop:</strong> Unlike pastebins, vnsh cannot read your content even if subpoenaed. The server operator has no access to plaintext - mathematically impossible without the URL fragment.</p>
+      <p><strong style="color: var(--accent);">Auto-Vaporization:</strong> All data auto-destructs after 24 hours (configurable 1-168h). No history, no backups, no leaks. Perfect for ephemeral AI context sharing.</p>
+    </div>
+  </details>
+
   <!-- Footer -->
   <div class="footer">
-    // AES-256-CBC · Keys stay in URL fragment · <a href="https://github.com/anthropics/vnsh">Source</a>
+    // AES-256-CBC · Keys stay in URL fragment · <a href="https://github.com/raullenchai/vnsh">Source</a>
   </div>
 
   <!-- Viewer Overlay -->

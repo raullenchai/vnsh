@@ -11,7 +11,7 @@ bucket_name = "vnsh-store"
 # KV namespace for metadata (expiry, payment info)
 [[kv_namespaces]]
 binding = "VNSH_META"
-id = "placeholder-replace-after-creation"
+id = "67d2bdbe539e4620a20a65be26744a5e"
 
 # Static assets for viewer
 [site]
