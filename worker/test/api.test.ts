@@ -35,7 +35,7 @@ describe('vnsh API', () => {
       const html = await response.text();
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('vnsh');
-      expect(html).toContain('Share then Vanish');
+      expect(html).toContain('Ephemeral Dropbox for AI');
     });
   });
 

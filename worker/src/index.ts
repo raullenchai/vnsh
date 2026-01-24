@@ -310,7 +310,7 @@ const INSTALL_SCRIPT = `#!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
 #  vnsh Installer
 #  https://vnsh.dev
-#  The Host-Blind Context Tunnel - Share then Vanish
+#  The Ephemeral Dropbox for AI - Vaporizes in 24h
 #  We don't track you. Check the source.
 # ═══════════════════════════════════════════════════════════════════
 
@@ -401,16 +401,16 @@ const APP_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>vnsh</title>
-  <meta name="description" content="The Host-Blind Context Tunnel. Share then vanish. End-to-end encrypted sharing that disappears. The server is blind. The keys are yours.">
-  <meta name="keywords" content="vnsh, vanish, encrypted sharing, ephemeral, end-to-end encryption, claude, mcp, ai context, secure paste">
-  <meta property="og:title" content="vnsh - Share then Vanish">
-  <meta property="og:description" content="Host-blind encrypted sharing for AI workflows. End-to-end encrypted, auto-expiring, server never sees your data.">
+  <title>vnsh - The Ephemeral Dropbox for AI</title>
+  <meta name="description" content="Stop pasting walls of text into Claude. Pipe your logs, diffs, and images into a secure, host-blind URL. Server sees nothing. Data vaporizes in 24 hours.">
+  <meta name="keywords" content="vnsh, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, vibecoding">
+  <meta property="og:title" content="vnsh - The Ephemeral Dropbox for AI">
+  <meta property="og:description" content="Stop pasting walls of text into Claude. Host-blind encrypted sharing for logs, diffs, and images. Vaporizes in 24h.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vnsh.dev">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="vnsh - Share then Vanish">
-  <meta name="twitter:description" content="Host-blind encrypted sharing. The server is blind. The keys are yours.">
+  <meta name="twitter:title" content="vnsh - The Ephemeral Dropbox for AI">
+  <meta name="twitter:description" content="Host-blind encrypted sharing for AI. Server sees nothing. Data vaporizes in 24h.">
   <link rel="canonical" href="https://vnsh.dev">
   <meta name="robots" content="index, follow">
   <meta name="author" content="vnsh">
@@ -421,7 +421,8 @@ const APP_HTML = `<!DOCTYPE html>
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "name": "vnsh",
-    "description": "Host-blind encrypted sharing for AI workflows. End-to-end encrypted content sharing that auto-expires.",
+    "alternateName": "The Ephemeral Dropbox for AI",
+    "description": "Stop pasting walls of text into Claude. Pipe your logs, diffs, and images into a secure, host-blind URL. Server sees nothing. Data vaporizes in 24 hours.",
     "url": "https://vnsh.dev",
     "applicationCategory": "SecurityApplication",
     "operatingSystem": "Any",
@@ -432,10 +433,11 @@ const APP_HTML = `<!DOCTYPE html>
     },
     "featureList": [
       "End-to-end encryption (AES-256-CBC)",
-      "Host-blind architecture",
-      "Auto-expiring content",
-      "MCP integration for Claude Code",
-      "CLI tool for terminal workflows"
+      "Host-blind architecture - server never sees your data",
+      "24-hour auto-vaporization",
+      "Native MCP integration for Claude Code",
+      "CLI tool for terminal workflows",
+      "Supports screenshots, logs, git diffs, PDFs, binaries"
     ]
   }
   </script>
@@ -1079,10 +1081,10 @@ const APP_HTML = `<!DOCTYPE html>
   <!-- Hero -->
   <section class="hero">
     <h1 class="hero-title">
-      <span class="prompt">></span> vnsh: Share then Vanish<span class="cursor"></span>
+      <span class="prompt">></span> vnsh: The Ephemeral Dropbox for AI<span class="cursor"></span>
     </h1>
     <p class="hero-subtitle">
-      <span class="dim">The server is blind.</span> <span class="bright">The keys are yours.</span>
+      <span class="dim">Stop pasting walls of text.</span> <span class="bright">Pipe it. Share it. Vaporize it.</span>
     </p>
   </section>
 
@@ -1249,8 +1251,8 @@ const APP_HTML = `<!DOCTYPE html>
   ╚████╔╝ ██║ ╚████║███████║██║  ██║
    ╚═══╝  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
 
-  Share then Vanish
-  https://github.com/anthropics/vnsh
+  The Ephemeral Dropbox for AI
+  https://github.com/raullenchai/vnsh
     \`);
 
     // State

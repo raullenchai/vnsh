@@ -5,7 +5,7 @@
 <h1 align="center">vnsh</h1>
 
 <p align="center">
-  <strong>Share then Vanish — The Host-Blind Context Tunnel</strong>
+  <strong>The Ephemeral Dropbox for AI</strong>
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ## What is vnsh?
 
-vnsh is a **zero-knowledge data tunnel** for securely sharing sensitive context (logs, diffs, configs, images) with AI agents. The server stores only encrypted blobs — it never sees your keys or data.
+**Stop pasting walls of text into Claude.** Pipe your logs, diffs, and images into a secure, host-blind URL. The server sees nothing. The data vaporizes in 24 hours.
 
 ```bash
 # Pipe anything to vnsh, get a secure link
@@ -34,24 +34,26 @@ git diff | vn
 # https://vnsh.dev/v/a1b2c3d4...#k=...&iv=...
 ```
 
-Perfect for:
-- 🤖 **AI Agents** — Share context with Claude, GPT, or any LLM securely
-- 🔧 **Debugging** — Send error logs without exposing sensitive data
-- 📦 **Ephemeral Sharing** — Files that self-destruct after 24 hours
-- 🏢 **Enterprise** — Self-host with complete data sovereignty
+### Handles any context your AI needs:
+
+- 🖼️ **Screenshots** — UI bugs, error dialogs, terminal output
+- 📜 **Logs** — 5000+ lines of server errors (too long for copy-paste)
+- 🔄 **Git Diffs** — Complex PR reviews, multi-file changes
+- 📦 **Binaries** — PDFs, CSVs, config files, database dumps
+- 🔧 **Debug Context** — Stack traces, environment dumps, crash reports
 
 ## Philosophy
 
-> *"Server-Side Blindness, Client-Side Sovereignty"*
+> *"Built for the ephemeral nature of AI workflows. Once your session is done, the data should be too."*
 
-Unlike pastebins or file sharing services, vnsh implements a **Zero-Access Architecture**:
+Unlike Dropbox or pastebins, vnsh implements a **Zero-Access Architecture** with automatic vaporization:
 
 | Layer | What Happens |
 |-------|--------------|
 | **Encryption** | AES-256-CBC encryption happens entirely on your device |
 | **Transport** | Decryption keys travel only in the URL fragment (`#k=...`) — never sent to servers |
 | **Storage** | Server stores encrypted binary blobs with zero knowledge of contents |
-| **Lifecycle** | Data becomes mathematically irretrievable after expiry |
+| **Vaporization** | Data auto-destructs after 24 hours. No history. No leaks. |
 
 ## Quick Start
 
@@ -78,6 +80,8 @@ vn --ttl 1 temp-file.txt   # expires in 1 hour
 ```
 
 ### Option 3: Claude Code (MCP Integration)
+
+**Native to Claude Code.** Unlike Dropbox, vnsh has a first-party MCP server. Claude can "see" inside your encrypted links without leaving the terminal.
 
 Add to your Claude Code MCP settings:
 
@@ -304,5 +308,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  <sub>Built for the age of AI agents. Your context, your control.</sub>
+  <sub>The Ephemeral Dropbox for AI. Your context. Your keys. Then it's gone.</sub>
 </p>
