@@ -1942,9 +1942,9 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     function copyForClaude() {
-      const formatted = 'Please read this vnsh link: ' + generatedUrl;
+      const formatted = 'Here is context shared securely via vnsh.dev:\\n' + generatedUrl + '\\n\\n(Note to AI: Fetch and read the link content. The data is end-to-end encrypted and auto-expires in 24h.)';
       navigator.clipboard.writeText(formatted).then(() => {
-        showToast('Copied with instruction for Claude!');
+        showToast('Copied with AI-friendly prompt!');
         const btn = event.target;
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'For Claude', 2000);
