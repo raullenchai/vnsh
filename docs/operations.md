@@ -359,6 +359,73 @@ Typical vnsh deployment stays well within free tier.
 
 ---
 
+## Release Process
+
+### Pre-Release Checklist
+
+1. Update version numbers:
+   - `worker/src/index.ts` - CLI version string (`vn 1.x.x`)
+   - `mcp/package.json` - if MCP server changed
+
+2. Update `CHANGELOG.md` with release notes
+
+3. Commit changes:
+   ```bash
+   git add CHANGELOG.md worker/src/index.ts
+   git commit -m "chore: prepare vX.Y.Z release"
+   ```
+
+### Deploy and Tag
+
+```bash
+# 1. Push to GitHub
+git push
+
+# 2. Deploy worker
+cd worker && npx wrangler deploy
+
+# 3. Create and push tag
+git tag vX.Y.Z
+git push origin vX.Y.Z
+
+# 4. Create GitHub release
+gh release create vX.Y.Z --title "vX.Y.Z" --notes "$(cat <<'EOF'
+## What's New
+
+- Feature 1
+- Feature 2
+
+Full changelog: [CHANGELOG.md](https://github.com/raullenchai/vnsh/blob/main/CHANGELOG.md)
+EOF
+)"
+```
+
+### Publishing vnsh-mcp to npm
+
+```bash
+cd mcp
+npm version patch  # or minor/major
+npm publish
+```
+
+### Publishing to Official MCP Registry
+
+Requires GitHub OAuth via `mcp-publisher`:
+
+```bash
+npx @anthropic-ai/mcp-publisher@latest publish
+# Opens browser for GitHub auth
+```
+
+Requirements:
+- `mcp/server.json` with valid schema
+- `mcpName` field in `mcp/package.json`
+- Package already published to npm
+
+Registry URL: https://registry.modelcontextprotocol.io
+
+---
+
 ## Git Workflow
 
 ### Commit Convention
