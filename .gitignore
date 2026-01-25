@@ -50,3 +50,6 @@ coverage/
 
 # Large binary files
 docs/screenshot.png
+
+# Growth tracking (internal)
+growth/
