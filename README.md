@@ -12,6 +12,7 @@
   <a href="https://github.com/raullenchai/vnsh/actions"><img src="https://img.shields.io/github/actions/workflow/status/raullenchai/vnsh/test.yml?branch=main&style=flat-square" alt="Build Status"></a>
   <a href="https://www.npmjs.com/package/vnsh-cli"><img src="https://img.shields.io/npm/v/vnsh-cli?style=flat-square&label=vnsh-cli" alt="npm vnsh-cli"></a>
   <a href="https://www.npmjs.com/package/vnsh-mcp"><img src="https://img.shields.io/npm/v/vnsh-mcp?style=flat-square&label=vnsh-mcp" alt="npm vnsh-mcp"></a>
+  <a href="https://github.com/raullenchai/upload-to-vnsh"><img src="https://img.shields.io/badge/GitHub%20Action-upload--to--vnsh-green?style=flat-square&logo=githubactions" alt="GitHub Action"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
 </p>
 
@@ -122,6 +123,28 @@ Add to your Claude Code MCP settings:
 Now Claude can:
 - **Read** vnsh links automatically when you paste them
 - **Share** large outputs via `vnsh_share` tool
+
+### Option 4: GitHub Action (CI/CD)
+
+**Debug CI failures with Claude in one click.** When your CI fails, automatically upload logs and post a secure link to your PR.
+
+```yaml
+- name: Debug with vnsh
+  if: failure()
+  uses: raullenchai/upload-to-vnsh@v1
+  with:
+    file: test.log
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+The action will post a comment to your PR:
+
+> 🔍 **Debug with Claude**
+>
+> CI logs uploaded securely. [View Logs](https://vnsh.dev/v/...) | Paste link to Claude for instant analysis
+
+See [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) for full documentation.
 
 ## How It Works
 
@@ -303,6 +326,7 @@ vnsh/
 |---------|-------------|---------|
 | [vnsh-cli](https://www.npmjs.com/package/vnsh-cli) | CLI tool | `npm i -g vnsh-cli` |
 | [vnsh-mcp](https://www.npmjs.com/package/vnsh-mcp) | MCP server for Claude | `npx vnsh-mcp` |
+| [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) | GitHub Action for CI/CD | `uses: raullenchai/upload-to-vnsh@v1` |
 | [homebrew-vnsh](https://github.com/raullenchai/homebrew-vnsh) | Homebrew tap | `brew install raullenchai/vnsh/vnsh` |
 
 ## Development
