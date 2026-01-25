@@ -22,7 +22,7 @@ const MAX_TTL_HOURS = 168; // 7 days
 // CORS headers for cross-origin access
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
   'Access-Control-Max-Age': '86400',
 };
@@ -355,9 +355,10 @@ export default {
       });
     }
 
-    // Route: GET /i - Serve install script
-    if (request.method === 'GET' && path === '/i') {
-      return new Response(INSTALL_SCRIPT, {
+    // Route: GET/HEAD /i - Serve install script
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/i') {
+      const body = request.method === 'GET' ? INSTALL_SCRIPT : null;
+      return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
@@ -366,9 +367,10 @@ export default {
       });
     }
 
-    // Route: GET / - Serve unified app
-    if (request.method === 'GET' && path === '/') {
-      return new Response(APP_HTML, {
+    // Route: GET/HEAD / - Serve unified app
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
+      const body = request.method === 'GET' ? APP_HTML : null;
+      return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -377,9 +379,10 @@ export default {
       });
     }
 
-    // Route: GET /health - Health check
-    if (request.method === 'GET' && path === '/health') {
-      return new Response(JSON.stringify({ status: 'ok', service: 'vnsh' }), {
+    // Route: GET/HEAD /health - Health check
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/health') {
+      const body = request.method === 'GET' ? JSON.stringify({ status: 'ok', service: 'vnsh' }) : null;
+      return new Response(body, {
         status: 200,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
