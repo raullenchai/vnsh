@@ -35,6 +35,9 @@ yarn-error.log*
 # User-specific MCP config
 .mcp.json
 
+# MCP Registry tokens
+.mcpregistry_*
+
 # Test coverage
 coverage/
 
