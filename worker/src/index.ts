@@ -493,10 +493,10 @@ touch "\$RC_FILE" 2>/dev/null || true
 
 # The vn function - POSIX compatible, works on BSD (macOS) and GNU (Linux)
 VN_FUNCTION='
-# vnsh CLI v1.1.0 - Host-Blind Context Tunnel (https://vnsh.dev)
+# vnsh CLI v1.2.0 - Host-Blind Context Tunnel (https://vnsh.dev)
 vn() {
   _VN_HOST="\${VNSH_HOST:-https://vnsh.dev}"
-  _VN_VERSION="1.1.0"
+  _VN_VERSION="1.2.0"
 
   # Handle --version and --help flags
   case "\$1" in
