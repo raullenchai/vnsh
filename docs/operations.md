@@ -122,7 +122,20 @@ gh repo edit raullenchai/vnsh \
 
 ## MCP Server Configuration
 
-### Project Config (`.mcp.json`)
+### Claude Code (`.mcp.json` in project root)
+
+```json
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
+  }
+}
+```
+
+### Claude Code (local build)
 
 ```json
 {
@@ -133,19 +146,6 @@ gh repo edit raullenchai/vnsh \
       "env": {
         "VNSH_HOST": "https://vnsh.dev"
       }
-    }
-  }
-}
-```
-
-### Global Config (`~/.claude/settings.json`)
-
-```json
-{
-  "mcpServers": {
-    "vnsh": {
-      "command": "npx",
-      "args": ["-y", "vnsh-mcp"]
     }
   }
 }
@@ -493,8 +493,7 @@ vn --ttl 1 temp.txt
 
 | File | Purpose |
 |------|---------|
-| `.mcp.json` | Project MCP config |
-| `~/.claude/settings.json` | Global MCP config |
+| `.mcp.json` | MCP config (create in project root) |
 | `worker/wrangler.toml` | Cloudflare config |
 | `worker/src/index.ts` | Main worker code |
 | `mcp/src/index.ts` | MCP server code |

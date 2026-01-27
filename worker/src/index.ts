@@ -1656,16 +1656,18 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
 
         <div class="section-label" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-          <span>// Add to your MCP config</span>
+          <span>// Create .mcp.json in your project root</span>
           <button class="copy-btn" style="font-size: 0.7rem; cursor: pointer; background: none; border: none; color: var(--fg-dim);" onclick="copyMcpConfig()" id="mcp-config-copy">⧉ Copy JSON</button>
         </div>
         <div class="mcp-config">
-          <div class="comment">// Claude Code: .mcp.json (project) or ~/.claude/settings.json</div>
+          <div class="comment">// Claude Code: .mcp.json in project root</div>
           <div class="comment">// Claude Desktop: ~/.config/claude/claude_desktop_config.json</div>
-          <div class="line"><span class="key">"mcpServers"</span>: {</div>
-          <div class="line">&nbsp;&nbsp;<span class="key">"vnsh"</span>: {</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"command"</span>: <span class="str">"npx"</span>,</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>]</div>
+          <div class="line">{</div>
+          <div class="line">&nbsp;&nbsp;<span class="key">"mcpServers"</span>: {</div>
+          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vnsh"</span>: {</div>
+          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"command"</span>: <span class="str">"npx"</span>,</div>
+          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>]</div>
+          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;}</div>
           <div class="line">&nbsp;&nbsp;}</div>
           <div class="line">}</div>
         </div>
@@ -1812,14 +1814,16 @@ const APP_HTML = `<!DOCTYPE html>
 
     // Copy MCP config
     function copyMcpConfig() {
-      const config = \`"mcpServers": {
-  "vnsh": {
-    "command": "npx",
-    "args": ["-y", "vnsh-mcp"]
+      const config = \`{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
   }
 }\`;
       navigator.clipboard.writeText(config).then(() => {
-        showToast('MCP config copied!');
+        showToast('MCP config copied! Create .mcp.json in your project root.');
         const btn = document.getElementById('mcp-config-copy');
         btn.textContent = '✓ Copied';
         setTimeout(() => btn.textContent = '⧉ Copy JSON', 2000);

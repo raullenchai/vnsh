@@ -107,7 +107,7 @@ vn --help
 
 **Native to Claude Code.** Unlike Dropbox, vnsh has a first-party MCP server. Claude can "see" inside your encrypted links without leaving the terminal.
 
-Add to your Claude Code MCP settings:
+Create `.mcp.json` in your project root:
 
 ```json
 {
@@ -120,7 +120,7 @@ Add to your Claude Code MCP settings:
 }
 ```
 
-Now Claude can:
+Restart Claude Code after adding the config. Now Claude can:
 - **Read** vnsh links automatically when you paste them
 - **Share** large outputs via `vnsh_share` tool
 

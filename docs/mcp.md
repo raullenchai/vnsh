@@ -34,11 +34,25 @@ npx -y vnsh-mcp
 
 ### Configure Claude
 
-Add the vnsh MCP server to your Claude configuration:
+Add the vnsh MCP server to your Claude configuration.
 
-**Claude Code** (project-level):
+#### Claude Code
+
+Create `.mcp.json` in your **project root**:
+
+```json
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
+  }
+}
+```
+
+Or via command line:
 ```bash
-# Create .mcp.json in your project root
 cat > .mcp.json << 'EOF'
 {
   "mcpServers": {
@@ -51,18 +65,12 @@ cat > .mcp.json << 'EOF'
 EOF
 ```
 
-**Claude Code** (global):
-```bash
-# Add to ~/.claude/settings.json
-```
+#### Claude Desktop
 
-**Claude Desktop**:
-```bash
-# Add to ~/.config/claude/claude_desktop_config.json (Linux/macOS)
-# Add to %APPDATA%\Claude\claude_desktop_config.json (Windows)
-```
+Add to your Claude Desktop config file:
+- **Linux/macOS**: `~/.config/claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Config content (same for all):
 ```json
 {
   "mcpServers": {
@@ -313,11 +321,17 @@ MCP server implementation using `@modelcontextprotocol/sdk`.
 
 This is the most common error. Causes:
 
-1. **Wrong VNSH_HOST**: Check your `.mcp.json` or `~/.claude/settings.json`
+1. **Wrong VNSH_HOST**: Check your `.mcp.json` config
    ```json
    {
-     "env": {
-       "VNSH_HOST": "https://vnsh.dev"  // Must be production URL
+     "mcpServers": {
+       "vnsh": {
+         "command": "npx",
+         "args": ["-y", "vnsh-mcp"],
+         "env": {
+           "VNSH_HOST": "https://vnsh.dev"
+         }
+       }
      }
    }
    ```
