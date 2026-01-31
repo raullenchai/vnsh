@@ -741,15 +741,11 @@ if ! command -v npx >/dev/null 2>&1; then
   exit 1
 fi
 
-# Determine Claude Code settings directory
-CLAUDE_DIR="\$HOME/.claude"
-mkdir -p "\$CLAUDE_DIR"
+# Claude Code config file location
+MCP_CONFIG="\$HOME/.claude.json"
 
 echo ""
 printf "%bStep 1:%b Configuring MCP Server...\\n" "\$CYAN" "\$NC"
-
-# Create or update MCP config for Claude Code
-MCP_CONFIG="\$CLAUDE_DIR/settings.json"
 
 if [ -f "\$MCP_CONFIG" ]; then
   if grep -q '"vnsh"' "\$MCP_CONFIG" 2>/dev/null; then
