@@ -254,6 +254,21 @@ describe('vnsh API', () => {
       expect(html).toContain('/^\\/v\\/([a-f0-9-]+)$/');
     });
 
+    it('contains AI instructions for agents without MCP', async () => {
+      // AI agents using WebFetch see the HTML as text - they need instructions
+      const request = new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      const html = await response.text();
+      // Verify AI instructions banner is present for agents
+      expect(html).toContain('ai-instructions');
+      expect(html).toContain('AI Agent');
+      expect(html).toContain('curl -sL vnsh.dev/claude | sh');
+      expect(html).toContain('vnsh_read');
+    });
+
     it('does not redirect (would break hash fragment)', async () => {
       const request = new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc');
       const ctx = createExecutionContext();
