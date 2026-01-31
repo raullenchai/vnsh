@@ -335,6 +335,27 @@ describe('vnsh API', () => {
     });
   });
 
+  describe('OpenClaw Skill', () => {
+    it('GET /skill.md returns SKILL.md as text/markdown', async () => {
+      const request = new Request('http://localhost/skill.md');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toContain('text/markdown');
+
+      const skill = await response.text();
+      // Check YAML frontmatter
+      expect(skill).toContain('---');
+      expect(skill).toContain('name: vnsh');
+      expect(skill).toContain('openclaw:');
+      // Check content
+      expect(skill).toContain('vnsh - Encrypted Agent-to-Agent File Sharing');
+      expect(skill).toContain('vnsh.dev');
+    });
+  });
+
   describe('404 Handling', () => {
     it('returns 404 for unknown routes', async () => {
       const request = new Request('http://localhost/unknown/route');
