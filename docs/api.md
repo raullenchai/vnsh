@@ -153,10 +153,57 @@ HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: public, max-age=3600
 
-#!/bin/bash
+#!/bin/sh
 # vnsh Installer
 ...
 ```
+
+---
+
+### GET /claude
+
+Serve the Claude Code MCP integration installer.
+
+**Response (200 OK):**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+Cache-Control: public, max-age=3600
+
+#!/bin/sh
+# vnsh Claude Code Integration Installer
+...
+```
+
+**Usage:**
+
+```bash
+curl -sL vnsh.dev/claude | sh
+```
+
+Configures Claude Code's MCP settings (`~/.claude.json`) to include vnsh-mcp server.
+
+---
+
+### GET /skill.md
+
+Serve the OpenClaw skill definition for agent integration.
+
+**Response (200 OK):**
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/markdown; charset=utf-8
+Cache-Control: public, max-age=3600
+
+---
+name: vnsh
+version: 1.0.0
+...
+```
+
+This endpoint provides a SKILL.md file compatible with OpenClaw/Moltbot agents, enabling bot-to-bot encrypted file sharing.
 
 ---
 
