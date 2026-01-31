@@ -24,7 +24,28 @@ The MCP server acts as a **local crypto-proxy**:
 
 ## Installation
 
-### Quick Start (npx)
+### One-Line Install (Recommended)
+
+The easiest way to configure Claude Code for vnsh:
+
+```bash
+curl -sL vnsh.dev/claude | sh
+```
+
+This script automatically:
+1. Configures the vnsh MCP server in Claude Code settings
+2. Adds instructions for Claude to recognize vnsh URLs
+3. Pre-caches the vnsh-mcp package
+
+After running, **restart Claude Code** for changes to take effect.
+
+---
+
+### Manual Installation
+
+If you prefer to configure manually:
+
+#### Quick Start (npx)
 
 No installation needed — use npx:
 

@@ -1,6 +1,37 @@
 Project: vnsh
 Identity: The Ephemeral Dropbox for AI. Philosophy: "Server-Side Blindness, Client-Side Sovereignty." Stack: Cloudflare Workers (Edge) + R2 (Storage) + MCP (Agent Integration). License: MIT.
 
+---
+
+## ⚠️ CRITICAL: vnsh URL Handling Rule
+
+**When you see a vnsh.dev URL (or any URL containing `#k=` and `&iv=`), you MUST:**
+
+1. **Use the `vnsh_read` MCP tool** to fetch and decrypt the content
+2. **DO NOT use WebFetch** - it will only return encrypted garbage
+3. **DO NOT use browser automation** - the decryption key in the URL fragment (#...) is never sent to the server
+
+**Why?** vnsh URLs are client-side encrypted. The decryption key is in the URL fragment (`#k=...&iv=...`), which browsers/fetch tools never send to servers. Only the local MCP tool can extract the key and decrypt locally.
+
+**URL Pattern to Match:**
+```
+https://vnsh.dev/v/{id}#k={key}&iv={iv}
+```
+
+**Correct Action:**
+```
+User: Look at this https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
+Claude: [Uses vnsh_read MCP tool with the full URL]
+```
+
+**Wrong Action:**
+```
+User: Look at this https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
+Claude: [Uses WebFetch] ← WRONG! Will get encrypted binary data
+```
+
+---
+
 1. Product Vision
 vnsh is a trustless infrastructure designed to solve the "Context Injection" problem in LLM workflows. It allows developers to securely pipe sensitive local context (logs, diffs, configs, images) into AI Agents (Claude Code, Cursor) via ephemeral, encrypted URLs.
 

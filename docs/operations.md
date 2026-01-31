@@ -75,6 +75,7 @@ echo "test" | openssl enc -aes-256-cbc -K $(openssl rand -hex 32) -iv $(openssl 
 | GET | `/sitemap.xml` | SEO sitemap | ✅ |
 | GET | `/og-image.png` | Social share image | ✅ |
 | GET | `/i` | CLI install script | ✅ |
+| GET | `/claude` | Claude Code integration install script | ✅ |
 | POST | `/api/drop` | Upload encrypted blob | ✅ |
 | GET | `/api/blob/:id` | Download blob | ✅ |
 | GET | `/v/:id` | Serve viewer HTML (preserves hash fragment) | ✅ |
@@ -460,7 +461,10 @@ cd worker && CLOUDFLARE_API_TOKEN="token" npx wrangler deploy
 # CLI
 curl -sL vnsh.dev/i | sh
 
-# MCP (add to .mcp.json)
+# Claude Code Integration (one-line setup)
+curl -sL vnsh.dev/claude | sh
+
+# MCP (manual - add to .mcp.json)
 {"mcpServers":{"vnsh":{"command":"npx","args":["-y","vnsh-mcp"]}}}
 ```
 
@@ -485,6 +489,7 @@ vn --ttl 1 temp.txt
 |-----|---------|
 | https://vnsh.dev | Website |
 | https://vnsh.dev/i | CLI installer |
+| https://vnsh.dev/claude | Claude Code integration installer |
 | https://vnsh.dev/health | Health check |
 | https://vnsh.dev/api/drop | Upload API |
 | https://vnsh.dev/api/blob/:id | Download API |

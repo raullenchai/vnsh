@@ -4,7 +4,8 @@
  * Endpoints:
  * - GET / - Serve unified app (landing + upload + viewer overlay)
  * - GET /v/:id - Redirect to /#v/{id} (preserves hash fragments)
- * - GET /i - Serve install script (text/plain)
+ * - GET /i - Serve CLI install script (text/plain)
+ * - GET /claude - Serve Claude Code integration install script
  * - POST /api/drop - Upload encrypted blob
  * - GET /api/blob/:id - Download encrypted blob
  */
@@ -367,6 +368,18 @@ export default {
       });
     }
 
+    // Route: GET/HEAD /claude - Serve Claude Code integration install script
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/claude') {
+      const body = request.method === 'GET' ? CLAUDE_INSTALL_SCRIPT : null;
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
+
     // Route: GET/HEAD / - Serve unified app
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
       const body = request.method === 'GET' ? APP_HTML : null;
@@ -683,6 +696,137 @@ printf "  %bvn config.yaml%b           # Encrypt file, get URL\\n" "\$CYAN" "\$N
 printf "  %bvn read \\"<url>\\"%b         # Decrypt and display\\n" "\$CYAN" "\$NC"
 echo ""
 echo "Keys stay in URL fragment - server never sees them."
+`;
+
+// Claude Code integration install script
+const CLAUDE_INSTALL_SCRIPT = `#!/bin/sh
+# ═══════════════════════════════════════════════════════════════════
+#  vnsh Claude Code Integration Installer
+#  https://vnsh.dev
+#  Configures Claude Code to automatically decrypt vnsh URLs
+# ═══════════════════════════════════════════════════════════════════
+
+set -e
+
+# Colors
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+CYAN='\\033[0;36m'
+YELLOW='\\033[1;33m'
+NC='\\033[0m'
+
+printf "%b" "\$CYAN"
+cat << 'LOGO'
+ ██╗   ██╗███╗   ██╗███████╗██╗  ██╗
+ ██║   ██║████╗  ██║██╔════╝██║  ██║
+ ██║   ██║██╔██╗ ██║███████╗███████║
+ ╚██╗ ██╔╝██║╚██╗██║╚════██║██╔══██║
+  ╚████╔╝ ██║ ╚████║███████║██║  ██║
+   ╚═══╝  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝
+LOGO
+printf "%b\\n" "\$NC"
+echo "Claude Code Integration Installer"
+echo ""
+
+# Check for Node.js
+if ! command -v node >/dev/null 2>&1; then
+  printf "%bError:%b Node.js is required but not installed\\n" "\$RED" "\$NC"
+  echo "Install from: https://nodejs.org/"
+  exit 1
+fi
+printf "%b✓%b Node.js found: %s\\n" "\$GREEN" "\$NC" "\$(node --version)"
+
+# Check for npx
+if ! command -v npx >/dev/null 2>&1; then
+  printf "%bError:%b npx is required but not installed\\n" "\$RED" "\$NC"
+  exit 1
+fi
+
+# Determine Claude settings directory
+CLAUDE_DIR="\$HOME/.claude"
+mkdir -p "\$CLAUDE_DIR"
+
+echo ""
+printf "%bStep 1:%b Configuring MCP Server...\\n" "\$CYAN" "\$NC"
+
+# Create or update MCP config
+MCP_CONFIG="\$CLAUDE_DIR/claude_desktop_config.json"
+
+if [ -f "\$MCP_CONFIG" ]; then
+  if grep -q '"vnsh"' "\$MCP_CONFIG" 2>/dev/null; then
+    printf "%b✓%b vnsh MCP already configured\\n" "\$GREEN" "\$NC"
+  else
+    # Check if jq is available for proper JSON editing
+    if command -v jq >/dev/null 2>&1; then
+      jq '.mcpServers.vnsh = {"command": "npx", "args": ["-y", "vnsh-mcp"]}' "\$MCP_CONFIG" > "\$MCP_CONFIG.tmp"
+      mv "\$MCP_CONFIG.tmp" "\$MCP_CONFIG"
+      printf "%b✓%b Added vnsh to existing MCP config\\n" "\$GREEN" "\$NC"
+    else
+      printf "%bWarning:%b jq not found. Please manually add vnsh to config.\\n" "\$YELLOW" "\$NC"
+      echo ""
+      echo "Add this to mcpServers in \$MCP_CONFIG:"
+      echo '  "vnsh": {"command": "npx", "args": ["-y", "vnsh-mcp"]}'
+    fi
+  fi
+else
+  cat > "\$MCP_CONFIG" << 'MCPEOF'
+{
+  "mcpServers": {
+    "vnsh": {
+      "command": "npx",
+      "args": ["-y", "vnsh-mcp"]
+    }
+  }
+}
+MCPEOF
+  printf "%b✓%b Created MCP config\\n" "\$GREEN" "\$NC"
+fi
+
+echo ""
+printf "%bStep 2:%b Adding Claude instructions...\\n" "\$CYAN" "\$NC"
+
+CLAUDE_MD="\$CLAUDE_DIR/CLAUDE.md"
+
+# Check if vnsh instruction already exists
+if [ -f "\$CLAUDE_MD" ] && grep -q "vnsh URL Handling" "\$CLAUDE_MD" 2>/dev/null; then
+  printf "%b✓%b vnsh instructions already in CLAUDE.md\\n" "\$GREEN" "\$NC"
+else
+  # Append vnsh instructions
+  cat >> "\$CLAUDE_MD" << 'INSTRUCTIONEOF'
+
+## vnsh URL Handling
+
+When you see a **vnsh.dev URL** (or any URL containing '#k=' and '&iv='):
+
+1. **Use the 'vnsh_read' MCP tool** to fetch and decrypt the content
+2. **DO NOT use WebFetch** - it returns encrypted data that cannot be read
+3. **DO NOT use browser tools** - the decryption key in the URL fragment is never sent to servers
+
+**URL Pattern:** https://vnsh.dev/v/{id}#k={key}&iv={iv}
+
+The key (#k=...) is in the URL fragment and only the local MCP tool can access it.
+INSTRUCTIONEOF
+  printf "%b✓%b Added vnsh instructions to CLAUDE.md\\n" "\$GREEN" "\$NC"
+fi
+
+echo ""
+printf "%bStep 3:%b Pre-caching vnsh-mcp...\\n" "\$CYAN" "\$NC"
+npx -y vnsh-mcp --version >/dev/null 2>&1 || true
+printf "%b✓%b vnsh-mcp is ready\\n" "\$GREEN" "\$NC"
+
+echo ""
+printf "%b═══════════════════════════════════════════════════════════════════%b\\n" "\$GREEN" "\$NC"
+printf "%b                    Installation Complete!                         %b\\n" "\$GREEN" "\$NC"
+printf "%b═══════════════════════════════════════════════════════════════════%b\\n" "\$GREEN" "\$NC"
+echo ""
+echo "Installed:"
+printf "  %b1.%b MCP config: %s\\n" "\$CYAN" "\$NC" "\$MCP_CONFIG"
+printf "  %b2.%b Instructions: %s\\n" "\$CYAN" "\$NC" "\$CLAUDE_MD"
+echo ""
+printf "%b⚠️  IMPORTANT:%b Restart Claude Code for changes to take effect\\n" "\$YELLOW" "\$NC"
+echo ""
+echo "Test by sending a vnsh link to Claude - it should auto-decrypt!"
+echo ""
 `;
 
 // robots.txt - Allow all crawlers
