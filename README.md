@@ -122,9 +122,30 @@ Create `.mcp.json` in your project root:
 
 Restart Claude Code after adding the config. Now Claude can:
 - **Read** vnsh links automatically when you paste them
-- **Share** large outputs via `vnsh_share` tool
+- **Share** large text outputs via `vnsh_share` tool
+- **Share files** (images, PDFs, binaries) via `vnsh_share_file` tool
 
-### Option 4: GitHub Action (CI/CD)
+### Option 4: Zero-Install (Remote Servers)
+
+**No installation needed.** Pipe anything from any server with just `curl` and `openssl`:
+
+```bash
+# One-liner: encrypt and upload from any machine
+cat error.log | bash <(curl -sL vnsh.dev/pipe)
+# https://vnsh.dev/v/a1b2c3d4...#k=...&iv=...
+
+# Works with any command
+kubectl logs pod/crash | bash <(curl -sL vnsh.dev/pipe)
+docker logs app 2>&1 | bash <(curl -sL vnsh.dev/pipe)
+journalctl -u nginx --since "1 hour ago" | bash <(curl -sL vnsh.dev/pipe)
+
+# Custom TTL (hours)
+cat secrets.env | bash <(curl -sL vnsh.dev/pipe?ttl=1)
+```
+
+Perfect for SSH sessions, CI runners, Docker containers — anywhere you can't install tools.
+
+### Option 5: GitHub Action (CI/CD)
 
 **Debug CI failures with Claude in one click.** When your CI fails, automatically upload logs and post a secure link to your PR.
 
@@ -270,6 +291,24 @@ Web viewer (serves HTML directly to preserve URL fragment with encryption keys).
 ### `GET /i`
 
 CLI installation script.
+
+### `GET /pipe`
+
+Zero-install pipe upload script. Returns a shell script that encrypts stdin and uploads it.
+
+```bash
+cat file.log | bash <(curl -sL vnsh.dev/pipe)
+```
+
+Query Parameters:
+
+| Parameter | Type   | Description                              |
+|-----------|--------|------------------------------------------|
+| `ttl`     | number | Time-to-live in hours (1-168, default: 24) |
+
+### `GET /claude`
+
+Claude Code MCP integration installer script.
 
 ## Security Model
 
