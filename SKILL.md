@@ -99,7 +99,7 @@ docker logs mycontainer 2>&1 | vn
 
 ### Recipe 1: User sends a vnsh link via chat
 ```
-User: "看看这个 https://vnsh.dev/v/abc123#k=dead...&iv=cafe..."
+User: "Check this out https://vnsh.dev/v/abc123#k=dead...&iv=cafe..."
 
 Your action:
 1. file_path = exec("~/.openclaw/skills/vnsh/scripts/read.sh 'https://vnsh.dev/v/abc123#k=dead...&iv=cafe...'")
@@ -114,7 +114,7 @@ Your action:
 Your action:
 1. Write content to /tmp/vnsh-share-XXXXX.txt
 2. url = exec("~/.openclaw/skills/vnsh/scripts/upload.sh /tmp/vnsh-share-XXXXX.txt")
-3. Reply: "内容比较长，我通过加密链接分享给您：\n📎 {url}\n\n简要概述：[2-3 sentence summary]"
+3. Reply: "The output is quite long, so I've shared it via an encrypted link:\n📎 {url}\n\nBrief summary: [2-3 sentence summary]"
 ```
 
 ### Recipe 3: Sharing between sessions/agents
@@ -128,12 +128,12 @@ Agent A needs to pass context to Agent B:
 
 ### Recipe 4: User wants to share with someone else
 ```
-User: "把这个分析发给我同事"
+User: "Send this analysis to my coworker"
 
 Your action:
 1. Write the analysis to a temp file
 2. Upload via upload.sh
-3. Reply: "已加密分享，链接24小时后自动过期，服务器无法看到内容：\n📎 {url}"
+3. Reply: "Shared securely. The link auto-expires in 24h and the server never sees the content:\n📎 {url}"
 ```
 
 ## Security Model
