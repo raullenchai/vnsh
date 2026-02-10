@@ -383,9 +383,26 @@ export default {
     }
 
     // Route: GET/HEAD /pipe - Zero-install pipe upload script
-    // Usage: cat file.log | curl -sL vnsh.dev/pipe | bash
+    // Usage: cat file.log | bash <(curl -sL vnsh.dev/pipe)
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/pipe') {
-      const body = request.method === 'GET' ? PIPE_SCRIPT : null;
+      // Parse optional TTL from query string
+      const ttlParam = url.searchParams.get('ttl');
+      const ttlInsert = ttlParam ? `TTL=${ttlParam}\n` : '';
+
+      // If browser, show usage page instead of raw script
+      const accept = request.headers.get('Accept') || '';
+      if (accept.includes('text/html')) {
+        return new Response(PIPE_USAGE_HTML, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+          },
+        });
+      }
+
+      const script = ttlInsert ? PIPE_SCRIPT.replace('set -e', `set -e\n${ttlInsert}`) : PIPE_SCRIPT;
+      const body = request.method === 'GET' ? script : null;
       return new Response(body, {
         status: 200,
         headers: {
@@ -489,7 +506,9 @@ if [ "\$SIZE" -gt 26214400 ]; then
   exit 1
 fi
 openssl enc -aes-256-cbc -K "\$KEY" -iv "\$IV" -in "\$TMP" -out "\$ENC" 2>/dev/null
-RESP=\$(curl -s -X POST --data-binary @"\$ENC" -H "Content-Type: application/octet-stream" "\$HOST/api/drop")
+_VN_TTL_QS=""
+if [ -n "\${TTL:-}" ]; then _VN_TTL_QS="?ttl=\$TTL"; fi
+RESP=\$(curl -s -X POST --data-binary @"\$ENC" -H "Content-Type: application/octet-stream" "\$HOST/api/drop\$_VN_TTL_QS")
 ID=\$(echo "\$RESP" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
 if [ -z "\$ID" ]; then
   echo "error: upload failed: \$RESP" >&2
@@ -497,6 +516,107 @@ if [ -z "\$ID" ]; then
 fi
 echo "\$HOST/v/\$ID#k=\$KEY&iv=\$IV"
 `;
+
+// Browser-friendly usage page for /pipe
+const PIPE_USAGE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vnsh /pipe — Zero-Install Encrypted Upload</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist Mono', monospace;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .container { max-width: 640px; width: 100%; }
+    h1 { font-size: 1.3rem; color: #22c55e; margin-bottom: 0.5rem; }
+    .subtitle { color: #a3a3a3; margin-bottom: 2rem; font-size: 0.85rem; }
+    .code-block {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      position: relative;
+    }
+    .code-block:hover { border-color: #22c55e; }
+    .code-block .prompt { color: #525252; }
+    .code-block code { color: #22c55e; }
+    .label { color: #525252; font-size: 0.75rem; margin-bottom: 0.5rem; }
+    .section { margin-bottom: 1.5rem; }
+    .note { color: #525252; font-size: 0.75rem; line-height: 1.6; margin-top: 2rem; }
+    a { color: #22c55e; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .badge { display: inline-block; background: rgba(34,197,94,0.15); color: #22c55e; padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.7rem; margin-left: 0.5rem; }
+    .copied { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); color: #22c55e; font-size: 0.75rem; display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>vnsh /pipe</h1>
+    <p class="subtitle">Zero-install encrypted upload. Works anywhere with curl + openssl.</p>
+
+    <div class="section">
+      <div class="label">// Upload from any server — no installation needed</div>
+      <div class="code-block" onclick="copy('cat error.log | bash <(curl -sL vnsh.dev/pipe)', this)">
+        <code><span class="prompt">$ </span>cat error.log | bash &lt;(curl -sL vnsh.dev/pipe)</code>
+        <span class="copied">✓ copied</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">// More examples</div>
+      <div class="code-block" onclick="copy('kubectl logs pod/crash | bash <(curl -sL vnsh.dev/pipe)', this)">
+        <code><span class="prompt">$ </span>kubectl logs pod/crash | bash &lt;(curl -sL vnsh.dev/pipe)</code>
+        <span class="copied">✓ copied</span>
+      </div>
+      <div class="code-block" onclick="copy('docker logs app 2>&1 | bash <(curl -sL vnsh.dev/pipe)', this)">
+        <code><span class="prompt">$ </span>docker logs app 2>&amp;1 | bash &lt;(curl -sL vnsh.dev/pipe)</code>
+        <span class="copied">✓ copied</span>
+      </div>
+      <div class="code-block" onclick="copy('journalctl -u nginx --since \\'1 hour ago\\' | bash <(curl -sL vnsh.dev/pipe)', this)">
+        <code><span class="prompt">$ </span>journalctl -u nginx --since "1h ago" | bash &lt;(curl -sL vnsh.dev/pipe)</code>
+        <span class="copied">✓ copied</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">// Custom expiry <span class="badge">1-168 hours</span></div>
+      <div class="code-block" onclick="copy('cat secrets.env | bash <(curl -sL vnsh.dev/pipe?ttl=1)', this)">
+        <code><span class="prompt">$ </span>cat secrets.env | bash &lt;(curl -sL vnsh.dev/pipe?ttl=1)</code>
+        <span class="copied">✓ copied</span>
+      </div>
+    </div>
+
+    <div class="note">
+      AES-256-CBC encryption happens locally. Server never sees your data.<br>
+      Keys stay in the URL fragment — never transmitted.<br><br>
+      <a href="/">← vnsh.dev</a> · <a href="https://github.com/raullenchai/vnsh">GitHub</a>
+    </div>
+  </div>
+  <script>
+    function copy(text, el) {
+      navigator.clipboard.writeText(text);
+      const c = el.querySelector('.copied');
+      c.style.display = 'inline';
+      setTimeout(() => c.style.display = 'none', 1500);
+    }
+  </script>
+</body>
+</html>`;
 
 // Install script (returned as text/plain)
 const INSTALL_SCRIPT = `#!/bin/sh
@@ -1995,6 +2115,12 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
         <div class="code-block" style="margin-bottom: 1rem;" onclick="copyCommand('npm install -g vnsh-cli', this)">
           <code><span class="prompt">$ </span>npm i -g vnsh-cli</code>
+          <button class="copy-btn" title="Copy">⧉</button>
+        </div>
+
+        <div class="section-label" style="margin-top: 1rem;">// Or: zero-install (any server)</div>
+        <div class="code-block" onclick="copyCommand('cat file.log | bash <(curl -sL vnsh.dev/pipe)', this)">
+          <code><span class="prompt">$ </span>cat file.log | bash &lt;(curl -sL vnsh.dev/pipe)</code>
           <button class="copy-btn" title="Copy">⧉</button>
         </div>
 
