@@ -5,10 +5,11 @@
  * - GET / - Serve unified app (landing + upload + viewer overlay)
  * - GET /v/:id - Serve app for viewer (preserves hash fragments)
  * - GET /i - Serve install script (text/plain)
- * - GET /pipe - Serve zero-install pipe upload script
- * - GET /claude - Serve Claude Code integration installer
- * - GET /skill.md - Serve OpenClaw skill file
- * - POST /api/drop - Upload encrypted blob
+ * - GET /pipe - Zero-install pipe upload script (browser: usage page)
+ * - GET /claude - Claude Code integration installer
+ * - GET /skill.md - OpenClaw skill file
+ * - GET /logo.svg - Logo for README embeds
+ * - POST /api/drop - Upload encrypted blob (GET returns 405)
  * - GET /api/blob/:id - Download encrypted blob
  */
 
@@ -334,8 +335,11 @@ export default {
     }
 
     // Route: POST /api/drop
-    if (request.method === 'POST' && path === '/api/drop') {
-      return handleDrop(request, env);
+    if (path === '/api/drop') {
+      if (request.method === 'POST') {
+        return handleDrop(request, env);
+      }
+      return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to upload', 405);
     }
 
     // Route: GET /api/blob/:id
@@ -450,6 +454,15 @@ export default {
       return new Response(ROBOTS_TXT, {
         status: 200,
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+      });
+    }
+
+    // Route: GET/HEAD /logo.svg - Logo for README and embeds
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/logo.svg') {
+      const body = request.method === 'GET' ? LOGO_SVG : null;
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' },
       });
     }
 
@@ -1176,8 +1189,20 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
+  <url>
+    <loc>https://vnsh.dev/pipe</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
 `;
+
+// Logo SVG for README and embeds
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="16" fill="#0a0a0a"/>
+  <text x="60" y="58" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace" font-size="36" font-weight="bold" fill="#22c55e">vnsh</text>
+  <text x="60" y="82" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace" font-size="11" fill="#525252">encrypted · ephemeral</text>
+</svg>`;
 
 // OG Image - SVG social card (1200x630)
 const OG_IMAGE_SVG = `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">

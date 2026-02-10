@@ -1,6 +1,6 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "mcpName": "io.github.raullenchai/vnsh",
   "description": "MCP server for vnsh - secure content sharing for Claude Code",
   "keywords": [
@@ -30,7 +30,10 @@
     "vnsh-mcp": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/crypto.js",
+    "dist/crypto.d.ts"
   ],
   "scripts": {
     "build": "tsc",
