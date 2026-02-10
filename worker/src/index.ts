@@ -3,8 +3,11 @@
  *
  * Endpoints:
  * - GET / - Serve unified app (landing + upload + viewer overlay)
- * - GET /v/:id - Redirect to /#v/{id} (preserves hash fragments)
+ * - GET /v/:id - Serve app for viewer (preserves hash fragments)
  * - GET /i - Serve install script (text/plain)
+ * - GET /pipe - Serve zero-install pipe upload script
+ * - GET /claude - Serve Claude Code integration installer
+ * - GET /skill.md - Serve OpenClaw skill file
  * - POST /api/drop - Upload encrypted blob
  * - GET /api/blob/:id - Download encrypted blob
  */
@@ -379,6 +382,19 @@ export default {
       });
     }
 
+    // Route: GET/HEAD /pipe - Zero-install pipe upload script
+    // Usage: cat file.log | curl -sL vnsh.dev/pipe | bash
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/pipe') {
+      const body = request.method === 'GET' ? PIPE_SCRIPT : null;
+      return new Response(body, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
+
     // Route: GET/HEAD /skill.md - Serve OpenClaw skill file for agent integration
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/skill.md') {
       const body = request.method === 'GET' ? SKILL_MD : null;
@@ -441,6 +457,46 @@ export default {
     return errorResponse('NOT_FOUND', 'Endpoint not found', 404, request);
   },
 };
+
+// Pipe script - zero-install upload from stdin
+// Usage: cat file.log | curl -sL vnsh.dev/pipe | bash
+// Or:    cat file.log | bash <(curl -sL vnsh.dev/pipe)
+const PIPE_SCRIPT = `#!/bin/sh
+# vnsh pipe mode - zero-install encrypted upload from stdin
+# Usage: cat file.log | bash <(curl -sL vnsh.dev/pipe)
+# Or:    some_cmd | curl -sL vnsh.dev/pipe | sh
+set -e
+HOST="\${VNSH_HOST:-https://vnsh.dev}"
+command -v openssl >/dev/null 2>&1 || { echo "error: openssl required" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "error: curl required" >&2; exit 1; }
+KEY=\$(openssl rand -hex 32)
+IV=\$(openssl rand -hex 16)
+TMP=\$(mktemp)
+ENC=\$(mktemp)
+trap "rm -f \$TMP \$ENC" EXIT INT TERM
+if [ -t 0 ]; then
+  echo "error: no stdin input. Usage: cat file | curl -sL vnsh.dev/pipe | bash" >&2
+  exit 1
+fi
+cat > "\$TMP"
+SIZE=\$(wc -c < "\$TMP" | tr -d ' ')
+if [ "\$SIZE" -eq 0 ]; then
+  echo "error: empty input" >&2
+  exit 1
+fi
+if [ "\$SIZE" -gt 26214400 ]; then
+  echo "error: input too large (\$SIZE bytes, max 25MB)" >&2
+  exit 1
+fi
+openssl enc -aes-256-cbc -K "\$KEY" -iv "\$IV" -in "\$TMP" -out "\$ENC" 2>/dev/null
+RESP=\$(curl -s -X POST --data-binary @"\$ENC" -H "Content-Type: application/octet-stream" "\$HOST/api/drop")
+ID=\$(echo "\$RESP" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+if [ -z "\$ID" ]; then
+  echo "error: upload failed: \$RESP" >&2
+  exit 1
+fi
+echo "\$HOST/v/\$ID#k=\$KEY&iv=\$IV"
+`;
 
 // Install script (returned as text/plain)
 const INSTALL_SCRIPT = `#!/bin/sh

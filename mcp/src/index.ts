@@ -7,7 +7,8 @@
  *
  * Tools:
  * - vnsh_read: Decrypt and read content from a vnsh URL
- * - vnsh_share: Encrypt and upload content, return shareable URL
+ * - vnsh_share: Encrypt and upload text content, return shareable URL
+ * - vnsh_share_file: Encrypt and upload a local file, return shareable URL
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -47,6 +48,12 @@ const ShareInputSchema = z.object({
   host: z.string().optional().describe('Override the Opaque host URL'),
 });
 
+const ShareFileInputSchema = z.object({
+  file_path: z.string().describe('Absolute path to the file to encrypt and share'),
+  ttl: z.number().optional().describe('Time-to-live in hours (default: 24, max: 168)'),
+  host: z.string().optional().describe('Override the vnsh host URL'),
+});
+
 // Create MCP server
 const server = new Server(
   {
@@ -84,9 +91,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'vnsh_share',
         description:
-          'Encrypts content locally and uploads it to vnsh, returning a shareable URL. ' +
-          'Use this when you need to share code, logs, or other content that is too long ' +
-          'to display in chat, or when the user wants to save content for later access. ' +
+          'Encrypts text content locally and uploads it to vnsh, returning a shareable URL. ' +
+          'Use this when output exceeds ~50 lines or ~2000 characters, when generating ' +
+          'complete code files, or when the user wants portable/shareable output. ' +
+          'ALWAYS prefer vnsh_share over dumping large content into chat. ' +
           'The content is encrypted before upload - the server only sees encrypted bytes.',
         inputSchema: {
           type: 'object',
@@ -107,6 +115,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['content'],
         },
       },
+      {
+        name: 'vnsh_share_file',
+        description:
+          'Encrypts a local file and uploads it to vnsh, returning a shareable URL. ' +
+          'Use this for images, screenshots, PDFs, binaries, or any file that should not ' +
+          'be loaded into context. More efficient than vnsh_share for large or binary files.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: {
+              type: 'string',
+              description: 'Absolute path to the file to encrypt and share',
+            },
+            ttl: {
+              type: 'number',
+              description: 'Time-to-live in hours (default: 24, max: 168)',
+            },
+            host: {
+              type: 'string',
+              description: 'Override the vnsh host URL',
+            },
+          },
+          required: ['file_path'],
+        },
+      },
     ],
   };
 });
@@ -120,6 +153,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await handleRead(args);
     } else if (name === 'vnsh_share') {
       return await handleShare(args);
+    } else if (name === 'vnsh_share_file') {
+      return await handleShareFile(args);
     } else {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
@@ -413,6 +448,92 @@ export async function handleShare(args: unknown) {
       blobId: data.id,
       expires: data.expires,
       size: encrypted.length,
+    },
+  };
+}
+
+/**
+ * Handle vnsh_share_file tool call
+ * @internal Exported for testing
+ */
+export async function handleShareFile(args: unknown) {
+  const { file_path: filePath, ttl, host: hostOverride } = ShareFileInputSchema.parse(args);
+
+  const host = hostOverride || DEFAULT_HOST;
+
+  // Resolve and validate path
+  const resolved = path.resolve(filePath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`File not found: ${resolved}`);
+  }
+
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) {
+    throw new Error(`Not a file: ${resolved}`);
+  }
+
+  if (stat.size > 25 * 1024 * 1024) {
+    throw new Error(`File too large: ${(stat.size / 1024 / 1024).toFixed(1)}MB (max 25MB)`);
+  }
+
+  if (stat.size === 0) {
+    throw new Error('File is empty');
+  }
+
+  // Read file as buffer
+  const fileBuffer = fs.readFileSync(resolved);
+
+  // Generate encryption key and IV
+  const key = generateKey();
+  const iv = generateIV();
+
+  // Encrypt the file content
+  const encrypted = encrypt(fileBuffer, key, iv);
+
+  // Build API URL with optional TTL
+  let apiUrl = `${host}/api/drop`;
+  if (ttl) {
+    apiUrl += `?ttl=${ttl}`;
+  }
+
+  // Upload to server
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+    },
+    body: new Uint8Array(encrypted),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Upload failed: HTTP ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json() as { id: string; expires: string };
+
+  // Build the shareable URL
+  const shareUrl = buildVnshUrl(host, data.id, key, iv);
+
+  const fileName = path.basename(resolved);
+  const sizeMB = (stat.size / 1024 / 1024).toFixed(2);
+  const sizeKB = (stat.size / 1024).toFixed(1);
+  const sizeStr = stat.size > 1024 * 1024 ? `${sizeMB}MB` : `${sizeKB}KB`;
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: `File encrypted and uploaded successfully.\n\n📎 ${fileName} (${sizeStr})\n\nShareable URL:\n${shareUrl}\n\nExpires: ${data.expires}\n\nThe decryption key is in the URL fragment (#k=...) and is never sent to the server.`,
+      },
+    ],
+    metadata: {
+      url: shareUrl,
+      blobId: data.id,
+      expires: data.expires,
+      size: encrypted.length,
+      fileName,
+      originalSize: stat.size,
     },
   };
 }
