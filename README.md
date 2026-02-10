@@ -28,6 +28,10 @@
 
 ## What is vnsh?
 
+<p align="center">
+  <img src="https://vhs.charm.sh/vhs-3Ex3csS9i3iMvjOVO7WJc5.gif" alt="vnsh demo" width="800" />
+</p>
+
 **Stop pasting walls of text into Claude.** Pipe your logs, diffs, and images into a secure, host-blind URL. The server sees nothing. The data vaporizes in 24 hours.
 
 ```bash
