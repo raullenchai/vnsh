@@ -1091,7 +1091,7 @@ curl -sL vnsh.dev/i | sh
 
 # Share text
 echo "Hello from Agent A" | vn
-# Output: https://vnsh.dev/v/{id}#k={key}&iv={iv}
+# Output: https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9...
 
 # Share file
 vn /path/to/image.png
@@ -1116,7 +1116,7 @@ RESPONSE=\$(curl -s -X POST \\
   -H "Content-Type: application/octet-stream" \\
   "https://vnsh.dev/api/drop")
 
-# Extract ID and build URL
+# Extract ID and build URL (v1 format - still supported)
 ID=\$(echo \$RESPONSE | sed -n 's/.*"id":"\\([^"]*\\)".*/\\1/p')
 echo "https://vnsh.dev/v/\${ID}#k=\${KEY}&iv=\${IV}"
 \`\`\`
@@ -1127,11 +1127,12 @@ echo "https://vnsh.dev/v/\${ID}#k=\${KEY}&iv=\${IV}"
 
 If you have vnsh-mcp installed, simply use:
 \`\`\`
-vnsh_read("https://vnsh.dev/v/{id}#k={key}&iv={iv}")
+vnsh_read("https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq...")
 \`\`\`
 
 ### Option 2: Manual Decrypt
 
+For v1 URLs (\`#k=...&iv=...\`):
 \`\`\`bash
 # Parse the URL
 URL="https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe..."
@@ -1145,6 +1146,8 @@ IV=\$(echo \$URL | sed 's|.*&iv=||')
 curl -s "https://vnsh.dev/api/blob/\${ID}" | \\
   openssl enc -d -aes-256-cbc -K \$KEY -iv \$IV
 \`\`\`
+
+For v2 URLs (compact format), use \`vn read <url>\` which handles both formats.
 
 ### Handling Binary Files (Images)
 
@@ -1163,7 +1166,7 @@ curl -s "https://vnsh.dev/api/blob/\${ID}" | \\
 \`\`\`
 Agent A:
   1. vn /path/to/chart.png
-  2. Sends URL to Agent B: "Here's my analysis: https://vnsh.dev/v/xxx#k=...&iv=..."
+  2. Sends URL to Agent B: "Here's my analysis: https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4..."
 
 Agent B:
   1. Receives URL
@@ -1203,13 +1206,13 @@ curl "https://vnsh.dev/api/blob/{id}"
 ## Security Model
 
 1. **Client-side encryption**: AES-256-CBC encryption happens locally
-2. **Fragment privacy**: Keys in URL fragment (\`#k=...\`) are never sent to server
+2. **Fragment privacy**: Keys in URL fragment (\`#secret\`) are never sent to server
 3. **Ephemeral**: Content auto-deletes after TTL (default 24h)
 4. **Zero-knowledge**: Server stores encrypted blobs, cannot decrypt
 
 ## Integration Tips
 
-- **Always** share the full URL including the \`#k=...&iv=...\` fragment
+- **Always** share the full URL including the \`#...\` fragment (the secret)
 - For large files, check the 25MB size limit
 - Images are auto-detected and saved to temp files when using MCP
 - vnsh URLs are safe to share in logs/chat - without the fragment, content is unrecoverable
@@ -2219,7 +2222,7 @@ const APP_HTML = `<!DOCTYPE html>
             <div class="line"><span class="output">https://vnsh.dev/v/b7c...#k=...</span></div>
             <div class="line" style="height: 0.5rem;"></div>
             <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Download: decrypt and view</span></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">vn read "https://vnsh.dev/v/...#k=...&iv=..."</span></div>
+            <div class="line"><span class="prompt">$ </span><span class="cmd">vn read "https://vnsh.dev/v/aBcD...#R_sI4..."</span></div>
             <div class="line"><span class="output">(decrypted content)</span></div>
           </div>
         </div>
