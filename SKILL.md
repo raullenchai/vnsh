@@ -1,6 +1,29 @@
 ---
 name: vnsh
+version: 1.0.0
 description: Securely share files via encrypted, expiring links. Use this skill to (1) upload a local file to get a secure vnsh.dev URL, or (2) read a vnsh.dev URL to decrypt and access its content.
+author: raullenchai
+license: MIT
+homepage: https://vnsh.dev
+repository: https://github.com/raullenchai/vnsh
+openclaw:
+  emoji: "🔐"
+  category: utilities
+  tags:
+    - encryption
+    - file-sharing
+    - ephemeral
+    - security
+    - zero-knowledge
+  requires:
+    bins:
+      - curl
+      - openssl
+  install:
+    - id: vnsh-cli
+      kind: shell
+      command: "curl -sL vnsh.dev/i | sh"
+      label: "Install vnsh CLI (vn command)"
 ---
 
 # vnsh Skill — Encrypted Ephemeral File Sharing
