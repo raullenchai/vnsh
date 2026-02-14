@@ -2650,7 +2650,7 @@ const APP_HTML = `<!DOCTYPE html>
     function displayVideo(bytes) {
       const fileType = detectFileType(bytes);
       const blob = new Blob([bytes], { type: fileType.mime });
-      viewerResult.innerHTML = '<video class="viewer-video" controls autoplay><source src="' + URL.createObjectURL(blob) + '" type="' + fileType.mime + '"></video>';
+      viewerResult.innerHTML = '<video class="viewer-video" controls autoplay muted playsinline><source src="' + URL.createObjectURL(blob) + '" type="' + fileType.mime + '"></video>';
     }
 
     function displayBinary(bytes) {
