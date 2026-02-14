@@ -64,9 +64,36 @@ export function bufferToHex(buffer: Buffer): string {
 }
 
 /**
+ * Convert base64url string to Buffer
+ */
+export function base64urlToBuffer(str: string): Buffer {
+  // Replace URL-safe chars with standard base64 chars
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  // Add padding if needed
+  const padded = base64 + '=='.slice(0, (4 - base64.length % 4) % 4);
+  return Buffer.from(padded, 'base64');
+}
+
+/**
+ * Convert Buffer to base64url string (no padding)
+ */
+export function bufferToBase64url(buffer: Buffer): string {
+  return buffer.toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+/**
  * Parse a vnsh URL to extract components
  *
- * URL format: https://host/v/{id}#k={key}&iv={iv}
+ * Supports two URL formats:
+ * - v2 (new): https://host/v/{shortId}#{base64url_secret}
+ *   - shortId: 12 chars base62
+ *   - secret: 64 chars base64url encoding key(32B) + iv(16B)
+ * - v1 (old): https://host/v/{uuid}#k={key}&iv={iv}
+ *   - uuid: 36 chars with dashes
+ *   - key: 64 hex chars, iv: 32 hex chars
  */
 export function parseVnshUrl(url: string): {
   host: string;
@@ -78,12 +105,13 @@ export function parseVnshUrl(url: string): {
   const [urlPart, fragment] = url.split('#');
 
   if (!fragment) {
-    throw new Error('Invalid vnsh URL: missing fragment (#k=...&iv=...)');
+    throw new Error('Invalid vnsh URL: missing fragment');
   }
 
   // Parse URL to get host and ID
   const urlObj = new URL(urlPart);
-  const pathMatch = urlObj.pathname.match(/^\/v\/([a-f0-9-]+)$/);
+  // Match both UUID (with dashes) and short base62 IDs
+  const pathMatch = urlObj.pathname.match(/^\/v\/([a-zA-Z0-9-]+)$/);
 
   if (!pathMatch) {
     throw new Error('Invalid vnsh URL: cannot extract blob ID from path');
@@ -92,7 +120,26 @@ export function parseVnshUrl(url: string): {
   const id = pathMatch[1];
   const host = urlObj.origin;
 
-  // Parse fragment for key and IV
+  // Detect format: v2 if fragment is exactly 64 chars base64url (no = sign except padding)
+  // v1 if fragment contains k= and iv= parameters
+  if (fragment.length === 64 && !fragment.includes('k=')) {
+    // v2 format: base64url encoded key+iv (48 bytes -> 64 chars)
+    try {
+      const secretBuffer = base64urlToBuffer(fragment);
+      if (secretBuffer.length === 48) {
+        return {
+          host,
+          id,
+          key: secretBuffer.slice(0, 32),
+          iv: secretBuffer.slice(32, 48),
+        };
+      }
+    } catch (e) {
+      // Fall through to v1 parsing
+    }
+  }
+
+  // v1 format: k=...&iv=... parameters
   const params = new URLSearchParams(fragment);
   const keyHex = params.get('k');
   const ivHex = params.get('iv');
@@ -114,10 +161,11 @@ export function parseVnshUrl(url: string): {
 }
 
 /**
- * Build a vnsh URL from components
+ * Build a vnsh URL from components (v2 format)
+ * Uses compact base64url encoding for key+iv
  */
 export function buildVnshUrl(host: string, id: string, key: Buffer, iv: Buffer): string {
-  const keyHex = bufferToHex(key);
-  const ivHex = bufferToHex(iv);
-  return `${host}/v/${id}#k=${keyHex}&iv=${ivHex}`;
+  const secret = Buffer.concat([key, iv]);
+  const secretBase64url = bufferToBase64url(secret);
+  return `${host}/v/${id}#${secretBase64url}`;
 }

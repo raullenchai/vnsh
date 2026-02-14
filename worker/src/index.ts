@@ -23,6 +23,35 @@ const MAX_BLOB_SIZE = 25 * 1024 * 1024; // 25MB
 const DEFAULT_TTL_HOURS = 24;
 const MAX_TTL_HOURS = 168; // 7 days
 
+// Base62 characters for short IDs (0-9, A-Z, a-z)
+const BASE62_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+/**
+ * Generate a 12-character base62 ID
+ * Provides ~71 bits of entropy (62^12 ≈ 3.2e21 combinations)
+ */
+function generateShortId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return Array.from(bytes).map(b => BASE62_CHARS[b % 62]).join('');
+}
+
+/**
+ * Check if an ID is the old UUID format or new short format
+ * UUID: 36 chars with dashes (e.g., 5db270c8-7fbf-443d-bfff-f93f3f9551b9)
+ * Short: 12 chars base62 (e.g., aBcDeFgHiJkL)
+ */
+function isValidBlobId(id: string): boolean {
+  // UUID format: 8-4-4-4-12 hex chars with dashes
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) {
+    return true;
+  }
+  // Short format: 12 base62 chars
+  if (/^[0-9A-Za-z]{12}$/.test(id)) {
+    return true;
+  }
+  return false;
+}
+
 // CORS headers for cross-origin access
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -170,8 +199,8 @@ async function handleDrop(request: Request, env: Env): Promise<Response> {
   const hasPayment = priceParam !== null && parseFloat(priceParam) > 0;
   const priceUSD = hasPayment ? parseFloat(priceParam) : undefined;
 
-  // Generate unique ID with collision check
-  let id: string = crypto.randomUUID();
+  // Generate unique short ID with collision check
+  let id: string = generateShortId();
   let attempts = 0;
   const maxAttempts = 3;
 
@@ -181,7 +210,7 @@ async function handleDrop(request: Request, env: Env): Promise<Response> {
     if (!existing) {
       break;
     }
-    id = crypto.randomUUID();
+    id = generateShortId();
     attempts++;
   }
 
@@ -343,15 +372,17 @@ export default {
     }
 
     // Route: GET /api/blob/:id
-    const blobMatch = path.match(/^\/api\/blob\/([a-f0-9-]+)$/);
-    if (request.method === 'GET' && blobMatch) {
+    // Supports both UUID format (old) and 12-char base62 format (new)
+    const blobMatch = path.match(/^\/api\/blob\/([a-zA-Z0-9-]+)$/);
+    if (request.method === 'GET' && blobMatch && isValidBlobId(blobMatch[1])) {
       return handleBlob(blobMatch[1], request, env);
     }
 
     // Route: GET /v/:id - Serve app directly (no redirect to preserve hash fragment)
-    // The hash fragment (#k=...&iv=...) contains encryption keys and must not be lost
-    const viewerMatch = path.match(/^\/v\/([a-f0-9-]+)$/);
-    if (request.method === 'GET' && viewerMatch) {
+    // The hash fragment contains encryption keys and must not be lost
+    // Supports both UUID format (old) and 12-char base62 format (new)
+    const viewerMatch = path.match(/^\/v\/([a-zA-Z0-9-]+)$/);
+    if (request.method === 'GET' && viewerMatch && isValidBlobId(viewerMatch[1])) {
       // Serve the same HTML - JavaScript will detect /v/:id path and extract keys from hash
       return new Response(APP_HTML, {
         status: 200,
@@ -527,7 +558,9 @@ if [ -z "\$ID" ]; then
   echo "error: upload failed: \$RESP" >&2
   exit 1
 fi
-echo "\$HOST/v/\$ID#k=\$KEY&iv=\$IV"
+# Build v2 URL with base64url encoded key+iv
+SECRET=\$(printf '%s%s' "\$KEY" "\$IV" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
+echo "\$HOST/v/\$ID#\$SECRET"
 `;
 
 // Browser-friendly usage page for /pipe
@@ -709,10 +742,10 @@ touch "\$RC_FILE" 2>/dev/null || true
 
 # The vn function - POSIX compatible, works on BSD (macOS) and GNU (Linux)
 VN_FUNCTION='
-# vnsh CLI v1.2.0 - Host-Blind Context Tunnel (https://vnsh.dev)
+# vnsh CLI v2.0.0 - Host-Blind Context Tunnel (https://vnsh.dev)
 vn() {
   _VN_HOST="\${VNSH_HOST:-https://vnsh.dev}"
-  _VN_VERSION="1.2.0"
+  _VN_VERSION="2.0.0"
 
   # Handle --version and --help flags
   case "\$1" in
@@ -746,20 +779,32 @@ vn() {
       return 1
     fi
     _VN_URL="\$1"
-    # Extract ID from URL path (handles /v/ID format)
-    _VN_ID=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*/v/\\([a-f0-9-]*\\).*|\\1|p")
-    # Extract key from hash fragment
-    _VN_KEY=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*k=\\([a-f0-9]*\\).*|\\1|p")
-    # Extract IV from hash fragment
-    _VN_IV=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*iv=\\([a-f0-9]*\\).*|\\1|p")
+    # Extract ID from URL path (handles /v/ID format - both UUID and short IDs)
+    _VN_ID=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*/v/\\([a-zA-Z0-9-]*\\).*|\\1|p")
+    # Extract fragment (everything after #)
+    _VN_FRAG=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#\\(.*\\)|\\1|p")
+    # Detect v2 format: 64 char base64url without k= or iv=
+    if [ -n "\$_VN_FRAG" ] && [ \${#_VN_FRAG} -eq 64 ] && ! printf "%s" "\$_VN_FRAG" | grep -q "="; then
+      # v2 format: decode base64url to get key+iv
+      _VN_B64=\$(printf "%s" "\$_VN_FRAG" | tr '\\-_' '+/')
+      _VN_PAD=\$((4 - \${#_VN_B64} % 4))
+      [ \$_VN_PAD -eq 4 ] && _VN_PAD=0
+      [ \$_VN_PAD -eq 1 ] && _VN_B64="\${_VN_B64}="
+      [ \$_VN_PAD -eq 2 ] && _VN_B64="\${_VN_B64}=="
+      [ \$_VN_PAD -eq 3 ] && _VN_B64="\${_VN_B64}==="
+      _VN_HEX=\$(printf "%s" "\$_VN_B64" | base64 -d 2>/dev/null | xxd -p | tr -d '\\n')
+      if [ \${#_VN_HEX} -eq 96 ]; then
+        _VN_KEY=\$(printf "%s" "\$_VN_HEX" | cut -c1-64)
+        _VN_IV=\$(printf "%s" "\$_VN_HEX" | cut -c65-96)
+      fi
+    else
+      # v1 format: k=...&iv=...
+      _VN_KEY=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*k=\\([a-f0-9]*\\).*|\\1|p")
+      _VN_IV=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*#.*iv=\\([a-f0-9]*\\).*|\\1|p")
+    fi
     if [ -z "\$_VN_ID" ] || [ -z "\$_VN_KEY" ] || [ -z "\$_VN_IV" ]; then
       echo "Error: Invalid or incomplete URL." >&2
-      if [ -n "\$_VN_KEY" ] && [ -z "\$_VN_IV" ]; then
-        echo "Hint: The &iv= part is missing. Did you forget to quote the URL?" >&2
-        echo "      vn read \\"https://vnsh.dev/v/...#k=...&iv=...\\"" >&2
-      else
-        echo "Expected: vn read \\"https://vnsh.dev/v/ID#k=KEY&iv=IV\\"" >&2
-      fi
+      echo "Expected: vn read \\"https://vnsh.dev/v/ID#SECRET\\"" >&2
       return 1
     fi
     # Fetch and decrypt with temp file cleanup trap (P1: prevents plaintext leakage)
@@ -776,7 +821,7 @@ vn() {
       echo "Error: Failed to fetch or decrypt" >&2
       trap - EXIT INT TERM
       _vn_cleanup
-      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
       unset -f _vn_cleanup 2>/dev/null
       return 1
     fi
@@ -789,7 +834,7 @@ vn() {
         echo "Save to file: vn read \\"<url>\\" > filename" >&2
         trap - EXIT INT TERM
         _vn_cleanup
-        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
         unset -f _vn_cleanup 2>/dev/null
         return 1
       fi
@@ -797,7 +842,7 @@ vn() {
     cat "\$_VN_TMP"
     trap - EXIT INT TERM
     _vn_cleanup
-    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION
+    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
     unset -f _vn_cleanup 2>/dev/null
     return 0
   fi
@@ -861,8 +906,10 @@ vn() {
     fi
     return 1
   fi
-  printf "%s/v/%s#k=%s&iv=%s\\n" "\$_VN_HOST" "\$_VN_ID" "\$_VN_KEY" "\$_VN_IV"
-  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP
+  # Build v2 URL with base64url encoded key+iv
+  _VN_SECRET=\$(printf "%s%s" "\$_VN_KEY" "\$_VN_IV" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
+  printf "%s/v/%s#%s\\n" "\$_VN_HOST" "\$_VN_ID" "\$_VN_SECRET"
+  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET
 }
 # vnsh CLI END
 '
@@ -2752,15 +2799,36 @@ const APP_HTML = `<!DOCTYPE html>
       setTimeout(updateTimer, 60000);
     }
 
-    // Hash routing - handles both /v/:id#k=...&iv=... and legacy /#v/:id&k=...&iv=...
+    // Hash routing - handles multiple URL formats:
+    // v2 (new): /v/{shortId}#{base64url_secret} - 64 chars base64url containing key+iv
+    // v1 (old): /v/{uuid}#k={hex}&iv={hex}
+    // legacy:   /#v/{uuid}&k={hex}&iv={hex}
     function handleHash() {
       const hash = location.hash.slice(1);
       const path = location.pathname;
 
-      // Check for /v/:id path format (new format from CLI)
-      const pathMatch = path.match(/^\\/v\\/([a-f0-9-]+)$/);
+      // Check for /v/:id path format
+      // Matches both UUID (with dashes) and short base62 IDs
+      const pathMatch = path.match(/^\\/v\\/([a-zA-Z0-9-]+)$/);
       if (pathMatch) {
         const id = pathMatch[1];
+
+        // Detect format: v2 if hash is exactly 64 chars base64url (no k= or iv=)
+        // v1 if hash contains k= and iv= parameters
+        if (hash && hash.length === 64 && !hash.includes('=')) {
+          // v2 format: hash is base64url encoded key+iv (48 bytes -> 64 chars)
+          try {
+            const secretBytes = base64urlToBytes(hash);
+            if (secretBytes.length === 48) {
+              const keyHex = bytesToHex(secretBytes.slice(0, 32));
+              const ivHex = bytesToHex(secretBytes.slice(32, 48));
+              showViewer(id, keyHex, ivHex);
+              return;
+            }
+          } catch (e) { /* fall through to v1 parsing */ }
+        }
+
+        // v1 format: k=...&iv=... parameters
         const params = new URLSearchParams(hash);
         const keyHex = params.get('k');
         const ivHex = params.get('iv');
@@ -2807,6 +2875,15 @@ const APP_HTML = `<!DOCTYPE html>
       const bytes = new Uint8Array(hex.length / 2);
       for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
       return bytes;
+    }
+    function base64urlToBytes(str) {
+      const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '=='.slice(0, (4 - base64.length % 4) % 4);
+      const binary = atob(padded);
+      return new Uint8Array([...binary].map(c => c.charCodeAt(0)));
+    }
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
     }
     function formatBytes(b) { return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB'; }
     function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }

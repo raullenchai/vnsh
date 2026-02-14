@@ -197,8 +197,9 @@ describe('buildVnshUrl', () => {
     const url = buildVnshUrl(host, id, key, iv);
     expect(url).toContain(host);
     expect(url).toContain(`/v/${id}`);
-    expect(url).toContain('#k=');
-    expect(url).toContain('&iv=');
+    expect(url).toContain('#');
+    // v2 format: 48 bytes base64url = 64 chars
+    expect(url.split('#')[1]).toHaveLength(64);
   });
 
   it('roundtrips with parseVnshUrl', () => {

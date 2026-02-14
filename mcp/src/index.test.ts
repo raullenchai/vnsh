@@ -274,11 +274,12 @@ describe('URL building and parsing roundtrip', () => {
 
     const url = buildVnshUrl(host, id, key, iv);
 
-    // URL should contain all components
+    // URL should contain all components (v2 format)
     expect(url).toContain(host);
     expect(url).toContain(id);
-    expect(url).toContain('#k=');
-    expect(url).toContain('&iv=');
+    expect(url).toContain('#');
+    // v2 format: 48 bytes base64url = 64 chars
+    expect(url.split('#')[1]).toHaveLength(64);
 
     // Parsing should recover original values
     const parsed = parseVnshUrl(url);
@@ -684,7 +685,9 @@ describe('handleShare', () => {
     expect(result.content[0].text).toContain(mockId);
     expect(result.metadata?.blobId).toBe(mockId);
     expect(result.metadata?.expires).toBe(mockExpires);
-    expect(result.metadata?.url).toContain('#k=');
+    // v2 format: 64-char base64url fragment
+    expect(result.metadata?.url).toContain('#');
+    expect((result.metadata?.url as string).split('#')[1]).toHaveLength(64);
   });
 
   it('handles upload failure', async () => {
@@ -768,14 +771,11 @@ describe('handleShare', () => {
 
     expect(url).toContain('vnsh.dev');
     expect(url).toContain(`/v/${mockId}`);
-    expect(url).toContain('#k=');
-    expect(url).toContain('&iv=');
+    expect(url).toContain('#'); // Fragment present
 
-    // Verify key and IV lengths
-    const keyPart = url.split('#k=')[1].split('&')[0];
-    const ivPart = url.split('&iv=')[1];
-    expect(keyPart).toHaveLength(64); // 32 bytes = 64 hex chars
-    expect(ivPart).toHaveLength(32);  // 16 bytes = 32 hex chars
+    // v2 format: 48 bytes (key+iv) base64url encoded = 64 chars
+    const fragment = url.split('#')[1];
+    expect(fragment).toHaveLength(64);
   });
 });
 

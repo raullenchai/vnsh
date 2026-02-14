@@ -53,7 +53,8 @@ describe('vnsh API', () => {
 
       expect(response.status).toBe(201);
       const body = await response.json() as { id: string; expires: string };
-      expect(body.id).toMatch(/^[a-f0-9-]{36}$/);
+      // New short ID format: 12 chars base62
+      expect(body.id).toMatch(/^[0-9A-Za-z]{12}$/);
       expect(body.expires).toBeDefined();
     });
 
@@ -251,7 +252,8 @@ describe('vnsh API', () => {
       // Verify JS handles both /v/:id path format AND legacy #v/:id hash format
       expect(html).toContain('location.pathname');
       expect(html).toContain('pathMatch');
-      expect(html).toContain('/^\\/v\\/([a-f0-9-]+)$/');
+      // Updated regex supports both UUID and short base62 IDs
+      expect(html).toContain('/^\\/v\\/([a-zA-Z0-9-]+)$/');
     });
 
     it('contains AI instructions for agents without MCP', async () => {

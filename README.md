@@ -37,7 +37,7 @@
 ```bash
 # Pipe anything to vnsh, get a secure link
 git diff | vn
-# https://vnsh.dev/v/a1b2c3d4...#k=...&iv=...
+# https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9QZ5xQB6hIRLWHVFa8v8
 ```
 
 ### Handles any context your AI needs:
@@ -57,7 +57,7 @@ Unlike Dropbox or pastebins, vnsh implements a **Zero-Access Architecture** with
 | Layer | What Happens |
 |-------|--------------|
 | **Encryption** | AES-256-CBC encryption happens entirely on your device |
-| **Transport** | Decryption keys travel only in the URL fragment (`#k=...`) — never sent to servers |
+| **Transport** | Decryption keys travel only in the URL fragment (`#secret`) — never sent to servers |
 | **Storage** | Server stores encrypted binary blobs with zero knowledge of contents |
 | **Vaporization** | Data auto-destructs after 24 hours. No history. No leaks. |
 
@@ -97,7 +97,7 @@ docker logs app | vn
 git diff HEAD~5 | vn
 
 # Read/decrypt a URL
-vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
+vn read "https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ..."
 
 # Custom expiry (1-168 hours)
 vn --ttl 1 temp-file.txt   # expires in 1 hour
@@ -136,7 +136,7 @@ Restart Claude Code after adding the config. Now Claude can:
 ```bash
 # One-liner: encrypt and upload from any machine
 cat error.log | bash <(curl -sL vnsh.dev/pipe)
-# https://vnsh.dev/v/a1b2c3d4...#k=...&iv=...
+# https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9...
 
 # Works with any command
 kubectl logs pod/crash | bash <(curl -sL vnsh.dev/pipe)
@@ -196,14 +196,15 @@ See [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) for full doc
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### URL Structure
+### URL Structure (v2 — compact format)
 
 ```
-https://vnsh.dev/v/a1b2c3d4-5678-90ab-cdef-1234567890ab#k=<64-char-key>&iv=<32-char-iv>
-                  └──────────────────────────────────┘ └─────────────────────────────┘
-                            Sent to server                    Never sent to server
-                            (blob identifier)                 (decryption material)
+https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9QZ5xQB6hIRLWHVFa8v8jYCFqgQIbsRJrtJze_nL5
+                  └────────────┘└────────────────────────────────────────────────────────────────────┘
+                  12-char ID     64-char base64url secret (key+iv, never sent to server)
 ```
+
+The v2 format reduces URL length by ~40% (from ~160 to ~95 characters). Legacy v1 URLs (`#k=...&iv=...`) are still fully supported.
 
 ## Self-Hosting
 

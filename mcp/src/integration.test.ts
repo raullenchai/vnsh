@@ -37,9 +37,10 @@ describe('End-to-End Encryption Flow', () => {
     // Step 2: Simulate upload (mock server returning ID)
     const mockId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 
-    // Step 3: Build shareable URL (key only in fragment)
+    // Step 3: Build shareable URL (v2 format: base64url encoded key+iv in fragment)
     const url = buildVnshUrl('https://vnsh.dev', mockId, key, iv);
-    expect(url).toContain('#k=');
+    expect(url).toContain('#'); // Fragment present
+    expect(url.split('#')[1].length).toBe(64); // 48 bytes base64url = 64 chars
     expect(url).not.toContain(originalContent);
 
     // Step 4: Parse URL (simulating recipient)
@@ -146,8 +147,13 @@ describe('URL Security', () => {
     expect(serverPart).toBe(`https://vnsh.dev/v/${testId}`);
     expect(serverPart).not.toContain(bufferToHex(key));
 
-    // Key is in fragment
-    expect(fragment).toContain(bufferToHex(key));
+    // Fragment contains base64url encoded key+iv (v2 format)
+    // The secret is 48 bytes (key+iv) base64url encoded = 64 chars
+    expect(fragment.length).toBe(64);
+    // Verify round-trip works: parse the URL and check key matches
+    const parsed = parseVnshUrl(url);
+    expect(parsed.key.equals(key)).toBe(true);
+    expect(parsed.iv.equals(iv)).toBe(true);
   });
 
   it('URL parsing preserves exact key and IV', () => {
