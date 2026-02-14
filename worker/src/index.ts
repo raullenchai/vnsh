@@ -161,6 +161,52 @@ function ERROR_HTML(code: string, message: string, status: number): string {
 </html>`;
 }
 
+// Rate limiting via KV counters
+const RATE_LIMITS = {
+  upload: { limit: 50, windowSeconds: 3600 },   // 50 uploads per hour
+  read:   { limit: 50, windowSeconds: 60 },      // 50 reads per minute
+} as const;
+
+async function checkRateLimit(
+  ip: string,
+  action: keyof typeof RATE_LIMITS,
+  env: Env,
+): Promise<{ allowed: boolean; remaining: number }> {
+  const { limit, windowSeconds } = RATE_LIMITS[action];
+  const key = `rl:${action}:${ip}`;
+  const raw = await env.VNSH_META.get(key);
+  const count = raw ? parseInt(raw) : 0;
+
+  if (count >= limit) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  // Increment counter (fire-and-forget for performance)
+  await env.VNSH_META.put(key, String(count + 1), {
+    expirationTtl: windowSeconds,
+  });
+  return { allowed: true, remaining: limit - count - 1 };
+}
+
+function rateLimitResponse(action: keyof typeof RATE_LIMITS): Response {
+  const { windowSeconds } = RATE_LIMITS[action];
+  return new Response(
+    JSON.stringify({ error: 'RATE_LIMITED', message: 'Too many requests' }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Retry-After': String(windowSeconds),
+        ...corsHeaders,
+      },
+    },
+  );
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get('CF-Connecting-IP') || 'unknown';
+}
+
 // Handle CORS preflight
 function handleOptions(): Response {
   return new Response(null, {
@@ -366,6 +412,9 @@ export default {
     // Route: POST /api/drop
     if (path === '/api/drop') {
       if (request.method === 'POST') {
+        const ip = getClientIp(request);
+        const rl = await checkRateLimit(ip, 'upload', env);
+        if (!rl.allowed) return rateLimitResponse('upload');
         return handleDrop(request, env);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to upload', 405);
@@ -375,6 +424,9 @@ export default {
     // Supports both UUID format (old) and 12-char base62 format (new)
     const blobMatch = path.match(/^\/api\/blob\/([a-zA-Z0-9-]+)$/);
     if (request.method === 'GET' && blobMatch && isValidBlobId(blobMatch[1])) {
+      const ip = getClientIp(request);
+      const rl = await checkRateLimit(ip, 'read', env);
+      if (!rl.allowed) return rateLimitResponse('read');
       return handleBlob(blobMatch[1], request, env);
     }
 
