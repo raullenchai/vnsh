@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 440px; height: 280px;
+    background: #0a0a0a;
+    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e5e5e5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at 1px 1px, #1a1a1a 1px, transparent 0);
+    background-size: 32px 32px;
+    opacity: 0.4;
+  }
+  .content {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+  }
+  .logo {
+    font-size: 44px;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .tagline {
+    font-size: 14px;
+    color: #a3a3a3;
+    line-height: 1.6;
+  }
+  .tagline strong {
+    color: #fff;
+  }
+  .badge {
+    margin-top: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    border-radius: 6px;
+    font-size: 11px;
+    color: #22c55e;
+  }
+</style>
+</head>
+<body>
+  <div class="content">
+    <div class="logo">vnsh</div>
+    <div class="tagline">
+      <strong>Encrypt and share anything.</strong><br>
+      Server-blind. Vaporizes in 24h.
+    </div>
+    <div class="badge">AES-256-CBC &middot; Zero-knowledge &middot; Open source</div>
+  </div>
+</body>
+</html>

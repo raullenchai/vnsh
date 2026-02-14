@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; }
+  body { width: 128px; height: 128px; background: #0a0a0a; display: flex; align-items: center; justify-content: center; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .icon {
+    width: 128px;
+    height: 128px;
+    background: linear-gradient(135deg, #0a0a0a 0%, #111111 100%);
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .icon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 24px;
+    border: 2px solid #2a2a2a;
+  }
+  .text {
+    font-size: 42px;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+  <div class="icon">
+    <span class="text">>_</span>
+  </div>
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1280px; height: 800px;
+    background: #0a0a0a;
+    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #e5e5e5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .container {
+    display: flex;
+    gap: 60px;
+    align-items: center;
+    padding: 0 80px;
+  }
+  .left {
+    flex: 1;
+  }
+  .logo {
+    font-size: 56px;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: 2px;
+    margin-bottom: 16px;
+  }
+  .tagline {
+    font-size: 22px;
+    color: #a3a3a3;
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+  .tagline strong {
+    color: #fff;
+  }
+  .features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .features li {
+    font-size: 15px;
+    color: #a3a3a3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .features li .dot {
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .features li strong {
+    color: #e5e5e5;
+  }
+  .right {
+    width: 420px;
+    flex-shrink: 0;
+  }
+  /* Simulated popup */
+  .popup {
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .popup-header {
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .popup-logo {
+    font-size: 20px;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: 1px;
+  }
+  .popup-tagline {
+    font-size: 11px;
+    color: #525252;
+    margin-top: 2px;
+  }
+  .popup-tabs {
+    display: flex;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .popup-tab {
+    flex: 1;
+    padding: 10px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #3f3f3f;
+  }
+  .popup-tab.active {
+    color: #22c55e;
+    font-weight: 700;
+    border-bottom: 2px solid #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+  }
+  .popup-body {
+    padding: 14px 18px;
+  }
+  .popup-textarea {
+    width: 100%;
+    height: 90px;
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: inherit;
+    font-size: 11px;
+    color: #a3a3a3;
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+  }
+  .popup-options {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0;
+    font-size: 11px;
+    color: #525252;
+  }
+  .popup-select {
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    color: #e5e5e5;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .popup-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .popup-btn {
+    padding: 9px 14px;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .popup-btn.primary {
+    background: #22c55e;
+    color: #000;
+    flex: 1;
+  }
+  .popup-btn.accent {
+    background: #f97316;
+    color: #fff;
+    flex: 1;
+  }
+  .popup-btn.secondary {
+    background: #111111;
+    color: #e5e5e5;
+    border: 1px solid #2a2a2a;
+  }
+  .popup-result {
+    margin-top: 12px;
+    padding: 10px;
+    background: #111111;
+    border: 1px solid #22c55e;
+    border-radius: 6px;
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.15);
+  }
+  .popup-result-label {
+    font-size: 10px;
+    color: #22c55e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .popup-result-url {
+    width: 100%;
+    background: #0a0a0a;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    color: #e5e5e5;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 6px 8px;
+    outline: none;
+  }
+  /* Subtle grid bg */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at 1px 1px, #1a1a1a 1px, transparent 0);
+    background-size: 40px 40px;
+    opacity: 0.4;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="left">
+      <div class="logo">vnsh</div>
+      <div class="tagline">
+        <strong>Encrypt and share anything.</strong><br>
+        Server-blind. Vaporizes in 24h.
+      </div>
+      <ul class="features">
+        <li><span class="dot"></span> <strong>Right-click share</strong> -select text, get encrypted link</li>
+        <li><span class="dot"></span> <strong>Debug bundle</strong> -screenshot + errors + context in one link</li>
+        <li><span class="dot"></span> <strong>Screenshot share</strong> -capture page, encrypt, share</li>
+        <li><span class="dot"></span> <strong>Link preview</strong> -hover vnsh links to see decrypted content</li>
+        <li><span class="dot"></span> <strong>Zero-knowledge</strong> -AES-256-CBC, keys never leave your browser</li>
+        <li><span class="dot"></span> <strong>Open source</strong> -MIT licensed, fully auditable</li>
+      </ul>
+    </div>
+    <div class="right">
+      <div class="popup">
+        <div class="popup-header">
+          <div class="popup-logo">vnsh</div>
+          <div class="popup-tagline">The Ephemeral Dropbox for AI</div>
+        </div>
+        <div class="popup-tabs">
+          <div class="popup-tab active">Share</div>
+          <div class="popup-tab">Saved</div>
+          <div class="popup-tab">History</div>
+        </div>
+        <div class="popup-body">
+          <div class="popup-textarea">const app = express();
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+// TypeError: app.listen is not a function</div>
+          <div class="popup-options">
+            <span>TTL</span>
+            <span class="popup-select">24 hours</span>
+          </div>
+          <div class="popup-actions">
+            <div class="popup-btn primary">Share</div>
+            <div class="popup-btn accent">Debug Bundle</div>
+            <div class="popup-btn secondary">Screenshot</div>
+          </div>
+          <div class="popup-result">
+            <div class="popup-result-label">Link copied!</div>
+            <div class="popup-result-url">https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
