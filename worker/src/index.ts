@@ -2656,10 +2656,12 @@ const APP_HTML = `<!DOCTYPE html>
       video.controls = true;
       video.muted = true;
       video.playsInline = true;
+      video.autoplay = true;
+      video.oncanplay = function() { video.play().catch(function(){}); };
       video.src = url;
+      video.load();
       viewerResult.innerHTML = '';
       viewerResult.appendChild(video);
-      video.play().catch(() => {});
     }
 
     function displayBinary(bytes) {
