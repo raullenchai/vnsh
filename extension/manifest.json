@@ -25,7 +25,23 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://*.github.com/*",
+        "https://*.gitlab.com/*",
+        "https://*.slack.com/*",
+        "https://*.discord.com/*",
+        "https://*.notion.so/*",
+        "https://*.linear.app/*",
+        "https://*.stackoverflow.com/*",
+        "https://*.stackexchange.com/*",
+        "https://*.reddit.com/*",
+        "https://*.twitter.com/*",
+        "https://*.x.com/*",
+        "https://*.claude.ai/*",
+        "https://*.chatgpt.com/*",
+        "https://*.vnsh.dev/*",
+        "https://vnsh.dev/*"
+      ],
       "js": ["content/detector.js"],
       "css": ["content/detector.css"],
       "run_at": "document_idle"
