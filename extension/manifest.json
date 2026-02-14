@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "vnsh — AI Debug Sharing",
+  "name": "vnsh — Encrypted Sharing for AI",
   "version": "1.0.0",
-  "description": "One-click encrypted debug bundles for AI. Share text, screenshots, console errors via ephemeral URLs.",
+  "description": "The Ephemeral Dropbox for AI. Encrypt and share text, images, and logs via self-destructing URLs. Server-blind. Vaporizes in 24h.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
