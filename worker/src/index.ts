@@ -2650,7 +2650,16 @@ const APP_HTML = `<!DOCTYPE html>
     function displayVideo(bytes) {
       const fileType = detectFileType(bytes);
       const blob = new Blob([bytes], { type: fileType.mime });
-      viewerResult.innerHTML = '<video class="viewer-video" controls autoplay muted playsinline><source src="' + URL.createObjectURL(blob) + '" type="' + fileType.mime + '"></video>';
+      const url = URL.createObjectURL(blob);
+      const video = document.createElement('video');
+      video.className = 'viewer-video';
+      video.controls = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.src = url;
+      viewerResult.innerHTML = '';
+      viewerResult.appendChild(video);
+      video.play().catch(() => {});
     }
 
     function displayBinary(bytes) {
