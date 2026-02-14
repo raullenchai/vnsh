@@ -459,6 +459,17 @@ export default {
       });
     }
 
+    // Route: GET /privacy - Privacy policy (for Chrome Web Store)
+    if (request.method === 'GET' && path === '/privacy') {
+      return new Response(PRIVACY_HTML, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    }
+
     // Route: GET/HEAD / - Serve unified app
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
       const body = request.method === 'GET' ? APP_HTML : null;
@@ -562,6 +573,71 @@ fi
 SECRET=\$(printf '%s%s' "\$KEY" "\$IV" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
 echo "\$HOST/v/\$ID#\$SECRET"
 `;
+
+// Privacy policy page (for Chrome Web Store listing)
+const PRIVACY_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — vnsh</title>
+<style>
+  body { background: #0a0a0a; color: #e5e5e5; font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; line-height: 1.8; max-width: 680px; margin: 0 auto; padding: 40px 24px; }
+  h1 { color: #22c55e; font-size: 28px; margin-bottom: 8px; }
+  h2 { color: #e5e5e5; font-size: 18px; margin-top: 32px; margin-bottom: 12px; border-bottom: 1px solid #2a2a2a; padding-bottom: 8px; }
+  p, li { color: #a3a3a3; }
+  strong { color: #e5e5e5; }
+  a { color: #22c55e; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #2a2a2a; font-size: 13px; }
+  th { color: #e5e5e5; }
+  td { color: #a3a3a3; }
+  .meta { color: #525252; font-size: 12px; margin-bottom: 32px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="meta">vnsh Chrome Extension &mdash; Effective February 14, 2026</p>
+
+<h2>Overview</h2>
+<p>The vnsh Chrome Extension is built on a <strong>zero-knowledge architecture</strong>. We cannot access, read, or decrypt your data.</p>
+
+<h2>Data Encryption</h2>
+<p>All data is encrypted <strong>locally in your browser</strong> using AES-256-CBC via the Web Crypto API before any transmission. The decryption key is embedded in the URL fragment (<code>#...</code>) and is never sent to our servers.</p>
+<p>The vnsh.dev server receives only encrypted binary blobs and metadata (blob size, upload timestamp, expiration time). <strong>The server has zero knowledge of your data&rsquo;s content.</strong></p>
+
+<h2>Data Storage</h2>
+<p>Encrypted blobs are stored temporarily on vnsh.dev servers with a default retention of 24 hours. After expiration, data is permanently deleted and mathematically irretrievable.</p>
+
+<h2>Local Storage</h2>
+<p>The extension uses <code>chrome.storage.local</code> for saved snippets and share history. This data never leaves your device.</p>
+
+<h2>Data Collection</h2>
+<p>We do <strong>not</strong> collect personal information, usage analytics, telemetry, or browsing history. We use <strong>no</strong> third-party tracking, analytics, or advertising services.</p>
+
+<h2>Permissions</h2>
+<table>
+<tr><th>Permission</th><th>Purpose</th></tr>
+<tr><td>contextMenus</td><td>Right-click share and debug bundle actions</td></tr>
+<tr><td>activeTab</td><td>Capture screenshot and selected text from current tab</td></tr>
+<tr><td>notifications</td><td>Show confirmation after sharing</td></tr>
+<tr><td>storage</td><td>Local snippet and history storage (device only)</td></tr>
+<tr><td>scripting</td><td>Inject error collector for debug bundles</td></tr>
+<tr><td>offscreen</td><td>Clipboard fallback on restricted pages</td></tr>
+</table>
+
+<h2>Open Source</h2>
+<p>Full source code: <a href="https://github.com/raullenchai/vnsh">github.com/raullenchai/vnsh</a></p>
+
+<h2>Contact</h2>
+<p>For privacy questions: <a href="https://github.com/raullenchai/vnsh/issues">github.com/raullenchai/vnsh/issues</a></p>
+
+<p style="margin-top:40px;color:#525252;font-size:12px;">MIT License. Server-Side Blindness, Client-Side Sovereignty.</p>
+</body>
+</html>`;
 
 // Browser-friendly usage page for /pipe
 const PIPE_USAGE_HTML = `<!DOCTYPE html>
