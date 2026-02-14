@@ -2,6 +2,15 @@
 
 All notable changes to vnsh are documented in this file.
 
+## [Unreleased]
+
+### Added
+- **R2 orphan blob cleanup**: Daily Cron Trigger at 03:00 UTC scans all R2 objects and deletes expired blobs. Legacy objects without `expiresAt` metadata are deleted after 8 days (max TTL is 7 days). Prevents unbounded R2 storage cost growth.
+- **Application-level rate limiting**: KV-based sliding window counters with TTL auto-expiry. `POST /api/drop` limited to 50 uploads/hour per IP, `GET /api/blob/:id` limited to 50 reads/minute per IP. Returns `429 Too Many Requests` with `Retry-After` header when exceeded.
+- **Scaling & revenue plan**: Documented 4-phase roadmap in `docs/scaling-revenue.md` covering foundation (rate limiting, analytics, client ID), freemium gate (API keys, tier structure, Stripe), x402 AI payments, and team/enterprise tiers.
+
+---
+
 ## [2.1.0] - 2026-02-14
 
 ### Added

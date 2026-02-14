@@ -10,7 +10,7 @@ The core challenge: file-sharing services that scale without revenue cannot sust
 
 | Area | Status |
 |------|--------|
-| Rate limiting | None (relies on Cloudflare WAF) |
+| Rate limiting | **Done** — 50 uploads/hour, 50 reads/min per IP (KV-based) |
 | Usage analytics | None (no counters, no telemetry) |
 | Revenue | None (x402 payment code is stubbed but unimplemented) |
 | R2 orphan cleanup | **Done** — daily cron at 03:00 UTC deletes expired blobs |
@@ -246,7 +246,7 @@ The ephemeral nature (24h default TTL) and free R2 egress make vnsh dramatically
 | # | Item | Effort | Revenue Impact | Status |
 |---|------|--------|---------------|--------|
 | 1 | R2 orphan cleanup | 2 days | Cost prevention | **Done** |
-| 2 | Rate limiting | 1 day | Abuse prevention | Pending |
+| 2 | Rate limiting | 1 day | Abuse prevention | **Done** |
 | 3 | Usage analytics | 2 days | Decision data | Pending |
 | 4 | Client ID headers | 0.5 days | Attribution | Pending |
 | 5 | API key system | 3 days | Gate for paid features | Pending |
@@ -256,7 +256,7 @@ The ephemeral nature (24h default TTL) and free R2 egress make vnsh dramatically
 | 9 | Stripe per-blob payment | 5 days | Micropayment revenue | Pending |
 | 10 | MCP `vnsh_pay` tool | 2 days | Agent-native payments | Pending |
 
-Recommended order: **1-4** (foundation, ~1 week) → **5-7** (freemium, ~1 week) → **8-10** (x402, ~2 weeks). Total: ~4-5 weeks to first revenue.
+Recommended order: **3-4** (remaining foundation, ~3 days) → **5-7** (freemium, ~1 week) → **8-10** (x402, ~2 weeks). Total: ~3-4 weeks to first revenue.
 
 ---
 
