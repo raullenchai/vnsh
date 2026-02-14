@@ -73,3 +73,24 @@ Added `trap` for automatic temp file cleanup on EXIT/INT/TERM signals. Previousl
 - Web viewer with client-side decryption
 - 24-hour default TTL with configurable expiry (1-168 hours)
 - x402 payment protocol support (proposed)
+
+## [2.0.0] - 2026-02-14
+
+### Added
+- **v2 URL Format**: Compact URLs that are ~40% shorter (~95 chars vs ~160 chars)
+  - 12-character base62 IDs (replacing 36-char UUIDs)
+  - 64-character base64url secret (key+iv combined, replacing `#k=...&iv=...`)
+- `generateShortId()` in Worker for base62 ID generation
+- `base64urlToBuffer()` / `bufferToBase64url()` in MCP crypto utilities
+- `hex_to_base64url()` / `base64url_to_hex()` in CLI
+
+### Changed
+- CLI version bumped to 2.0.0
+- MCP version bumped to 1.2.0
+- All components now output v2 format URLs
+- Updated skill.md examples to v2 format
+- Updated README.md with v2 URL documentation
+
+### Backward Compatibility
+- Full support for v1 URLs (`#k=...&iv=...`) in all components
+- Existing links continue to work without any changes
