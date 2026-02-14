@@ -29,7 +29,7 @@ Paste the link to any AI assistant (Claude, ChatGPT, etc.) and it gets the compl
 - **History tab** - Recent shares with expiry countdown
 
 ### Link Enhancement
-Detects `vnsh.dev` links on any page and shows a decrypted preview tooltip on hover. Works on Slack, GitHub, Discord, and other dynamic content via MutationObserver.
+Detects `vnsh.dev` links and shows a decrypted preview tooltip on hover. Runs on GitHub, GitLab, Slack, Discord, Notion, Linear, Stack Overflow, Reddit, X/Twitter, Claude AI, ChatGPT, and vnsh.dev. Uses MutationObserver for dynamic content.
 
 ### Keyboard Shortcuts
 | Shortcut | Action |
@@ -85,8 +85,8 @@ Each entry point is built as a self-contained IIFE bundle using Vite. No shared 
 ### Setup
 
 ```bash
-git clone https://github.com/raullenchai/vnsh-extension.git
-cd vnsh-extension
+git clone https://github.com/raullenchai/vnsh.git
+cd vnsh/extension
 npm install
 ```
 
@@ -110,13 +110,18 @@ npm run package    # Build + create vnsh-extension.zip
 ### Testing
 
 ```bash
-# Run all tests
+# Run all tests (48 tests)
 npm test
+
+# Run with coverage (93%+ statements)
+npm run test:cov
 
 # Tests cover:
 # - Crypto: encrypt/decrypt roundtrips, known vectors, unicode, wrong key detection
 # - URL: v1/v2 parsing, building, roundtrip, validation
 # - Bundle: creation, optional fields, size limits, detection, parsing
+# - API: upload/download, error handling (404, 410, 402, 500), TTL params
+# - Storage: history CRUD, snippet CRUD, expiry pruning, ID generation
 ```
 
 ## Publishing to Chrome Web Store
@@ -164,6 +169,23 @@ npm test
 - **Fragment-only keys**: The decryption key is in the URL fragment (`#`), which browsers never send to servers.
 - **Ephemeral**: Data auto-expires (default 24h). After expiry, the ciphertext is deleted from storage.
 - **No analytics**: No tracking, no telemetry, no external scripts. Strict CSP.
+
+### Store Assets
+
+Pre-built Chrome Web Store assets are in `store-assets/`:
+
+```bash
+# Regenerate PNGs from HTML templates (requires puppeteer)
+npm install puppeteer --no-save
+node store-assets/generate.mjs
+```
+
+| File | Size | Purpose |
+|------|------|---------|
+| `icon-128.png` | 128x128 | Store icon |
+| `screenshot-1280x800.png` | 1280x800 | Store screenshot |
+| `promo-440x280.png` | 440x280 | Small promo tile |
+| `privacy-practices.md` | - | CWS Privacy tab answers |
 
 ## Related
 

@@ -157,7 +157,7 @@ Perfect for SSH sessions, CI runners, Docker containers — anywhere you can't i
 - **`Cmd+Shift+D`** → **AI Debug Bundle** (screenshot + console errors + selected text + URL, all encrypted)
 - **Hover** over vnsh links on any page → see decrypted preview tooltip
 
-Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/vnsh) or build from source:
+Build from source or install from the Chrome Web Store (pending review):
 
 ```bash
 cd extension && npm install && npm run build
@@ -410,14 +410,20 @@ npm install
 cd worker && npm install
 cd ../mcp && npm install
 
-# Run tests (143 tests, 82%+ coverage)
-npm test
+# Run tests
+npm test                          # Worker + MCP tests
+cd extension && npm test          # Extension tests (48 tests, 93%+ coverage)
+cd extension && npm run test:cov  # Extension tests with coverage
 
 # Start local worker
 cd worker && npm run dev
 
 # Build MCP server
 cd mcp && npm run build
+
+# Build extension
+cd extension && npm install && npm run build
+# Load extension/dist/ as unpacked in chrome://extensions/
 ```
 
 ## Contributing

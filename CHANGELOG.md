@@ -2,6 +2,30 @@
 
 All notable changes to vnsh are documented in this file.
 
+## [2.1.0] - 2026-02-14
+
+### Added
+- **Chrome Extension v1.0.0**: Full-featured Manifest V3 Chrome Extension for encrypted sharing
+  - Right-click context menu: "Share via vnsh", "AI Debug Bundle", "Share image", "Save to vnsh"
+  - AI Debug Bundle: one-click capture of screenshot + console errors + selected text + page URL into a single encrypted link
+  - Popup panel with 3 tabs: Share (text input, file drag & drop, TTL), Saved (local snippets), History (recent shares with expiry countdown)
+  - Screenshot sharing via `Cmd+Shift+S`
+  - Link enhancement: hover preview tooltips on vnsh links (GitHub, Slack, Discord, Notion, Linear, Stack Overflow, Reddit, X/Twitter, Claude AI, ChatGPT)
+  - Keyboard shortcuts: `Cmd+Shift+D` (debug bundle), `Cmd+Shift+S` (screenshot)
+  - First-install onboarding with guided tutorial
+  - 48 tests, 93%+ statement coverage
+- **Privacy policy page**: `GET /privacy` route on vnsh.dev Worker for Chrome Web Store compliance
+- **Chrome Web Store assets**: HTML templates + Puppeteer generator for store icon, screenshot, and promo tile
+
+### Technical Details
+- AES-256-CBC via WebCrypto API, byte-identical with CLI and MCP implementations
+- v1 + v2 URL format support
+- Zero runtime dependencies, IIFE bundles via Vite
+- Content script scoped to specific developer sites (not `<all_urls>`) for faster CWS review
+- Offscreen document fallback for clipboard on restricted pages
+
+---
+
 ## [2.0.0] - 2026-02-14
 
 ### Added
