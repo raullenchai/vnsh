@@ -2641,15 +2641,40 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     function displayBinary(bytes) {
-      viewerResult.innerHTML = '<div style="color:var(--fg-muted)">Binary file (' + formatBytes(bytes.length) + '). Use Download.</div>';
+      const fileType = detectFileType(bytes);
+      viewerResult.innerHTML = '<div style="color:var(--fg-muted)">' + fileType.name + ' (' + formatBytes(bytes.length) + '). Use Download.</div>';
+    }
+
+    function detectFileType(bytes) {
+      if (bytes.length < 12) return { ext: 'bin', mime: 'application/octet-stream', name: 'Binary' };
+      const h = bytes.slice(0, 12);
+      // Images
+      if (h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4E && h[3] === 0x47) return { ext: 'png', mime: 'image/png', name: 'PNG Image' };
+      if (h[0] === 0xFF && h[1] === 0xD8 && h[2] === 0xFF) return { ext: 'jpg', mime: 'image/jpeg', name: 'JPEG Image' };
+      if (h[0] === 0x47 && h[1] === 0x49 && h[2] === 0x46) return { ext: 'gif', mime: 'image/gif', name: 'GIF Image' };
+      if (h[0] === 0x52 && h[1] === 0x49 && h[2] === 0x46 && h[3] === 0x46 && h[8] === 0x57 && h[9] === 0x45 && h[10] === 0x42 && h[11] === 0x50) return { ext: 'webp', mime: 'image/webp', name: 'WebP Image' };
+      // Video
+      if (h[0] === 0x1A && h[1] === 0x45 && h[2] === 0xDF && h[3] === 0xA3) return { ext: 'webm', mime: 'video/webm', name: 'WebM Video' };
+      if (h[4] === 0x66 && h[5] === 0x74 && h[6] === 0x79 && h[7] === 0x70) {
+        const brand = String.fromCharCode(h[8], h[9], h[10], h[11]);
+        if (brand === 'qt  ' || brand.startsWith('qt')) return { ext: 'mov', mime: 'video/quicktime', name: 'QuickTime Video' };
+        return { ext: 'mp4', mime: 'video/mp4', name: 'MP4 Video' };
+      }
+      // Audio
+      if (h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) return { ext: 'mp3', mime: 'audio/mpeg', name: 'MP3 Audio' };
+      if (h[0] === 0x66 && h[1] === 0x4C && h[2] === 0x61 && h[3] === 0x43) return { ext: 'flac', mime: 'audio/flac', name: 'FLAC Audio' };
+      // Documents
+      if (h[0] === 0x25 && h[1] === 0x50 && h[2] === 0x44 && h[3] === 0x46) return { ext: 'pdf', mime: 'application/pdf', name: 'PDF Document' };
+      // Archives
+      if (h[0] === 0x50 && h[1] === 0x4B && h[2] === 0x03 && h[3] === 0x04) return { ext: 'zip', mime: 'application/zip', name: 'ZIP Archive' };
+      if (h[0] === 0x1F && h[1] === 0x8B) return { ext: 'gz', mime: 'application/gzip', name: 'Gzip Archive' };
+      return { ext: 'bin', mime: 'application/octet-stream', name: 'Binary' };
     }
 
     function isImage(bytes) {
       if (bytes.length < 4) return false;
-      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return true;
-      if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return true;
-      if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return true;
-      return false;
+      const t = detectFileType(bytes);
+      return t.mime.startsWith('image/');
     }
 
     function isBinary(bytes) {
@@ -2675,10 +2700,13 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     function downloadContent() {
-      const blob = new Blob([decryptedBytes || new TextEncoder().encode(decryptedContent)]);
+      const bytes = decryptedBytes || new TextEncoder().encode(decryptedContent);
+      // If decryptedContent is set, it's a text file; otherwise detect from bytes
+      const fileType = decryptedContent ? { ext: 'txt', mime: 'text/plain' } : detectFileType(decryptedBytes);
+      const blob = new Blob([bytes], { type: fileType.mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = selectedFile?.name || 'vnsh-content.txt';
+      a.download = selectedFile?.name || ('vnsh-content.' + fileType.ext);
       a.click();
     }
 
