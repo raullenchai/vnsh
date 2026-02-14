@@ -1,6 +1,6 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "mcpName": "io.github.raullenchai/vnsh",
   "description": "MCP server for vnsh - secure content sharing for Claude Code",
   "keywords": [
