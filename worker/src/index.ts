@@ -786,7 +786,7 @@ vn() {
     # Detect v2 format: 64 char base64url without k= or iv=
     if [ -n "\$_VN_FRAG" ] && [ \${#_VN_FRAG} -eq 64 ] && ! printf "%s" "\$_VN_FRAG" | grep -q "="; then
       # v2 format: decode base64url to get key+iv
-      _VN_B64=\$(printf "%s" "\$_VN_FRAG" | tr '\\-_' '+/')
+      _VN_B64=\$(printf "%s" "\$_VN_FRAG" | tr '_-' '/+')
       _VN_PAD=\$((4 - \${#_VN_B64} % 4))
       [ \$_VN_PAD -eq 4 ] && _VN_PAD=0
       [ \$_VN_PAD -eq 1 ] && _VN_B64="\${_VN_B64}="

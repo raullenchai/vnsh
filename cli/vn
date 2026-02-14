@@ -122,7 +122,7 @@ hex_to_base64url() {
 base64url_to_hex() {
   local b64url="$1"
   # Convert base64url to base64
-  local b64=$(echo "$b64url" | tr '-_' '+/')
+  local b64=$(echo "$b64url" | tr '_-' '/+')
   # Add padding if needed
   local mod=$((${#b64} % 4))
   if [ $mod -eq 2 ]; then
