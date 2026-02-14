@@ -1859,6 +1859,12 @@ const APP_HTML = `<!DOCTYPE html>
       border-radius: 4px;
     }
 
+    .viewer-video {
+      max-width: 100%;
+      max-height: 80vh;
+      border-radius: 8px;
+    }
+
     .viewer-footer {
       display: flex;
       align-items: center;
@@ -2609,6 +2615,7 @@ const APP_HTML = `<!DOCTYPE html>
         viewerResult.style.display = 'block';
 
         if (isImage(decryptedBytes)) displayImage(decryptedBytes);
+        else if (isVideo(decryptedBytes)) displayVideo(decryptedBytes);
         else if (isBinary(decryptedBytes)) displayBinary(decryptedBytes);
         else { decryptedContent = new TextDecoder().decode(decrypted); displayText(decryptedContent); }
 
@@ -2638,6 +2645,12 @@ const APP_HTML = `<!DOCTYPE html>
     function displayImage(bytes) {
       const blob = new Blob([bytes]);
       viewerResult.innerHTML = '<img class="viewer-image" src="' + URL.createObjectURL(blob) + '" alt="Decrypted">';
+    }
+
+    function displayVideo(bytes) {
+      const fileType = detectFileType(bytes);
+      const blob = new Blob([bytes], { type: fileType.mime });
+      viewerResult.innerHTML = '<video class="viewer-video" controls autoplay><source src="' + URL.createObjectURL(blob) + '" type="' + fileType.mime + '"></video>';
     }
 
     function displayBinary(bytes) {
@@ -2675,6 +2688,12 @@ const APP_HTML = `<!DOCTYPE html>
       if (bytes.length < 4) return false;
       const t = detectFileType(bytes);
       return t.mime.startsWith('image/');
+    }
+
+    function isVideo(bytes) {
+      if (bytes.length < 12) return false;
+      const t = detectFileType(bytes);
+      return t.mime.startsWith('video/');
     }
 
     function isBinary(bytes) {
