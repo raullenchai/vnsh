@@ -2534,9 +2534,10 @@ const APP_HTML = `<!DOCTYPE html>
         progressFill.style.width = '90%';
         const { id } = await response.json();
 
-        const keyHex = Array.from(key).map(b => b.toString(16).padStart(2, '0')).join('');
-        const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
-        generatedUrl = location.origin + '/v/' + id + '#k=' + keyHex + '&iv=' + ivHex;
+        // Build v2 URL with base64url encoded key+iv
+        const secret = new Uint8Array([...key, ...iv]);
+        const secretBase64url = bytesToBase64url(secret);
+        generatedUrl = location.origin + '/v/' + id + '#' + secretBase64url;
 
         progressFill.style.width = '100%';
         progressText.textContent = '> Done!';
@@ -2884,6 +2885,11 @@ const APP_HTML = `<!DOCTYPE html>
     }
     function bytesToHex(bytes) {
       return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    function bytesToBase64url(bytes) {
+      const binary = String.fromCharCode(...bytes);
+      const base64 = btoa(binary);
+      return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     }
     function formatBytes(b) { return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB'; }
     function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
