@@ -2889,7 +2889,7 @@ const APP_HTML = `<!DOCTYPE html>
     function bytesToBase64url(bytes) {
       const binary = String.fromCharCode(...bytes);
       const base64 = btoa(binary);
-      return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      return base64.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
     }
     function formatBytes(b) { return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(2) + ' MB'; }
     function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
