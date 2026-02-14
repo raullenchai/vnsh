@@ -51,5 +51,8 @@ coverage/
 # Large binary files
 docs/screenshot.png
 
+# Extension packaging
+*.zip
+
 # Growth tracking (internal)
 growth/

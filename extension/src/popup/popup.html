@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=380">
+  <link rel="stylesheet" href="popup.css">
+  <title>vnsh</title>
+</head>
+<body>
+  <header>
+    <div class="logo">vnsh</div>
+    <div class="tagline">Encrypted AI Debug Sharing</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="share">Share</button>
+    <button class="tab" data-tab="saved">Saved</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+
+  <!-- Share Tab -->
+  <section id="tab-share" class="tab-content active">
+    <div class="share-input-area">
+      <textarea id="share-text" placeholder="Paste text, code, or logs here..." rows="6"></textarea>
+      <div class="drop-zone" id="drop-zone">
+        <span>Drop file here</span>
+      </div>
+    </div>
+
+    <div class="share-options">
+      <label>
+        <span>TTL</span>
+        <select id="ttl-select">
+          <option value="1">1 hour</option>
+          <option value="6">6 hours</option>
+          <option value="24" selected>24 hours</option>
+          <option value="72">3 days</option>
+          <option value="168">7 days</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="share-actions">
+      <button id="btn-share" class="btn primary">Share</button>
+      <button id="btn-debug-bundle" class="btn accent">AI Debug Bundle</button>
+      <button id="btn-screenshot" class="btn secondary">Screenshot</button>
+    </div>
+
+    <div id="share-result" class="result hidden">
+      <div class="result-label">Link copied!</div>
+      <input id="result-url" type="text" readonly>
+      <button id="btn-copy" class="btn small">Copy</button>
+    </div>
+
+    <div id="share-status" class="status hidden"></div>
+  </section>
+
+  <!-- Saved Tab -->
+  <section id="tab-saved" class="tab-content">
+    <div id="saved-empty" class="empty-state">
+      <p>No saved snippets yet.</p>
+      <p class="hint">Right-click selected text → "Save to vnsh"</p>
+    </div>
+    <ul id="saved-list" class="item-list"></ul>
+  </section>
+
+  <!-- History Tab -->
+  <section id="tab-history" class="tab-content">
+    <div id="history-empty" class="empty-state">
+      <p>No shares yet.</p>
+      <p class="hint">Share something to see it here.</p>
+    </div>
+    <ul id="history-list" class="item-list"></ul>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

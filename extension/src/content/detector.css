@@ -1,0 +1,115 @@
+/* vnsh link detection tooltip styles */
+
+.vnsh-tooltip {
+  position: absolute;
+  z-index: 2147483647;
+  max-width: 420px;
+  min-width: 280px;
+  background: #111111;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: #e5e5e5;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s, transform 0.15s;
+  overflow: hidden;
+}
+
+.vnsh-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.vnsh-tooltip-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vnsh-tooltip-logo {
+  color: #22c55e;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.vnsh-tooltip-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.vnsh-tooltip-body {
+  padding: 10px 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  color: #ccc;
+}
+
+.vnsh-tooltip-body img {
+  max-width: 100%;
+  max-height: 150px;
+  border-radius: 4px;
+}
+
+.vnsh-tooltip-loading {
+  padding: 16px 12px;
+  text-align: center;
+  color: #777;
+}
+
+.vnsh-tooltip-error {
+  padding: 10px 12px;
+  color: #ef4444;
+  font-size: 11px;
+}
+
+.vnsh-tooltip-footer {
+  padding: 6px 12px;
+  border-top: 1px solid #2a2a2a;
+  font-size: 9px;
+  color: #555;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vnsh-tooltip-footer a {
+  color: #22c55e;
+  text-decoration: none;
+}
+
+.vnsh-tooltip-footer a:hover {
+  text-decoration: underline;
+}
+
+/* Indicator icon on detected links */
+.vnsh-link-indicator {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  vertical-align: middle;
+  background: #22c55e;
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  color: #000;
+  font-weight: 700;
+  font-family: monospace;
+  cursor: pointer;
+}

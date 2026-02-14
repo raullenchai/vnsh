@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "vnsh — AI Debug Sharing",
+  "version": "1.0.0",
+  "description": "One-click encrypted debug bundles for AI. Share text, screenshots, console errors via ephemeral URLs.",
+  "icons": {
+    "16": "assets/icon-16.png",
+    "32": "assets/icon-32.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "notifications",
+    "storage",
+    "scripting",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://vnsh.dev/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/detector.js"],
+      "css": ["content/detector.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "32": "assets/icon-32.png"
+    }
+  },
+  "commands": {
+    "debug-bundle": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "Command+Shift+D"
+      },
+      "description": "AI Debug Bundle — capture & share context"
+    },
+    "screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Screenshot & share via vnsh"
+    }
+  }
+}

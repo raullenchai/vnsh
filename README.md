@@ -149,7 +149,24 @@ cat secrets.env | bash <(curl -sL vnsh.dev/pipe?ttl=1)
 
 Perfect for SSH sessions, CI runners, Docker containers — anywhere you can't install tools.
 
-### Option 5: GitHub Action (CI/CD)
+### Option 5: Chrome Extension
+
+**One-click encrypted debug bundles for AI.** Share text, screenshots, and console errors directly from your browser.
+
+- **Right-click** any selected text → **Share via vnsh**
+- **`Cmd+Shift+D`** → **AI Debug Bundle** (screenshot + console errors + selected text + URL, all encrypted)
+- **Hover** over vnsh links on any page → see decrypted preview tooltip
+
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/vnsh) or build from source:
+
+```bash
+cd extension && npm install && npm run build
+# Load dist/ as unpacked extension in chrome://extensions/
+```
+
+See [extension/README.md](extension/README.md) for full documentation.
+
+### Option 6: GitHub Action (CI/CD)
 
 **Debug CI failures with Claude in one click.** When your CI fails, automatically upload logs and post a secure link to your PR.
 
@@ -340,7 +357,7 @@ Claude Code MCP integration installer script.
 
 ```
 vnsh/
-├── worker/          # Cloudflare Worker (storage API)
+├── worker/          # Cloudflare Worker (storage API + web viewer)
 │   ├── src/
 │   │   └── index.ts # Main worker code
 │   └── test/
@@ -350,6 +367,13 @@ vnsh/
 │   │   ├── index.ts # MCP tool handlers
 │   │   └── crypto.ts # Encryption utilities
 │   └── package.json
+├── extension/       # Chrome Extension (AI debug sharing)
+│   ├── src/
+│   │   ├── lib/     # Shared crypto, API, storage
+│   │   ├── background/ # Service worker
+│   │   ├── content/    # Link detector + tooltip
+│   │   └── popup/      # Extension popup UI
+│   └── tests/
 ├── cli/
 │   ├── vn           # Bash CLI script
 │   ├── npm/         # NPM package (vnsh-cli)
@@ -370,6 +394,7 @@ vnsh/
 |---------|-------------|---------|
 | [vnsh-cli](https://www.npmjs.com/package/vnsh-cli) | CLI tool | `npm i -g vnsh-cli` |
 | [vnsh-mcp](https://www.npmjs.com/package/vnsh-mcp) | MCP server for Claude | `npx vnsh-mcp` |
+| [vnsh extension](extension/) | Chrome Extension | [Chrome Web Store](https://chromewebstore.google.com/detail/vnsh) |
 | [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) | GitHub Action for CI/CD | `uses: raullenchai/upload-to-vnsh@v1` |
 | [homebrew-vnsh](https://github.com/raullenchai/homebrew-vnsh) | Homebrew tap | `brew install raullenchai/vnsh/vnsh` |
 

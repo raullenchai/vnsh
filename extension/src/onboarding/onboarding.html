@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="onboarding.css">
+  <title>Welcome to vnsh</title>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">vnsh</div>
+      <div class="subtitle">The Ephemeral Dropbox for AI</div>
+    </header>
+
+    <!-- Step 1 -->
+    <section class="step active" id="step-1">
+      <div class="step-number">01</div>
+      <h2>Share anything, encrypted</h2>
+      <p>
+        vnsh encrypts your data <strong>before</strong> it leaves your browser.
+        The server never sees your content. Links auto-expire in 24 hours.
+      </p>
+      <div class="visual">
+        <div class="flow-diagram">
+          <span class="flow-node">Your text</span>
+          <span class="flow-arrow">&rarr;</span>
+          <span class="flow-node highlight">AES-256 Encrypt</span>
+          <span class="flow-arrow">&rarr;</span>
+          <span class="flow-node">Upload blob</span>
+          <span class="flow-arrow">&rarr;</span>
+          <span class="flow-node highlight">Shareable link</span>
+        </div>
+      </div>
+      <button class="btn-next" data-next="2">Next &rarr;</button>
+    </section>
+
+    <!-- Step 2 -->
+    <section class="step" id="step-2">
+      <div class="step-number">02</div>
+      <h2>Try it: Right-click Share</h2>
+      <p>Select the text below, then right-click and choose <strong>"Share via vnsh"</strong>.</p>
+      <div class="demo-box" id="demo-text">
+const server = http.createServer((req, res) => {
+  console.log(`${req.method} ${req.url}`);
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Hello from vnsh!');
+});
+server.listen(3000);</div>
+      <p class="hint">The encrypted link is automatically copied to your clipboard.</p>
+      <button class="btn-next" data-next="3">Next &rarr;</button>
+    </section>
+
+    <!-- Step 3 -->
+    <section class="step" id="step-3">
+      <div class="step-number">03</div>
+      <h2>AI Debug Bundle</h2>
+      <p>
+        The killer feature: <strong>one click</strong> to package your current page's
+        debug context (screenshot + console errors + selected text) into a single
+        encrypted link. Paste it to any AI assistant.
+      </p>
+      <div class="shortcut-box">
+        <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd>
+        <span class="shortcut-label">Debug Bundle</span>
+      </div>
+      <div class="shortcut-box">
+        <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd>
+        <span class="shortcut-label">Screenshot Share</span>
+      </div>
+      <button class="btn-next" data-next="4">Next &rarr;</button>
+    </section>
+
+    <!-- Step 4 -->
+    <section class="step" id="step-4">
+      <div class="step-number">04</div>
+      <h2>You're all set!</h2>
+      <p>Here's what you can do:</p>
+      <ul class="feature-list">
+        <li><strong>Right-click</strong> selected text &rarr; Share via vnsh</li>
+        <li><strong>Right-click</strong> an image &rarr; Share image via vnsh</li>
+        <li><strong>Right-click</strong> &rarr; AI Debug Bundle for full context</li>
+        <li><strong>Right-click</strong> &rarr; Save to vnsh (local clipboard)</li>
+        <li>Click the <strong>extension icon</strong> for the popup panel</li>
+      </ul>
+      <div class="privacy-note">
+        <strong>Privacy promise:</strong> All encryption happens in your browser.
+        The vnsh server is mathematically blind to your data.
+      </div>
+      <a href="https://vnsh.dev" class="btn-final" target="_blank">Visit vnsh.dev &rarr;</a>
+    </section>
+
+    <div class="progress">
+      <div class="progress-dot active" data-step="1"></div>
+      <div class="progress-dot" data-step="2"></div>
+      <div class="progress-dot" data-step="3"></div>
+      <div class="progress-dot" data-step="4"></div>
+    </div>
+  </div>
+
+  <script src="onboarding.js"></script>
+</body>
+</html>
