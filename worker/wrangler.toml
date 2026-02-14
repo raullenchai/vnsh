@@ -13,6 +13,10 @@ bucket_name = "vnsh-store"
 binding = "VNSH_META"
 id = "67d2bdbe539e4620a20a65be26744a5e"
 
+# Cron trigger: clean up expired R2 blobs daily at 03:00 UTC
+[triggers]
+crons = ["0 3 * * *"]
+
 # Note: Static assets removed - all HTML is served inline from worker
 
 # Environment variables (set via wrangler secret)

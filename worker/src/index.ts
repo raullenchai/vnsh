@@ -528,6 +528,40 @@ export default {
     // 404 for unknown routes
     return errorResponse('NOT_FOUND', 'Endpoint not found', 404, request);
   },
+
+  // Cron trigger: clean up expired R2 blobs daily
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    const now = Date.now();
+    let deleted = 0;
+    let checked = 0;
+    let cursor: string | undefined;
+
+    // R2 list is paginated (max 1000 per call)
+    do {
+      const listed = await env.VNSH_STORE.list({ limit: 1000, cursor });
+
+      for (const obj of listed.objects) {
+        checked++;
+        const expiresAt = obj.customMetadata?.expiresAt;
+
+        if (expiresAt && now > new Date(expiresAt).getTime()) {
+          await env.VNSH_STORE.delete(obj.key);
+          deleted++;
+        } else if (!expiresAt) {
+          // Legacy objects without expiresAt metadata: delete if older than 8 days
+          const age = now - obj.uploaded.getTime();
+          if (age > 8 * 24 * 60 * 60 * 1000) {
+            await env.VNSH_STORE.delete(obj.key);
+            deleted++;
+          }
+        }
+      }
+
+      cursor = listed.truncated ? listed.cursor : undefined;
+    } while (cursor);
+
+    console.log(`R2 cleanup: checked ${checked}, deleted ${deleted}`);
+  },
 };
 
 // Pipe script - zero-install upload from stdin
