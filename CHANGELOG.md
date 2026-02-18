@@ -4,17 +4,32 @@ All notable changes to vnsh are documented in this file.
 
 ## [Unreleased]
 
+---
+
+## [2.2.0] - 2026-02-18
+
 ### Added
-- **R2 orphan blob cleanup**: Daily Cron Trigger at 03:00 UTC scans all R2 objects and deletes expired blobs. Legacy objects without `expiresAt` metadata are deleted after 8 days (max TTL is 7 days). Prevents unbounded R2 storage cost growth.
-- **Application-level rate limiting**: KV-based sliding window counters with TTL auto-expiry. `POST /api/drop` limited to 50 uploads/hour per IP, `GET /api/blob/:id` limited to 50 reads/minute per IP. Returns `429 Too Many Requests` with `Retry-After` header when exceeded.
-- **Scaling & revenue plan**: Documented 4-phase roadmap in `docs/scaling-revenue.md` covering foundation (rate limiting, analytics, client ID), freemium gate (API keys, tier structure, Stripe), x402 AI payments, and team/enterprise tiers.
 - **Web Viewer extension CTA**: Prominent "Add vnsh to Chrome" card with Chrome logo on all `/v/` viewer pages. Auto-hides when extension is detected, dismissible with localStorage persistence.
 - **Homepage Extension tab**: 4th tab on vnsh.dev homepage showing AI Debug Bundle, Inline Decryption, Right-Click Share features with install button.
 - **Blog infrastructure**: `/blog` index and `/blog/:slug` routes with SEO meta tags, OG tags, and sitemap integration.
-- **First blog post**: "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext" — SEO-optimized article on zero-knowledge encrypted sharing for AI coding workflows.
+- **5 SEO blog posts**:
+  - "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext"
+  - "Debug CI Failures Faster with vnsh + Claude Code"
+  - "How We Implemented Zero-Knowledge Encryption in a Chrome Extension"
+  - "One-Click AI Debug Bundles: Packaging Browser Context for LLMs"
+  - "Why URL Fragments Are the Best Place to Hide Encryption Keys"
 - **Compact tab layouts**: Redesigned Terminal, Agent, and Extension tabs to fit content without scrolling. Agent manual setup collapsed into `<details>`.
-- **Marquee promo template**: 1400x560 HTML template for Chrome Web Store Featured badge nomination.
-- **Awesome list submissions**: PRs to 5 curated GitHub lists (awesome-chrome, Awesome-WebExtensions, awesome-privacy, chrome-privacy-extensions, awesome-chrome-extensions).
+- **Marquee promo template**: 1400x560 HTML template and generated PNG for Chrome Web Store Featured badge nomination.
+- **Referrer-Policy header**: `no-referrer` on viewer and homepage responses to prevent fragment leakage.
+- **Extension detection**: Content script sets `data-vnsh-ext` attribute on `<html>` for CTA auto-hide.
+
+### Changed
+- R2 orphan blob cleanup, rate limiting, and scaling plan moved from unreleased to infrastructure (shipped in prior deploys).
+- Cleaned up roadmaps: removed completed items from `docs/scaling-revenue.md` and `extension/PLAN.md`.
+
+### Growth
+- Chrome Web Store Featured badge nomination submitted.
+- PRs to 5 curated GitHub lists: awesome-chrome, Awesome-WebExtensions, awesome-privacy, chrome-privacy-extensions, awesome-chrome-extensions.
 
 ---
 
