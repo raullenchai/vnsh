@@ -224,5 +224,8 @@ const observer = new MutationObserver((mutations) => {
 
 // ── Init ───────────────────────────────────────────────────────────
 
+// Signal to the page that the extension is installed (used by vnsh.dev CTA)
+document.documentElement.setAttribute('data-vnsh-ext', '1');
+
 scanLinks(document);
 observer.observe(document.body, { childList: true, subtree: true });

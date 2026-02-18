@@ -32,6 +32,9 @@ async function main() {
   // Small promo tile 440x280
   await capture(browser, 'promo-440x280.html', 'promo-440x280.png', 440, 280);
 
+  // Marquee promo 1400x560 (required for Featured badge)
+  await capture(browser, 'marquee-1400x560.html', 'marquee-1400x560.png', 1400, 560);
+
   await browser.close();
   console.log('\nDone! Files in store-assets/');
 }

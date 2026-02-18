@@ -577,6 +577,33 @@ export default {
       });
     }
 
+    // Route: GET /blog - Blog index
+    if (request.method === 'GET' && path === '/blog') {
+      return new Response(BLOG_INDEX_HTML, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }
+
+    // Route: GET /blog/:slug - Blog posts
+    const blogMatch = path.match(/^\/blog\/([a-z0-9-]+)$/);
+    if (request.method === 'GET' && blogMatch) {
+      const slug = blogMatch[1];
+      const post = BLOG_POSTS[slug];
+      if (post) {
+        return new Response(post, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+          },
+        });
+      }
+    }
+
     // 404 for unknown routes
     return errorResponse('NOT_FOUND', 'Endpoint not found', 404, request);
   },
@@ -1406,8 +1433,357 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://vnsh.dev/blog</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://vnsh.dev/blog/zero-knowledge-sharing-for-ai-coding</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
 `;
+
+// Blog layout helper
+function blogPage(title: string, description: string, slug: string, date: string, content: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | vnsh Blog</title>
+  <meta name="description" content="${description}">
+  <meta name="keywords" content="encrypted sharing, AI coding, zero-knowledge, developer tools, Claude Code, privacy, ephemeral sharing, MCP, secure paste">
+  <link rel="canonical" href="https://vnsh.dev/blog/${slug}">
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:url" content="https://vnsh.dev/blog/${slug}">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="vnsh">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${title}">
+  <meta name="twitter:description" content="${description}">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist Mono', monospace;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      line-height: 1.8;
+      padding: 2rem;
+    }
+    .blog-container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .blog-nav {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 3rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 0.8rem;
+    }
+    .blog-nav a { color: #22c55e; text-decoration: none; }
+    .blog-nav a:hover { text-decoration: underline; }
+    .blog-nav .sep { color: #525252; }
+    .blog-date { color: #525252; font-size: 0.75rem; margin-bottom: 0.5rem; }
+    .blog-title { font-size: 1.5rem; color: #fff; margin-bottom: 0.75rem; line-height: 1.3; }
+    .blog-subtitle { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 2.5rem; }
+    article h2 { font-size: 1.1rem; color: #22c55e; margin: 2.5rem 0 1rem; }
+    article h3 { font-size: 0.95rem; color: #fff; margin: 2rem 0 0.75rem; }
+    article p { color: #a3a3a3; margin-bottom: 1.25rem; font-size: 0.85rem; }
+    article strong { color: #e5e5e5; }
+    article a { color: #22c55e; text-decoration: none; }
+    article a:hover { text-decoration: underline; }
+    article code {
+      background: #1a1a1a;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      color: #22c55e;
+    }
+    article pre {
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+      font-size: 0.8rem;
+      line-height: 1.6;
+    }
+    article pre code { background: none; padding: 0; color: #e5e5e5; }
+    article ul, article ol { margin-bottom: 1.25rem; padding-left: 1.5rem; }
+    article li { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .blog-cta {
+      margin-top: 3rem;
+      padding: 1.5rem;
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 8px;
+      text-align: center;
+    }
+    .blog-cta p { color: #a3a3a3; margin-bottom: 1rem; font-size: 0.85rem; }
+    .blog-cta a {
+      display: inline-block;
+      background: #22c55e;
+      color: #000;
+      padding: 0.6rem 1.25rem;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.8rem;
+      margin: 0.25rem;
+    }
+    .blog-cta a:hover { background: #16a34a; text-decoration: none; }
+    .blog-footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #2a2a2a;
+      font-size: 0.75rem;
+      color: #525252;
+      text-align: center;
+    }
+    .blog-footer a { color: #22c55e; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="blog-container">
+    <nav class="blog-nav">
+      <a href="/">vnsh</a> <span class="sep">/</span> <a href="/blog">blog</a> <span class="sep">/</span> <span style="color:#525252">${slug}</span>
+    </nav>
+    <div class="blog-date">${date}</div>
+    <h1 class="blog-title">${title}</h1>
+    <p class="blog-subtitle">${description}</p>
+    <article>${content}</article>
+    <div class="blog-cta">
+      <p><strong style="color:#fff;">Try vnsh now</strong> — encrypted, ephemeral sharing for developers and AI agents.</p>
+      <a href="/">Share via CLI</a>
+      <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">Chrome Extension</a>
+    </div>
+    <div class="blog-footer">
+      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a> &middot; AES-256-CBC &middot; Zero-knowledge
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// Blog index page
+const BLOG_INDEX_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blog | vnsh — The Ephemeral Dropbox for AI</title>
+  <meta name="description" content="Technical articles on zero-knowledge encryption, AI coding workflows, and secure developer tooling from the vnsh team.">
+  <link rel="canonical" href="https://vnsh.dev/blog">
+  <meta property="og:title" content="vnsh Blog">
+  <meta property="og:description" content="Technical articles on zero-knowledge encryption, AI coding workflows, and secure developer tooling.">
+  <meta property="og:url" content="https://vnsh.dev/blog">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Geist Mono', monospace;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      line-height: 1.8;
+      padding: 2rem;
+    }
+    .blog-container { max-width: 720px; margin: 0 auto; }
+    .blog-nav {
+      display: flex; align-items: center; gap: 1rem;
+      margin-bottom: 3rem; padding-bottom: 1rem;
+      border-bottom: 1px solid #2a2a2a; font-size: 0.8rem;
+    }
+    .blog-nav a { color: #22c55e; text-decoration: none; }
+    .blog-nav a:hover { text-decoration: underline; }
+    .blog-nav .sep { color: #525252; }
+    h1 { font-size: 1.3rem; color: #fff; margin-bottom: 0.5rem; }
+    .blog-desc { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 2.5rem; }
+    .post-list { list-style: none; }
+    .post-item {
+      padding: 1.25rem 0; border-bottom: 1px solid #1a1a1a;
+    }
+    .post-item:first-child { border-top: 1px solid #1a1a1a; }
+    .post-date { font-size: 0.7rem; color: #525252; margin-bottom: 0.25rem; }
+    .post-title { font-size: 0.95rem; }
+    .post-title a { color: #fff; text-decoration: none; }
+    .post-title a:hover { color: #22c55e; }
+    .post-excerpt { color: #a3a3a3; font-size: 0.8rem; margin-top: 0.4rem; }
+    .blog-footer {
+      margin-top: 3rem; padding-top: 1.5rem;
+      border-top: 1px solid #2a2a2a; font-size: 0.75rem;
+      color: #525252; text-align: center;
+    }
+    .blog-footer a { color: #22c55e; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="blog-container">
+    <nav class="blog-nav">
+      <a href="/">vnsh</a> <span class="sep">/</span> <span style="color:#a3a3a3">blog</span>
+    </nav>
+    <h1>vnsh blog</h1>
+    <p class="blog-desc">Zero-knowledge encryption, AI coding workflows, and developer tooling.</p>
+    <ul class="post-list">
+      <li class="post-item">
+        <div class="post-date">February 18, 2026</div>
+        <div class="post-title"><a href="/blog/zero-knowledge-sharing-for-ai-coding">Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext</a></div>
+        <div class="post-excerpt">Every time you paste production logs into Claude or ChatGPT, the data crosses multiple trust boundaries. There's a better way: zero-knowledge encrypted sharing that keeps the server mathematically blind.</div>
+      </li>
+    </ul>
+    <div class="blog-footer">
+      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a>
+    </div>
+  </div>
+</body>
+</html>`;
+
+// Blog posts
+const BLOG_POSTS: Record<string, string> = {
+  'zero-knowledge-sharing-for-ai-coding': blogPage(
+    "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext",
+    'How zero-knowledge encryption protects your code, logs, and configs when sharing with AI coding tools like Claude Code and Cursor.',
+    'zero-knowledge-sharing-for-ai-coding',
+    'February 18, 2026',
+    `
+<h2>The Problem: Pasting Secrets Into AI</h2>
+
+<p>Developers are pasting production logs, API keys, database configs, and proprietary code into AI coding assistants every day. It makes sense — tools like <strong>Claude Code</strong>, <strong>Cursor</strong>, and <strong>ChatGPT</strong> are dramatically more useful when they have real context about your problem.</p>
+
+<p>But here's what actually happens when you paste a stack trace into an AI chatbot:</p>
+
+<ol>
+<li>Your plaintext travels over HTTPS to the provider's servers</li>
+<li>It's stored (at least temporarily) for processing</li>
+<li>It may be logged, cached, or used for model improvement</li>
+<li>Multiple systems and potentially humans can access it</li>
+</ol>
+
+<p>Even with providers who promise not to train on your data, the <strong>data still crosses trust boundaries</strong>. Your production database connection string is sitting on someone else's server, protected only by their security practices and their promises.</p>
+
+<h2>Zero-Knowledge Architecture: A Better Model</h2>
+
+<p>What if the server storing your data was <strong>mathematically incapable</strong> of reading it? Not "we promise not to look" — but "we literally cannot decrypt this even if subpoenaed."</p>
+
+<p>This is the principle behind <strong>zero-knowledge encryption</strong>, and it's how <a href="https://vnsh.dev">vnsh</a> works:</p>
+
+<pre><code># Share a log file with your AI assistant
+cat server.log | vn
+
+# Output: https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9...</code></pre>
+
+<p>The key insight is in that <code>#</code> character. Everything after the hash fragment is <strong>never sent to the server</strong>. This is a fundamental property of how URLs work in browsers — the fragment stays client-side.</p>
+
+<h3>How the Encryption Flow Works</h3>
+
+<ol>
+<li><strong>Client generates keys</strong>: A random 256-bit AES key and 128-bit IV are generated locally using <code>crypto.getRandomValues()</code></li>
+<li><strong>Client encrypts</strong>: The content is encrypted with AES-256-CBC before leaving your machine</li>
+<li><strong>Ciphertext uploaded</strong>: Only the encrypted blob is sent to the server — it's indistinguishable from random bytes</li>
+<li><strong>Keys stay local</strong>: The decryption key and IV are encoded into the URL fragment (<code>#</code>), which browsers never send to servers</li>
+<li><strong>Recipient decrypts</strong>: When someone opens the link, the browser extracts the keys from the fragment and decrypts client-side using the <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">WebCrypto API</a></li>
+</ol>
+
+<p>The server stores encrypted blobs. It has <strong>no access to keys, plaintext, or even file types</strong>. A subpoena would yield only random-looking binary data.</p>
+
+<h2>Using This With AI Coding Tools</h2>
+
+<h3>CLI: Pipe Anything Securely</h3>
+
+<pre><code># Share git diffs without exposing code in chat
+git diff HEAD~5 | vn
+
+# Share build logs
+npm run build 2>&1 | vn
+
+# Share a config file (strip real secrets first, of course)
+cat docker-compose.yml | vn</code></pre>
+
+<p>The output URL can be pasted into any AI conversation. The AI agent fetches the encrypted blob, decrypts it locally (via <a href="https://modelcontextprotocol.io">MCP</a>), and injects the plaintext into its context — without the server ever seeing the content.</p>
+
+<h3>MCP Integration: Seamless for Claude Code</h3>
+
+<p>With the vnsh MCP server installed, Claude Code automatically decrypts vnsh links when you paste them. Install in one command:</p>
+
+<pre><code>curl -sL vnsh.dev/claude | sh</code></pre>
+
+<p>Now when you paste a vnsh URL into your conversation, Claude reads the encrypted content directly — no manual copy-paste of sensitive data into the chat window.</p>
+
+<h3>Chrome Extension: Debug Bundles for AI</h3>
+
+<p>The <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">vnsh Chrome Extension</a> takes this further with <strong>AI Debug Bundles</strong>. Press <code>Cmd+Shift+D</code> on any page and it captures:</p>
+
+<ul>
+<li>Page screenshot</li>
+<li>Console errors</li>
+<li>Selected text or code</li>
+<li>Current URL and page title</li>
+</ul>
+
+<p>All packaged into a single encrypted link. Paste it to Claude or ChatGPT and the AI gets complete debug context — without you having to manually screenshot, copy errors, and describe the page.</p>
+
+<h2>Why Not Just Use a Regular Pastebin?</h2>
+
+<p>Services like Pastebin, GitHub Gists, or even Slack snippets have a fundamental problem: <strong>the server can read your data</strong>. This matters because:</p>
+
+<ul>
+<li><strong>Data breaches happen</strong>. If the server is compromised, so is your content.</li>
+<li><strong>Legal requests</strong>. A subpoena or government request can compel the service to hand over your data.</li>
+<li><strong>Employee access</strong>. Server operators or support staff could potentially view content.</li>
+<li><strong>Data persistence</strong>. Even "deleted" content often lives in backups, logs, or caches.</li>
+</ul>
+
+<p>With vnsh, none of these attack vectors apply. The server is a "dumb pipe" — it stores encrypted bytes and serves them back. Even the vnsh team cannot access your content.</p>
+
+<h2>Ephemeral by Design</h2>
+
+<p>vnsh links auto-expire after <strong>24 hours</strong> by default (configurable up to 7 days). After expiry, the encrypted blob is deleted from storage. No backups, no archives.</p>
+
+<p>This ephemeral model is perfect for AI coding workflows where the context is only relevant during a debugging session. You don't need that stack trace forever — you need it for the next 20 minutes while you fix the bug.</p>
+
+<h2>Open Source and Auditable</h2>
+
+<p>The entire vnsh stack is <a href="https://github.com/raullenchai/vnsh">open source on GitHub</a>:</p>
+
+<ul>
+<li><strong>Cloudflare Worker</strong>: The storage API (~600 lines of TypeScript)</li>
+<li><strong>CLI</strong>: Zero-dependency POSIX shell script using <code>openssl</code> and <code>curl</code></li>
+<li><strong>MCP Server</strong>: Node.js bridge for Claude Code integration</li>
+<li><strong>Chrome Extension</strong>: Manifest V3, 48 tests, 93%+ coverage</li>
+</ul>
+
+<p>All encryption happens client-side using standard, auditable primitives: AES-256-CBC via WebCrypto (browser), OpenSSL (CLI), or Node.js <code>crypto</code> module (MCP). All three produce byte-identical ciphertext.</p>
+
+<h2>Getting Started</h2>
+
+<p>Install the CLI in one line:</p>
+
+<pre><code>curl -sL vnsh.dev/i | sh</code></pre>
+
+<p>Or use it without installing anything:</p>
+
+<pre><code>echo "hello world" | bash &lt;(curl -sL vnsh.dev/pipe)</code></pre>
+
+<p>For Claude Code users, add MCP support:</p>
+
+<pre><code>curl -sL vnsh.dev/claude | sh</code></pre>
+
+<p>Or get the <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">Chrome Extension</a> for browser-native encrypted sharing.</p>
+
+<p>Your debug context deserves better than plaintext.</p>
+`
+  ),
+};
 
 // Logo SVG for README and embeds
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
@@ -2093,6 +2469,50 @@ const APP_HTML = `<!DOCTYPE html>
       gap: 0.5rem;
     }
 
+    .ext-cta {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 1rem;
+      margin: 0 1.25rem;
+      background: var(--accent-dim);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+    }
+    .ext-cta.show { display: flex; }
+    .ext-cta-icon { font-size: 1.1rem; flex-shrink: 0; }
+    .ext-cta-text { flex: 1; line-height: 1.4; }
+    .ext-cta-text strong { color: var(--fg); }
+    .ext-cta-btn {
+      flex-shrink: 0;
+      padding: 0.4rem 0.75rem;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .ext-cta-btn:hover { background: #16a34a; }
+    .ext-cta-close {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--fg-dim);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 0.25rem;
+      line-height: 1;
+    }
+    .ext-cta-close:hover { color: var(--fg-muted); }
+
     .code-container {
       display: flex;
       font-size: 0.8rem;
@@ -2474,6 +2894,12 @@ const APP_HTML = `<!DOCTYPE html>
           </div>
         </div>
         <div id="viewer-result" style="display:none;"></div>
+      </div>
+      <div class="ext-cta" id="ext-cta">
+        <span class="ext-cta-icon">&#x1F9E9;</span>
+        <span class="ext-cta-text"><strong>Get the vnsh Extension</strong> — Share encrypted text, screenshots &amp; debug bundles from any page. One click.</span>
+        <a class="ext-cta-btn" href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener">Install</a>
+        <button class="ext-cta-close" onclick="dismissExtCta()" title="Dismiss">&times;</button>
       </div>
       <div class="viewer-footer">
         <div class="viewer-actions">
@@ -3017,6 +3443,21 @@ const APP_HTML = `<!DOCTYPE html>
     }
     window.addEventListener('hashchange', handleHash);
     handleHash();
+
+    // Extension install CTA — show only in viewer mode when extension is not detected
+    function checkExtCta() {
+      if (localStorage.getItem('vnsh-ext-cta-dismissed')) return;
+      if (!location.pathname.startsWith('/v/')) return;
+      // Extension content script sets data-vnsh-ext="1" on <html>
+      if (document.documentElement.getAttribute('data-vnsh-ext')) return;
+      document.getElementById('ext-cta').classList.add('show');
+    }
+    function dismissExtCta() {
+      document.getElementById('ext-cta').classList.remove('show');
+      localStorage.setItem('vnsh-ext-cta-dismissed', '1');
+    }
+    // Delay check to give content script time to inject the attribute
+    setTimeout(checkExtCta, 800);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
