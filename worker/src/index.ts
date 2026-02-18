@@ -1448,6 +1448,21 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://vnsh.dev/blog/zero-knowledge-encryption-in-chrome-extension</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://vnsh.dev/blog/ai-debug-bundles-packaging-browser-context</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://vnsh.dev/blog/url-fragments-encryption-keys</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
 `;
 
@@ -1640,6 +1655,21 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
     <h1>vnsh blog</h1>
     <p class="blog-desc">Zero-knowledge encryption, AI coding workflows, and developer tooling.</p>
     <ul class="post-list">
+      <li class="post-item">
+        <div class="post-date">February 18, 2026</div>
+        <div class="post-title"><a href="/blog/url-fragments-encryption-keys">Why URL Fragments Are the Best Place to Hide Encryption Keys</a></div>
+        <div class="post-excerpt">A security deep-dive into RFC 3986, the HTTP specification, and why the URL fragment (#) is the ideal transport for zero-knowledge encryption keys.</div>
+      </li>
+      <li class="post-item">
+        <div class="post-date">February 18, 2026</div>
+        <div class="post-title"><a href="/blog/ai-debug-bundles-packaging-browser-context">One-Click AI Debug Bundles: Packaging Browser Context for LLMs</a></div>
+        <div class="post-excerpt">How vnsh captures screenshots, console errors, selected text, and page URLs into a single encrypted link for AI-assisted debugging.</div>
+      </li>
+      <li class="post-item">
+        <div class="post-date">February 18, 2026</div>
+        <div class="post-title"><a href="/blog/zero-knowledge-encryption-in-chrome-extension">How We Implemented Zero-Knowledge Encryption in a Chrome Extension</a></div>
+        <div class="post-excerpt">A technical deep-dive into building AES-256-CBC encryption across three platforms — OpenSSL, Node.js, and WebCrypto — with byte-identical output.</div>
+      </li>
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
         <div class="post-title"><a href="/blog/debug-ci-failures-with-claude-code">Debug CI Failures Faster with vnsh + Claude Code</a></div>
@@ -1937,6 +1967,395 @@ Paste link to Claude for instant analysis</code></pre>
 <pre><code>curl -sL vnsh.dev/claude | sh</code></pre>
 
 <p>Next time CI fails, you'll have a secure, encrypted link ready for Claude to analyze — no more scrolling through GitHub Actions logs.</p>
+`
+  ),
+
+  'zero-knowledge-encryption-in-chrome-extension': blogPage(
+    "How We Implemented Zero-Knowledge Encryption in a Chrome Extension",
+    "A technical deep-dive into building AES-256-CBC client-side encryption in a Manifest V3 Chrome Extension using the WebCrypto API, with cross-platform byte-identical output.",
+    'zero-knowledge-encryption-in-chrome-extension',
+    'February 18, 2026',
+    `
+<h2>The Constraint: Three Platforms, One Ciphertext</h2>
+
+<p>vnsh encrypts data on three different platforms: a POSIX shell script (CLI), a Node.js process (MCP server), and a Chrome Extension (browser). All three must produce <strong>byte-identical ciphertext</strong> for the same input, key, and IV — otherwise a link created by the CLI wouldn't decrypt in the browser, or vice versa.</p>
+
+<p>This sounds obvious, but AES-256-CBC has subtle compatibility pitfalls across crypto implementations. Here's how we solved each one.</p>
+
+<h2>The Three Crypto Stacks</h2>
+
+<h3>CLI: OpenSSL</h3>
+
+<p>The CLI is a zero-dependency shell script. It uses OpenSSL directly:</p>
+
+<pre><code>KEY=$(openssl rand -hex 32)   # 256-bit key
+IV=$(openssl rand -hex 16)    # 128-bit IV
+openssl enc -aes-256-cbc -K "$KEY" -iv "$IV" < plaintext > ciphertext</code></pre>
+
+<p>Critical detail: we pass <code>-K</code> (uppercase) and <code>-iv</code> as raw hex, not <code>-k</code> (lowercase, which derives a key from a passphrase via EVP_BytesToKey). This gives us direct control over the key material.</p>
+
+<h3>MCP Server: Node.js crypto</h3>
+
+<pre><code>const cipher = crypto.createCipheriv(
+  'aes-256-cbc',
+  Buffer.from(keyHex, 'hex'),
+  Buffer.from(ivHex, 'hex')
+);
+const encrypted = Buffer.concat([
+  cipher.update(plaintext),
+  cipher.final()
+]);</code></pre>
+
+<p>Node.js <code>crypto</code> module wraps OpenSSL internally, so compatibility is straightforward. Same PKCS#7 padding by default.</p>
+
+<h3>Chrome Extension: WebCrypto API</h3>
+
+<p>This is where it gets interesting. The browser's <a href="https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto">SubtleCrypto API</a> has a different interface:</p>
+
+<pre><code>const key = await crypto.subtle.importKey(
+  'raw',
+  keyBuffer,        // ArrayBuffer, not hex string
+  { name: 'AES-CBC' },
+  false,
+  ['encrypt', 'decrypt']
+);
+
+const ciphertext = await crypto.subtle.encrypt(
+  { name: 'AES-CBC', iv: ivBuffer },
+  key,
+  plaintext         // ArrayBuffer
+);</code></pre>
+
+<h2>Compatibility Pitfall #1: Padding</h2>
+
+<p>OpenSSL and Node.js use <strong>PKCS#7 padding</strong> by default for CBC mode. WebCrypto's <code>AES-CBC</code> also uses PKCS#7. So far so good.</p>
+
+<p>But here's the trap: if you use OpenSSL with <code>-nopad</code> or Node.js with <code>cipher.setAutoPadding(false)</code>, the output changes. We explicitly rely on default padding everywhere and never disable it.</p>
+
+<h2>Compatibility Pitfall #2: Key Format</h2>
+
+<p>OpenSSL takes hex strings. Node.js takes Buffers. WebCrypto takes ArrayBuffers. The conversion must be exact:</p>
+
+<pre><code>// Hex string to ArrayBuffer (for WebCrypto)
+function hexToBuffer(hex: string): ArrayBuffer {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i &lt; hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+  }
+  return bytes.buffer;
+}</code></pre>
+
+<p>A common mistake: using <code>TextEncoder</code> on the hex string instead of parsing it as hex bytes. <code>TextEncoder.encode("deadbeef")</code> gives you the ASCII bytes of the <em>string</em> "deadbeef" (8 bytes), not the 4 bytes <code>0xDE 0xAD 0xBE 0xEF</code>. This produces valid but incompatible ciphertext.</p>
+
+<h2>Compatibility Pitfall #3: The v2 URL Format</h2>
+
+<p>vnsh v1 URLs encoded key and IV separately: <code>#k=abc123&amp;iv=def456</code>. This was verbose (~160 chars total). For v2, we concatenate key (32 bytes) + IV (16 bytes) = 48 bytes, then base64url-encode:</p>
+
+<pre><code>// 48 bytes → 64 base64url characters
+function encodeSecret(key: ArrayBuffer, iv: ArrayBuffer): string {
+  const combined = new Uint8Array(48);
+  combined.set(new Uint8Array(key), 0);
+  combined.set(new Uint8Array(iv), 32);
+  return bufferToBase64url(combined);
+}
+
+function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
+  const bytes = base64urlToBuffer(secret);
+  return {
+    key: bytes.slice(0, 32),
+    iv: bytes.slice(32, 48)
+  };
+}</code></pre>
+
+<p>The base64url variant (RFC 4648 §5) replaces <code>+</code> with <code>-</code> and <code>/</code> with <code>_</code>, and strips padding <code>=</code>. This is URL-safe and won't break in URL fragments.</p>
+
+<h2>Manifest V3 Constraints</h2>
+
+<p>Chrome's Manifest V3 adds restrictions that affect crypto operations:</p>
+
+<ul>
+<li><strong>No background pages</strong>: Service workers are ephemeral. We can't keep crypto keys in memory between operations. Each encrypt/decrypt is stateless.</li>
+<li><strong>No eval()</strong>: The strict CSP means no dynamic code generation. All crypto runs through the built-in WebCrypto API.</li>
+<li><strong>No remote code</strong>: We can't load external crypto libraries at runtime. Everything is bundled at build time via Vite.</li>
+</ul>
+
+<p>These constraints are actually good for security — they force us to use the browser's native crypto primitives rather than JavaScript implementations that could be tampered with.</p>
+
+<h2>Testing: Cross-Platform Vectors</h2>
+
+<p>We maintain a set of test vectors generated by OpenSSL:</p>
+
+<pre><code>// Known plaintext + key + IV → expected ciphertext
+{
+  "plaintext": "Hello, vnsh!",
+  "key": "a1b2c3d4...",
+  "iv": "e5f6a7b8...",
+  "ciphertext_base64": "kL9mN2pQ..."
+}</code></pre>
+
+<p>Every platform's test suite runs against the same vectors. If the CLI produces ciphertext X for input Y, the extension must produce exactly X, and the MCP server must decrypt X back to Y. Our 48 extension tests include 13 dedicated crypto tests verifying this.</p>
+
+<h2>The Result</h2>
+
+<p>A link created by <code>cat file | vn</code> on a Linux server can be opened in Chrome on macOS and decrypted client-side. The same link works with Claude Code via MCP on Windows. Three platforms, three different crypto APIs, one format, byte-identical output.</p>
+
+<p>The full source is at <a href="https://github.com/raullenchai/vnsh">github.com/raullenchai/vnsh</a> — see <code>extension/src/lib/crypto.ts</code>, <code>mcp/src/crypto.ts</code>, and the CLI's OpenSSL commands in <code>cli/vn</code>.</p>
+`
+  ),
+
+  'ai-debug-bundles-packaging-browser-context': blogPage(
+    "One-Click AI Debug Bundles: Packaging Browser Context for LLMs",
+    "How vnsh's AI Debug Bundle captures screenshots, console errors, selected text, and page URLs into a single encrypted link for AI-assisted debugging.",
+    'ai-debug-bundles-packaging-browser-context',
+    'February 18, 2026',
+    `
+<h2>The Debugging Tax</h2>
+
+<p>You're staring at a broken page. You want Claude or ChatGPT to help. So you:</p>
+
+<ol>
+<li>Take a screenshot, save it, upload it to the chat</li>
+<li>Open DevTools, find the console errors, copy them</li>
+<li>Select the relevant code or text on the page, copy that too</li>
+<li>Type out the URL and describe what you were doing</li>
+<li>Paste all of it together with enough context for the AI to understand</li>
+</ol>
+
+<p>This takes 2-3 minutes every time. And you inevitably forget something — the console error you didn't copy, the network request that failed, the exact URL with query parameters.</p>
+
+<p><strong>AI Debug Bundles</strong> reduce this to one keyboard shortcut.</p>
+
+<h2>What Gets Captured</h2>
+
+<p>Press <code>Cmd+Shift+D</code> (or <code>Ctrl+Shift+D</code>) on any page. The vnsh Chrome Extension captures:</p>
+
+<ul>
+<li><strong>Screenshot</strong>: The visible tab, captured via <code>chrome.tabs.captureVisibleTab()</code>, compressed to JPEG quality 60</li>
+<li><strong>Console errors</strong>: Up to 20 recent <code>console.error</code> entries, captured by injecting a collector script via <code>chrome.scripting.executeScript()</code></li>
+<li><strong>Selected text</strong>: Whatever text you've highlighted on the page — error messages, code blocks, stack traces</li>
+<li><strong>Page URL + title</strong>: The full URL including query parameters and hash, plus the document title</li>
+</ul>
+
+<p>Everything is packaged into a structured JSON bundle:</p>
+
+<pre><code>{
+  "version": 1,
+  "type": "debug-bundle",
+  "timestamp": "2026-02-18T12:00:00Z",
+  "url": "https://app.example.com/dashboard?tab=analytics",
+  "title": "Dashboard - My App",
+  "selected_text": "TypeError: Cannot read property 'map' of undefined",
+  "console_errors": [
+    {
+      "message": "Uncaught TypeError: data.items.map is not a function",
+      "source": "https://app.example.com/assets/dashboard.js:142:23",
+      "timestamp": 1708243200
+    }
+  ],
+  "screenshot_base64": "..."
+}</code></pre>
+
+<h2>The Encryption + Share Flow</h2>
+
+<p>After capturing, the bundle is:</p>
+
+<ol>
+<li><strong>Serialized</strong> to JSON (typically 50-500KB depending on screenshot)</li>
+<li><strong>Encrypted</strong> with AES-256-CBC using a random key and IV generated via <code>crypto.getRandomValues()</code></li>
+<li><strong>Uploaded</strong> to vnsh.dev as an encrypted blob</li>
+<li><strong>URL generated</strong> with the decryption key in the fragment: <code>vnsh.dev/v/id#secret</code></li>
+<li><strong>Copied to clipboard</strong> automatically</li>
+</ol>
+
+<p>Total time: about 2 seconds. You get a desktop notification confirming the link is ready.</p>
+
+<h2>How AI Reads the Bundle</h2>
+
+<p>When you paste the vnsh link into Claude Code (with <a href="https://vnsh.dev">vnsh MCP</a> installed), Claude:</p>
+
+<ol>
+<li>Detects the vnsh URL pattern</li>
+<li>Fetches the encrypted blob from vnsh.dev</li>
+<li>Decrypts it locally using the key from the URL fragment</li>
+<li>Parses the JSON and understands it's a debug bundle</li>
+<li>Analyzes the screenshot, error messages, selected text, and URL together</li>
+</ol>
+
+<p>The AI gets <strong>complete context</strong> in one link — no follow-up questions like "can you share the console errors?" or "what URL were you on?"</p>
+
+<h2>Real-World Use Cases</h2>
+
+<h3>Frontend Bug Reports</h3>
+
+<p>Your React app throws a white screen. Select the error boundary message, press <code>Cmd+Shift+D</code>. Claude sees the screenshot (white screen with error), the console errors (component stack trace), and the URL (which route broke). It can often identify the fix immediately.</p>
+
+<h3>CSS Layout Issues</h3>
+
+<p>Something looks wrong on mobile. The screenshot shows the visual bug. Select the element that looks wrong, debug-bundle it. Claude sees both the visual result and the context, and can suggest CSS fixes.</p>
+
+<h3>API Integration Debugging</h3>
+
+<p>A third-party dashboard shows an error. You can't access the source code, but you can see the error message and console output. Debug-bundle captures everything visible — the AI can analyze the error pattern even without source access.</p>
+
+<h3>Cross-Team Bug Sharing</h3>
+
+<p>A QA engineer finds a bug but isn't sure how to describe it. <code>Cmd+Shift+D</code> captures everything — screenshot, errors, URL, selected text — in one encrypted link. Share it in Slack. Any developer (or their AI assistant) can open it and see the full context.</p>
+
+<h2>Size Control</h2>
+
+<p>Debug bundles are capped to prevent excessive uploads:</p>
+
+<ul>
+<li><strong>Screenshots</strong>: JPEG quality 60 (typically 100-300KB vs 1-3MB for PNG)</li>
+<li><strong>Console errors</strong>: Maximum 20 entries</li>
+<li><strong>Total bundle</strong>: Capped at 5MB</li>
+</ul>
+
+<p>The 5MB cap keeps bundles well within vnsh's free tier upload limit while including enough context for meaningful AI analysis.</p>
+
+<h2>Privacy: What Doesn't Get Captured</h2>
+
+<p>The debug bundle captures only what's specified above. It does <strong>not</strong> capture:</p>
+
+<ul>
+<li>Cookies or session tokens</li>
+<li>localStorage or sessionStorage</li>
+<li>Network requests or response bodies</li>
+<li>Password field contents</li>
+<li>Extension storage or browser history</li>
+</ul>
+
+<p>And everything that is captured is encrypted before upload. The vnsh server stores only encrypted bytes — it cannot see screenshots, errors, or any content.</p>
+
+<h2>Try It</h2>
+
+<p>Install the <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">vnsh Chrome Extension</a>, navigate to any page, and press <code>Cmd+Shift+D</code>. Paste the link into Claude or ChatGPT. See how much faster debugging gets when the AI has full context from the start.</p>
+`
+  ),
+
+  'url-fragments-encryption-keys': blogPage(
+    "Why URL Fragments Are the Best Place to Hide Encryption Keys",
+    "A security deep-dive into RFC 3986, the HTTP specification, and why the URL fragment (#) is the ideal transport for client-side encryption keys.",
+    'url-fragments-encryption-keys',
+    'February 18, 2026',
+    `
+<h2>The Fragment Guarantee</h2>
+
+<p><a href="https://datatracker.ietf.org/doc/html/rfc3986#section-3.5">RFC 3986 §3.5</a> defines the URI fragment as the portion after the <code>#</code> character. It has a special property that makes it uniquely suited for encryption key transport:</p>
+
+<p><strong>The fragment is never sent to the server.</strong></p>
+
+<p>This isn't a convention or a best practice — it's part of the HTTP specification. When a browser requests <code>https://example.com/page#secret</code>, the HTTP request contains only <code>GET /page</code>. The <code>#secret</code> part stays in the browser. It's not in the request headers, not in the URL path, not in the query string. The server literally never sees it.</p>
+
+<h2>Why This Matters for Encryption</h2>
+
+<p>Zero-knowledge encryption systems need to solve a fundamental problem: how do you give the recipient a decryption key without also giving it to the server?</p>
+
+<p>Common approaches:</p>
+
+<ul>
+<li><strong>Separate channel</strong>: Send the key via a different medium (Signal, email). Awkward and error-prone.</li>
+<li><strong>Key exchange protocol</strong>: Diffie-Hellman or similar. Requires both parties to be online and adds complexity.</li>
+<li><strong>Password-based</strong>: Recipient enters a shared password. Requires pre-coordination.</li>
+<li><strong>URL fragment</strong>: Embed the key in the URL itself. One link, zero coordination, server-blind by specification.</li>
+</ul>
+
+<p>The URL fragment approach is the only one that requires <strong>no pre-coordination</strong> between sender and recipient, while guaranteeing the server never sees the key.</p>
+
+<h2>How vnsh Uses Fragments</h2>
+
+<p>When you encrypt content with vnsh, the output is a URL like:</p>
+
+<pre><code>https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9kL2mN3pQ4rS5tU6vW7xY8zA9bC0dE1fG2hI3jK</code></pre>
+
+<p>Everything before <code>#</code> is the blob identifier. Everything after <code>#</code> is the base64url-encoded encryption key + IV (48 bytes = 64 characters). When someone opens this URL:</p>
+
+<ol>
+<li>Browser sends <code>GET /v/aBcDeFgHiJkL</code> to vnsh.dev — <strong>no key in request</strong></li>
+<li>Server returns the encrypted blob — <strong>it cannot decrypt it</strong></li>
+<li>Browser JavaScript reads <code>window.location.hash</code> to extract the key</li>
+<li>Browser decrypts the blob client-side using WebCrypto</li>
+</ol>
+
+<p>The server is a "dumb pipe." It stores encrypted blobs and serves them back. Even under subpoena, it can only produce random-looking binary data.</p>
+
+<h2>What About Server Logs?</h2>
+
+<p>A common concern: "Don't web servers log the full URL including fragments?"</p>
+
+<p><strong>No.</strong> Web servers log the <em>request URI</em>, which by HTTP specification excludes the fragment. Check your Nginx or Apache access logs — you'll never see a <code>#</code> in them. The fragment is a client-side construct that the server never receives.</p>
+
+<p>However, fragments <em>can</em> appear in:</p>
+
+<ul>
+<li><strong>Browser history</strong>: The full URL with fragment is stored locally. This is by design — the recipient needs the key.</li>
+<li><strong>Referer headers</strong>: Historically, browsers could leak fragments in the <code>Referer</code> header when navigating away. Modern browsers strip fragments from <code>Referer</code> (per the <a href="https://w3c.github.io/webappsec-referrer-policy/">Referrer Policy spec</a>). vnsh pages set <code>referrerPolicy: no-referrer</code> as an additional safeguard.</li>
+<li><strong>Browser extensions</strong>: Malicious extensions with <code>&lt;all_urls&gt;</code> permission can read <code>window.location.hash</code>. This is a browser-level trust boundary, not something vnsh can mitigate.</li>
+</ul>
+
+<h2>Comparison With Other Key Transport Methods</h2>
+
+<h3>Query Parameters (<code>?key=abc</code>)</h3>
+
+<p>Query parameters ARE sent to the server. They appear in access logs, CDN logs, and analytics tools. Never use query parameters for encryption keys.</p>
+
+<h3>HTTP Headers (<code>X-Decrypt-Key: abc</code>)</h3>
+
+<p>Custom headers require the client to make an explicit API call rather than just opening a URL. This breaks the "one link" user experience and requires JavaScript before any content can be fetched.</p>
+
+<h3>Out-of-Band (separate message)</h3>
+
+<p>Sending the key through a different channel (Slack DM, email) is secure but requires coordination. The recipient needs two things instead of one. In AI workflows, this is a non-starter — you can't send Claude a separate Slack message with the key.</p>
+
+<h3>Client-Side Derivation (PBKDF2 + password)</h3>
+
+<p>Derive the key from a shared password. Secure if the password has enough entropy, but requires the sender and recipient to agree on a password. Again, doesn't work for AI agents.</p>
+
+<h2>The AI-Native Advantage</h2>
+
+<p>URL fragments are particularly powerful for AI coding workflows because:</p>
+
+<ol>
+<li><strong>Single artifact</strong>: One URL contains both the content reference and the decryption key. Paste one thing, AI gets everything.</li>
+<li><strong>MCP-compatible</strong>: The vnsh MCP server receives the full URL including fragment from the conversation, fetches the blob, extracts the key, and decrypts locally. The AI model itself never needs to "visit" the URL.</li>
+<li><strong>No auth flow</strong>: No tokens, no login, no API keys needed for reading. Just the URL.</li>
+<li><strong>Self-expiring</strong>: When the blob expires (24h default), the URL becomes inert. The key in the fragment is useless without the ciphertext.</li>
+</ol>
+
+<h2>Threat Model</h2>
+
+<p>What the URL fragment approach protects against:</p>
+
+<ul>
+<li><strong>Server compromise</strong>: Attacker gets encrypted blobs with no keys. Useless.</li>
+<li><strong>Network interception</strong>: HTTPS encrypts the full request. The fragment isn't even in the request to intercept.</li>
+<li><strong>Subpoena/legal request</strong>: Server operator can only produce encrypted blobs. Keys never touch the server.</li>
+<li><strong>Server-side logging</strong>: Fragments are excluded from HTTP access logs by specification.</li>
+</ul>
+
+<p>What it does NOT protect against:</p>
+
+<ul>
+<li><strong>Link sharing</strong>: If you paste the full URL in a public Slack channel, anyone can decrypt it. The link IS the key.</li>
+<li><strong>Browser compromise</strong>: Malware on the recipient's machine can read the fragment from the address bar or DOM.</li>
+<li><strong>Shoulder surfing</strong>: The full URL is visible in the address bar.</li>
+</ul>
+
+<p>This is an intentional trade-off. vnsh protects against <strong>server-side threats</strong> (the most common and scalable attack vector), not client-side threats (which require targeting individual users).</p>
+
+<h2>Implementation Notes</h2>
+
+<p>If you're building your own fragment-based encryption system:</p>
+
+<ol>
+<li><strong>Use base64url encoding</strong> (RFC 4648 §5) for the key material. Standard base64 contains <code>+</code> and <code>/</code> which can cause URL parsing issues.</li>
+<li><strong>Set a strict Referrer Policy</strong>: <code>no-referrer</code> or <code>same-origin</code> to prevent fragment leakage in navigation.</li>
+<li><strong>Set a strict CSP</strong>: Prevent inline scripts and third-party JavaScript from reading <code>window.location.hash</code>.</li>
+<li><strong>Don't log client-side</strong>: If you have analytics JavaScript, make sure it doesn't send <code>window.location.hash</code> to your analytics service.</li>
+<li><strong>Use HTTPS only</strong>: Without TLS, the request path and headers are visible. The fragment is still hidden from the server, but a network attacker could inject JavaScript to read it.</li>
+</ol>
+
+<p>vnsh is fully open source at <a href="https://github.com/raullenchai/vnsh">github.com/raullenchai/vnsh</a>. See how we implement all of the above in a production system.</p>
 `
   ),
 };
