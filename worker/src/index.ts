@@ -2533,47 +2533,64 @@ const APP_HTML = `<!DOCTYPE html>
 
     .ext-cta {
       display: none;
+      flex-direction: column;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.6rem 1rem;
-      margin: 0 1.25rem;
-      background: var(--accent-dim);
-      border: 1px solid rgba(34, 197, 94, 0.3);
-      border-radius: 6px;
-      font-size: 0.75rem;
-      color: var(--fg-muted);
+      gap: 0.5rem;
+      padding: 1.25rem 1.5rem;
+      margin: 0.5rem 1.25rem;
+      background: linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(34, 197, 94, 0.04) 100%);
+      border: 1.5px solid rgba(34, 197, 94, 0.35);
+      border-radius: 10px;
+      text-align: center;
+      position: relative;
     }
     .ext-cta.show { display: flex; }
-    .ext-cta-icon { font-size: 1.1rem; flex-shrink: 0; }
-    .ext-cta-text { flex: 1; line-height: 1.4; }
-    .ext-cta-text strong { color: var(--fg); }
+    .ext-cta-chrome {
+      width: 28px; height: 28px; margin-bottom: 0.15rem;
+    }
+    .ext-cta-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .ext-cta-desc {
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      line-height: 1.4;
+      max-width: 400px;
+    }
     .ext-cta-btn {
-      flex-shrink: 0;
-      padding: 0.4rem 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-top: 0.35rem;
+      padding: 0.55rem 1.5rem;
       background: var(--accent);
       color: #000;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       font-family: inherit;
-      font-size: 0.7rem;
-      font-weight: 600;
+      font-size: 0.8rem;
+      font-weight: 700;
       cursor: pointer;
       text-decoration: none;
-      white-space: nowrap;
-      transition: background 0.15s;
+      transition: background 0.15s, transform 0.1s;
     }
-    .ext-cta-btn:hover { background: #16a34a; }
+    .ext-cta-btn:hover { background: #16a34a; transform: translateY(-1px); }
     .ext-cta-close {
-      flex-shrink: 0;
+      position: absolute;
+      top: 0.5rem;
+      right: 0.65rem;
       background: none;
       border: none;
       color: var(--fg-dim);
       cursor: pointer;
-      font-size: 1rem;
-      padding: 0 0.25rem;
+      font-size: 1.1rem;
+      padding: 0.15rem 0.35rem;
       line-height: 1;
+      border-radius: 3px;
     }
-    .ext-cta-close:hover { color: var(--fg-muted); }
+    .ext-cta-close:hover { color: var(--fg-muted); background: rgba(255,255,255,0.05); }
 
     .code-container {
       display: flex;
@@ -2976,10 +2993,13 @@ const APP_HTML = `<!DOCTYPE html>
         <div id="viewer-result" style="display:none;"></div>
       </div>
       <div class="ext-cta" id="ext-cta">
-        <span class="ext-cta-icon">&#x1F9E9;</span>
-        <span class="ext-cta-text"><strong>Get the vnsh Extension</strong> — Share encrypted text, screenshots &amp; debug bundles from any page. One click.</span>
-        <a class="ext-cta-btn" href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener">Install</a>
         <button class="ext-cta-close" onclick="dismissExtCta()" title="Dismiss">&times;</button>
+        <svg class="ext-cta-chrome" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill="#fff"/><path d="M24 8a16 16 0 0 1 13.86 8H24a8 8 0 0 0-6.93 4L10.15 8.58A15.93 15.93 0 0 1 24 8z" fill="#EA4335"/><path d="M37.86 16A15.93 15.93 0 0 1 24 40a16 16 0 0 1-13.85-8l6.92-12A8 8 0 0 0 24 32h13.86z" fill="#4285F4" opacity=".01"/><path d="M37.86 16a15.93 15.93 0 0 1-3.71 19.42L27.07 24A8 8 0 0 0 24 16h13.86z" fill="#FBBC05"/><path d="M10.15 8.58 17.07 20A8 8 0 0 0 17.07 28l-6.92 12A16 16 0 0 1 10.15 8.58z" fill="#34A853"/><path d="M34.15 35.42 27.07 24a8 8 0 0 0 0-1l6.79-7A15.93 15.93 0 0 1 24 40a15.93 15.93 0 0 1-13.85-8l6.92-12" fill="#4285F4"/><circle cx="24" cy="24" r="5.33" fill="#fff"/><circle cx="24" cy="24" r="4" fill="#4285F4"/></svg>
+        <div class="ext-cta-title">Add vnsh to Chrome</div>
+        <div class="ext-cta-desc">Share encrypted text, screenshots &amp; AI debug bundles from any page. One click to encrypt, one link to share.</div>
+        <a class="ext-cta-btn" href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener">
+          Install Free Extension
+        </a>
       </div>
       <div class="viewer-footer">
         <div class="viewer-actions">
