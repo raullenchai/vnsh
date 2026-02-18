@@ -2869,37 +2869,27 @@ const APP_HTML = `<!DOCTYPE html>
     <!-- Agent Panel -->
     <div class="tab-panel" id="panel-agent">
       <div class="mcp-section">
-        <div class="section-label">// What is MCP?</div>
-        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 1.5rem; line-height: 1.6;">
-          <strong style="color: var(--fg);">Model Context Protocol (MCP)</strong> lets Claude read vnsh links directly.
-          Instead of copy-pasting content, just share the URL — Claude decrypts it locally.
+        <div class="section-label" style="margin-bottom: 0.5rem;">// Agent (MCP) — Let Claude Read vnsh Links</div>
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.5;">
+          <strong style="color: var(--fg);">Model Context Protocol</strong> lets Claude decrypt vnsh links directly. Share the URL — Claude reads it locally.
         </p>
 
-        <div class="section-label">// Claude Code — One Command Setup</div>
-        <div class="code-block" id="mcp-box" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)">
+        <div class="code-block" id="mcp-box" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)" style="margin-bottom: 0.4rem;">
           <code><span class="prompt">$ </span>curl -sL vnsh.dev/claude | sh</code>
           <button class="copy-btn" title="Copy">⧉</button>
         </div>
-        <p style="font-size: 0.75rem; color: var(--fg-dim); margin-top: 0.5rem;">Auto-detects Claude Code and adds vnsh to your MCP config. Then type <code style="color: var(--accent);">/mcp</code> to reload.</p>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-bottom: 1rem;">Auto-detects Claude Code, adds vnsh to MCP config. Type <code style="color: var(--accent);">/mcp</code> to reload.</p>
 
-        <div class="section-label" style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-          <span>// Manual Setup (Claude Desktop / other)</span>
-          <button class="copy-btn" style="font-size: 0.7rem; cursor: pointer; background: none; border: none; color: var(--fg-dim);" onclick="copyMcpConfig()" id="mcp-config-copy">⧉ Copy JSON</button>
-        </div>
-        <div class="mcp-config">
-          <div class="comment">// Claude Code: .mcp.json in project root</div>
-          <div class="comment">// Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json</div>
-          <div class="line">{</div>
-          <div class="line">&nbsp;&nbsp;<span class="key">"mcpServers"</span>: {</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"vnsh"</span>: {</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"command"</span>: <span class="str">"npx"</span>,</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>]</div>
-          <div class="line">&nbsp;&nbsp;&nbsp;&nbsp;}</div>
-          <div class="line">&nbsp;&nbsp;}</div>
-          <div class="line">}</div>
-        </div>
-
-        <p class="mcp-desc">After setup, share any vnsh.dev URL with Claude — it decrypts automatically.<br><span style="font-size: 0.7rem;">Type <code style="color: var(--accent);">/mcp</code> to reload MCP servers.</span></p>
+        <details class="mcp-manual">
+          <summary style="cursor: pointer; font-size: 0.75rem; color: var(--fg-dim); display: flex; justify-content: space-between; align-items: center;">
+            <span>// Manual Setup (Claude Desktop / other)</span>
+            <button class="copy-btn" style="font-size: 0.7rem; cursor: pointer; background: none; border: none; color: var(--fg-dim);" onclick="event.stopPropagation(); copyMcpConfig()" id="mcp-config-copy">⧉ Copy JSON</button>
+          </summary>
+          <div class="mcp-config" style="margin-top: 0.5rem;">
+            <div class="comment">// .mcp.json (Claude Code) or claude_desktop_config.json (Desktop)</div>
+            <div class="line">{ <span class="key">"mcpServers"</span>: { <span class="key">"vnsh"</span>: { <span class="key">"command"</span>: <span class="str">"npx"</span>, <span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>] } } }</div>
+          </div>
+        </details>
       </div>
     </div>
 
