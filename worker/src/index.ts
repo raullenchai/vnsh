@@ -441,6 +441,7 @@ export default {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
+          'Referrer-Policy': 'no-referrer',
         },
       });
     }
@@ -530,6 +531,7 @@ export default {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'public, max-age=3600',
+          'Referrer-Policy': 'no-referrer',
         },
       });
     }
@@ -2130,7 +2132,7 @@ function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
 <p>Press <code>Cmd+Shift+D</code> (or <code>Ctrl+Shift+D</code>) on any page. The vnsh Chrome Extension captures:</p>
 
 <ul>
-<li><strong>Screenshot</strong>: The visible tab, captured via <code>chrome.tabs.captureVisibleTab()</code>, compressed to JPEG quality 60</li>
+<li><strong>Screenshot</strong>: The visible tab, captured via <code>chrome.tabs.captureVisibleTab()</code>, compressed to JPEG quality 75</li>
 <li><strong>Console errors</strong>: Up to 20 recent <code>console.error</code> entries, captured by injecting a collector script via <code>chrome.scripting.executeScript()</code></li>
 <li><strong>Selected text</strong>: Whatever text you've highlighted on the page — error messages, code blocks, stack traces</li>
 <li><strong>Page URL + title</strong>: The full URL including query parameters and hash, plus the document title</li>
@@ -2206,7 +2208,7 @@ function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
 <p>Debug bundles are capped to prevent excessive uploads:</p>
 
 <ul>
-<li><strong>Screenshots</strong>: JPEG quality 60 (typically 100-300KB vs 1-3MB for PNG)</li>
+<li><strong>Screenshots</strong>: JPEG quality 75 (typically 100-300KB vs 1-3MB for PNG)</li>
 <li><strong>Console errors</strong>: Maximum 20 entries</li>
 <li><strong>Total bundle</strong>: Capped at 5MB</li>
 </ul>
