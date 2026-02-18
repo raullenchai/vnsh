@@ -6,17 +6,16 @@ vnsh is an AI-native encrypted ephemeral sharing service. As of v2.1.0, it has f
 
 The core challenge: file-sharing services that scale without revenue cannot sustain themselves. vnsh's answer is **AI-native monetization** — its primary consumers are AI agents (via MCP), and agents can pay for content programmatically using the HTTP 402 protocol.
 
-### Current State (2026-02-14)
+### Current State (2026-02-18)
 
 | Area | Status |
 |------|--------|
-| Rate limiting | **Done** — 50 uploads/hour, 50 reads/min per IP (KV-based) |
 | Usage analytics | None (no counters, no telemetry) |
 | Revenue | None (x402 payment code is stubbed but unimplemented) |
-| R2 orphan cleanup | **Done** — daily cron at 03:00 UTC deletes expired blobs |
 | Authentication | None (no API keys, no accounts) |
-| Storage | R2 ~283MB, all within free tier |
-| Traffic | ~140 writes, ~280 reads total (very low) |
+| Chrome Extension | Published on Chrome Web Store, homepage Extension tab, viewer install CTA |
+| Blog / SEO | `/blog` with first post, sitemap updated |
+| Growth | 5 awesome list PRs submitted |
 
 ### Infrastructure Costs (Cloudflare)
 
@@ -36,39 +35,7 @@ Key advantage: R2 egress is free and the ephemeral 24h TTL makes storage self-cl
 
 ## Phase 1: Foundation — prerequisite for scale
 
-### 1.1 R2 Orphan Blob Cleanup [DONE]
-
-**Problem**: KV entries auto-expire via `expirationTtl`, but R2 objects persist forever. Orphan blobs accumulate storage costs indefinitely.
-
-**Solution**: Daily Cron Trigger in the Worker.
-
-```toml
-# wrangler.toml
-[triggers]
-crons = ["0 3 * * *"]
-```
-
-The `scheduled` handler lists all R2 objects, checks `customMetadata.expiresAt`, and deletes expired ones. Legacy objects without metadata are deleted after 8 days (max TTL is 7 days).
-
-**Files**: `worker/src/index.ts` (scheduled handler), `worker/wrangler.toml` (cron config)
-
-### 1.2 Rate Limiting
-
-**Problem**: No application-level rate limiting. Vulnerable to resource exhaustion via rapid uploads.
-
-**Solution**: KV-based sliding window counters with TTL auto-expiry.
-
-```
-POST /api/drop  → 20 uploads/hour per IP
-GET /api/blob   → 120 reads/minute per IP
-Exceeded        → 429 Too Many Requests + Retry-After header
-```
-
-Implementation: `checkRateLimit(ip, endpoint, limit, windowSeconds, env)` function using KV key `rl:{endpoint}:{ip}` with `expirationTtl`.
-
-**Files**: `worker/src/index.ts`
-
-### 1.3 Usage Analytics (KV Counters)
+### 1.1 Usage Analytics (KV Counters)
 
 **Problem**: Zero visibility into traffic patterns. Cannot make revenue or growth decisions without data.
 
@@ -84,7 +51,7 @@ Add `GET /api/stats?token=SECRET` endpoint for operator visibility (authenticate
 
 **Files**: `worker/src/index.ts`
 
-### 1.4 Client Identification
+### 1.2 Client Identification
 
 Add `X-Vnsh-Client` header to all clients for source attribution:
 
@@ -245,18 +212,16 @@ The ephemeral nature (24h default TTL) and free R2 egress make vnsh dramatically
 
 | # | Item | Effort | Revenue Impact | Status |
 |---|------|--------|---------------|--------|
-| 1 | R2 orphan cleanup | 2 days | Cost prevention | **Done** |
-| 2 | Rate limiting | 1 day | Abuse prevention | **Done** |
-| 3 | Usage analytics | 2 days | Decision data | Pending |
-| 4 | Client ID headers | 0.5 days | Attribution | Pending |
-| 5 | API key system | 3 days | Gate for paid features | Pending |
-| 6 | TTL + size gating | 1 day | Conversion trigger | Pending |
-| 7 | Stripe subscription | 3 days | Recurring revenue | Pending |
-| 8 | x402 JWT verification | 2 days | Creator paywall | Pending |
-| 9 | Stripe per-blob payment | 5 days | Micropayment revenue | Pending |
-| 10 | MCP `vnsh_pay` tool | 2 days | Agent-native payments | Pending |
+| 1 | Usage analytics | 2 days | Decision data | Pending |
+| 2 | Client ID headers | 0.5 days | Attribution | Pending |
+| 3 | API key system | 3 days | Gate for paid features | Pending |
+| 4 | TTL + size gating | 1 day | Conversion trigger | Pending |
+| 5 | Stripe subscription | 3 days | Recurring revenue | Pending |
+| 6 | x402 JWT verification | 2 days | Creator paywall | Pending |
+| 7 | Stripe per-blob payment | 5 days | Micropayment revenue | Pending |
+| 8 | MCP `vnsh_pay` tool | 2 days | Agent-native payments | Pending |
 
-Recommended order: **3-4** (remaining foundation, ~3 days) → **5-7** (freemium, ~1 week) → **8-10** (x402, ~2 weeks). Total: ~3-4 weeks to first revenue.
+Recommended order: **1-2** (remaining foundation, ~3 days) → **3-5** (freemium, ~1 week) → **6-8** (x402, ~2 weeks). Total: ~3-4 weeks to first revenue.
 
 ---
 

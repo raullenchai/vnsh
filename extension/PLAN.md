@@ -24,7 +24,6 @@ Positioning: **Developer AI debugging assistant + encrypted sharing tool**.
 | Phase 6: Testing & Packaging | Done | 48 tests, 93%+ coverage, Chrome Web Store submission |
 
 ### Remaining (v1.1+)
-- Web Viewer CTA: extension install banner on vnsh.dev viewer pages
 - AI Platform Integration: inject vnsh button on claude.ai / chatgpt.com input areas
 - Share analytics: badge notification when shared links are viewed
 
@@ -34,11 +33,10 @@ Positioning: **Developer AI debugging assistant + encrypted sharing tool**.
 
 ### Acquisition
 
-**Core engine: Web Viewer -> Extension conversion**
-- Every vnsh link recipient opens the Web Viewer
-- Add extension install CTA on viewer pages ("Install extension -> share back in one click")
-- Extension installs scale directly with shared link opens
-- Requires Worker changes: add Extension Install Banner to viewer HTML (show only when extension not detected)
+**Core engine: Web Viewer -> Extension conversion** (Done)
+- Prominent "Add vnsh to Chrome" CTA card on all viewer pages
+- Homepage "Extension" tab with features + install button
+- Auto-hides for users who already have the extension
 
 **First-install Onboarding** (Done)
 - `chrome.runtime.onInstalled` opens onboarding page

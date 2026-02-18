@@ -8,6 +8,13 @@ All notable changes to vnsh are documented in this file.
 - **R2 orphan blob cleanup**: Daily Cron Trigger at 03:00 UTC scans all R2 objects and deletes expired blobs. Legacy objects without `expiresAt` metadata are deleted after 8 days (max TTL is 7 days). Prevents unbounded R2 storage cost growth.
 - **Application-level rate limiting**: KV-based sliding window counters with TTL auto-expiry. `POST /api/drop` limited to 50 uploads/hour per IP, `GET /api/blob/:id` limited to 50 reads/minute per IP. Returns `429 Too Many Requests` with `Retry-After` header when exceeded.
 - **Scaling & revenue plan**: Documented 4-phase roadmap in `docs/scaling-revenue.md` covering foundation (rate limiting, analytics, client ID), freemium gate (API keys, tier structure, Stripe), x402 AI payments, and team/enterprise tiers.
+- **Web Viewer extension CTA**: Prominent "Add vnsh to Chrome" card with Chrome logo on all `/v/` viewer pages. Auto-hides when extension is detected, dismissible with localStorage persistence.
+- **Homepage Extension tab**: 4th tab on vnsh.dev homepage showing AI Debug Bundle, Inline Decryption, Right-Click Share features with install button.
+- **Blog infrastructure**: `/blog` index and `/blog/:slug` routes with SEO meta tags, OG tags, and sitemap integration.
+- **First blog post**: "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext" — SEO-optimized article on zero-knowledge encrypted sharing for AI coding workflows.
+- **Compact tab layouts**: Redesigned Terminal, Agent, and Extension tabs to fit content without scrolling. Agent manual setup collapsed into `<details>`.
+- **Marquee promo template**: 1400x560 HTML template for Chrome Web Store Featured badge nomination.
+- **Awesome list submissions**: PRs to 5 curated GitHub lists (awesome-chrome, Awesome-WebExtensions, awesome-privacy, chrome-privacy-extensions, awesome-chrome-extensions).
 
 ---
 
