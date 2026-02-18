@@ -2061,6 +2061,16 @@ const APP_HTML = `<!DOCTYPE html>
     .cli-section {
       text-align: left;
     }
+    .cli-install-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0;
+    }
+    .cli-install-row .code-block {
+      flex: 1;
+      margin-bottom: 0;
+    }
 
     .section-label {
       font-size: 0.75rem;
@@ -2826,43 +2836,38 @@ const APP_HTML = `<!DOCTYPE html>
     <!-- Terminal Panel -->
     <div class="tab-panel" id="panel-terminal">
       <div class="cli-section">
-        <div class="section-label">// 1. Install</div>
-        <div class="code-block" id="cli-install" onclick="copyCommand('curl -sL vnsh.dev/i | sh', this)">
-          <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
-          <button class="copy-btn" title="Copy">⧉</button>
+        <div class="section-label">// Install</div>
+        <div class="cli-install-row">
+          <div class="code-block" id="cli-install" onclick="copyCommand('curl -sL vnsh.dev/i | sh', this)">
+            <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
+            <button class="copy-btn" title="Copy">⧉</button>
+          </div>
+          <span style="color: var(--fg-dim); font-size: 0.75rem; flex-shrink: 0;">or</span>
+          <div class="code-block" onclick="copyCommand('npm i -g vnsh-cli', this)">
+            <code><span class="prompt">$ </span>npm i -g vnsh-cli</code>
+            <button class="copy-btn" title="Copy">⧉</button>
+          </div>
         </div>
-        <div class="code-block" style="margin-bottom: 1rem;" onclick="copyCommand('npm install -g vnsh-cli', this)">
-          <code><span class="prompt">$ </span>npm i -g vnsh-cli</code>
-          <button class="copy-btn" title="Copy">⧉</button>
-        </div>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin: 0.4rem 0 1rem;">Zero-install: <code style="color: var(--accent); cursor: pointer;" onclick="copyCommand('cat file.log | bash <(curl -sL vnsh.dev/pipe)', this.parentElement)">cat file.log | bash &lt;(curl -sL vnsh.dev/pipe)</code></p>
 
-        <div class="section-label" style="margin-top: 1rem;">// Or: zero-install (any server)</div>
-        <div class="code-block" onclick="copyCommand('cat file.log | bash <(curl -sL vnsh.dev/pipe)', this)">
-          <code><span class="prompt">$ </span>cat file.log | bash &lt;(curl -sL vnsh.dev/pipe)</code>
-          <button class="copy-btn" title="Copy">⧉</button>
-        </div>
-
-        <div class="section-label" style="margin-top: 1rem;">// 2. Usage Examples</div>
-        <div class="terminal-window">
+        <div class="section-label">// Usage</div>
+        <div class="terminal-window" style="font-size: 0.75rem;">
           <div class="terminal-header">
             <div class="terminal-dots"><span></span><span></span><span></span></div>
             <span>terminal</span>
           </div>
-          <div class="terminal-body">
-            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Upload: pipe or file</span></div>
+          <div class="terminal-body" style="padding: 0.6rem 0.75rem;">
             <div class="line"><span class="prompt">$ </span><span class="cmd">kubectl logs pod/app | vn</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/a3f...#k=...</span></div>
-            <div class="line" style="height: 0.35rem;"></div>
+            <div class="line" style="height: 0.25rem;"></div>
             <div class="line"><span class="prompt">$ </span><span class="cmd">vn .env.production</span></div>
             <div class="line"><span class="output">https://vnsh.dev/v/b7c...#k=...</span></div>
-            <div class="line" style="height: 0.5rem;"></div>
-            <div class="line"><span class="prompt"># </span><span class="cmd" style="color:var(--fg-dim)">Download: decrypt and view</span></div>
+            <div class="line" style="height: 0.25rem;"></div>
             <div class="line"><span class="prompt">$ </span><span class="cmd">vn read "https://vnsh.dev/v/aBcD...#R_sI4..."</span></div>
             <div class="line"><span class="output">(decrypted content)</span></div>
           </div>
         </div>
-
-        <p class="cli-desc">Pipe anything to <code style="color:var(--accent)">vn</code> — share the URL with Claude.<br><span style="font-size:0.7rem;color:var(--fg-dim)">Use <code>vn read "URL"</code> to decrypt. Quote the URL to preserve &iv= part.</span></p>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-top: 0.5rem;">Pipe anything to <code style="color:var(--accent)">vn</code> — share the URL with Claude. Use <code>vn read "URL"</code> to decrypt.</p>
       </div>
     </div>
 
