@@ -1443,6 +1443,11 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://vnsh.dev/blog/debug-ci-failures-with-claude-code</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
 `;
 
@@ -1637,6 +1642,11 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
     <ul class="post-list">
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
+        <div class="post-title"><a href="/blog/debug-ci-failures-with-claude-code">Debug CI Failures Faster with vnsh + Claude Code</a></div>
+        <div class="post-excerpt">A step-by-step tutorial on using the upload-to-vnsh GitHub Action and Claude Code MCP to go from CI failure to fix in 30 seconds.</div>
+      </li>
+      <li class="post-item">
+        <div class="post-date">February 18, 2026</div>
         <div class="post-title"><a href="/blog/zero-knowledge-sharing-for-ai-coding">Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext</a></div>
         <div class="post-excerpt">Every time you paste production logs into Claude or ChatGPT, the data crosses multiple trust boundaries. There's a better way: zero-knowledge encrypted sharing that keeps the server mathematically blind.</div>
       </li>
@@ -1781,6 +1791,152 @@ cat docker-compose.yml | vn</code></pre>
 <p>Or get the <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">Chrome Extension</a> for browser-native encrypted sharing.</p>
 
 <p>Your debug context deserves better than plaintext.</p>
+`
+  ),
+
+  'debug-ci-failures-with-claude-code': blogPage(
+    "Debug CI Failures Faster with vnsh + Claude Code",
+    "A step-by-step tutorial on using the upload-to-vnsh GitHub Action and Claude Code MCP to debug CI failures in seconds.",
+    'debug-ci-failures-with-claude-code',
+    'February 18, 2026',
+    `
+<h2>The Problem: CI Fails, Now What?</h2>
+
+<p>Your CI pipeline fails. You click through to the GitHub Actions log. You scroll through hundreds of lines of build output looking for the actual error. You copy-paste it into Claude. You lose context because the log is truncated. Sound familiar?</p>
+
+<p>There's a faster way: <strong>automatically upload CI logs to an encrypted link and let Claude analyze them in full</strong> — without pasting walls of text into chat.</p>
+
+<h2>Setup: 2 Minutes, Zero Config</h2>
+
+<h3>Step 1: Add the GitHub Action</h3>
+
+<p>Add <a href="https://github.com/raullenchai/upload-to-vnsh">upload-to-vnsh</a> to any workflow. It runs only on failure, uploads the log file encrypted, and posts a comment to your PR:</p>
+
+<pre><code>name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm test 2>&1 | tee test.log
+
+      - name: Debug with vnsh
+        if: failure()
+        uses: raullenchai/upload-to-vnsh@v1
+        with:
+          file: test.log
+        env:
+          GITHUB_TOKEN: $\{{ secrets.GITHUB_TOKEN }}</code></pre>
+
+<p>When CI fails, the action posts a PR comment:</p>
+
+<pre><code>🔍 Debug with Claude
+
+CI logs uploaded securely.
+View Logs: https://vnsh.dev/v/aBcDeFgH...#R_sI4...
+Paste link to Claude for instant analysis</code></pre>
+
+<h3>Step 2: Install vnsh MCP for Claude Code</h3>
+
+<p>One command gives Claude the ability to decrypt vnsh links:</p>
+
+<pre><code>curl -sL vnsh.dev/claude | sh</code></pre>
+
+<p>Type <code>/mcp</code> in Claude Code to reload. Done.</p>
+
+<h2>The Workflow: Failure to Fix in 30 Seconds</h2>
+
+<ol>
+<li><strong>CI fails</strong> — GitHub Action uploads the full log, encrypted</li>
+<li><strong>PR comment appears</strong> — with a vnsh link</li>
+<li><strong>Copy the link</strong> — paste it to Claude Code</li>
+<li><strong>Claude reads the full log</strong> — decrypts locally via MCP, analyzes the complete output</li>
+<li><strong>Claude suggests the fix</strong> — with full context, not a truncated snippet</li>
+</ol>
+
+<p>No copy-pasting log walls. No "can you show me the full error?" follow-ups. Claude sees everything.</p>
+
+<h2>Why Not Just Paste the Log?</h2>
+
+<p>Three reasons:</p>
+
+<ul>
+<li><strong>Size</strong>: CI logs are often 500+ lines. Pasting them floods your chat context and pushes out earlier conversation history.</li>
+<li><strong>Privacy</strong>: Build logs can contain environment variables, internal paths, package names, and infrastructure details. With vnsh, the log is encrypted client-side — GitHub, vnsh servers, and anyone without the link cannot read it.</li>
+<li><strong>Reusability</strong>: The same link works for your teammate, your AI assistant, and your future self. Share it in Slack, paste it in an issue — it just works for 24 hours, then vanishes.</li>
+</ul>
+
+<h2>Advanced: Multiple Log Files</h2>
+
+<p>Upload different artifacts from the same failed run:</p>
+
+<pre><code>- name: Upload test log
+  if: failure()
+  uses: raullenchai/upload-to-vnsh@v1
+  with:
+    file: test.log
+  env:
+    GITHUB_TOKEN: $\{{ secrets.GITHUB_TOKEN }}
+
+- name: Upload coverage report
+  if: failure()
+  uses: raullenchai/upload-to-vnsh@v1
+  with:
+    file: coverage/lcov-report/index.html
+  env:
+    GITHUB_TOKEN: $\{{ secrets.GITHUB_TOKEN }}</code></pre>
+
+<p>Each file gets its own encrypted link in the PR comment. Paste both to Claude for cross-referenced analysis.</p>
+
+<h2>Advanced: Docker and Build Logs</h2>
+
+<p>Capture Docker build failures or complex build pipelines:</p>
+
+<pre><code>- run: docker build . 2>&1 | tee build.log
+- run: docker compose up -d && docker compose logs > compose.log 2>&1
+
+- name: Debug build
+  if: failure()
+  uses: raullenchai/upload-to-vnsh@v1
+  with:
+    file: build.log
+  env:
+    GITHUB_TOKEN: $\{{ secrets.GITHUB_TOKEN }}</code></pre>
+
+<h2>Security Model</h2>
+
+<p>Every log uploaded via the GitHub Action follows vnsh's zero-knowledge architecture:</p>
+
+<ul>
+<li><strong>Encryption happens in the Action runner</strong> — the log is encrypted with AES-256-CBC before upload</li>
+<li><strong>Keys stay in the URL fragment</strong> — the vnsh server never sees them</li>
+<li><strong>24-hour auto-expiry</strong> — logs are automatically deleted, no cleanup needed</li>
+<li><strong>No GitHub token exposure</strong> — GITHUB_TOKEN is only used to post the PR comment, not for encryption</li>
+</ul>
+
+<p>Even if someone compromises the vnsh server, they get only encrypted binary blobs with no way to decrypt them.</p>
+
+<h2>Get Started</h2>
+
+<p>Add the action to your workflow in 30 seconds:</p>
+
+<pre><code># In your existing CI workflow, add after your test step:
+- name: Debug with vnsh
+  if: failure()
+  uses: raullenchai/upload-to-vnsh@v1
+  with:
+    file: test.log
+  env:
+    GITHUB_TOKEN: $\{{ secrets.GITHUB_TOKEN }}</code></pre>
+
+<p>Install MCP for Claude Code:</p>
+
+<pre><code>curl -sL vnsh.dev/claude | sh</code></pre>
+
+<p>Next time CI fails, you'll have a secure, encrypted link ready for Claude to analyze — no more scrolling through GitHub Actions logs.</p>
 `
   ),
 };
