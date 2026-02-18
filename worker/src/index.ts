@@ -2194,6 +2194,43 @@ const APP_HTML = `<!DOCTYPE html>
       text-align: center;
     }
 
+    /* Extension Panel */
+    .ext-section { padding: 0.25rem 0; }
+    .ext-features {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .ext-feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .ext-feature-icon {
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      width: 2rem;
+      text-align: center;
+    }
+    .ext-install-btn {
+      display: inline-block;
+      padding: 0.6rem 1.5rem;
+      background: var(--accent);
+      color: #000;
+      border-radius: 4px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.8rem;
+      font-family: inherit;
+      transition: background 0.15s;
+    }
+    .ext-install-btn:hover { background: #16a34a; text-decoration: none; }
+
     /* Progress & Result */
     .progress-container {
       margin-top: 1.5rem;
@@ -2731,6 +2768,7 @@ const APP_HTML = `<!DOCTYPE html>
       <button class="tab active" data-tab="web">Web Upload</button>
       <button class="tab" data-tab="terminal">Terminal (CLI)</button>
       <button class="tab" data-tab="agent">Agent (MCP)</button>
+      <button class="tab" data-tab="extension">Extension</button>
     </div>
 
     <!-- Web Upload Panel -->
@@ -2847,6 +2885,45 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
 
         <p class="mcp-desc">After setup, share any vnsh.dev URL with Claude — it decrypts automatically.<br><span style="font-size: 0.7rem;">Type <code style="color: var(--accent);">/mcp</code> to reload MCP servers.</span></p>
+      </div>
+    </div>
+
+    <!-- Extension Panel -->
+    <div class="tab-panel" id="panel-extension">
+      <div class="ext-section">
+        <div class="section-label">// Chrome Extension — One-Click Encrypted Sharing</div>
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 1.5rem; line-height: 1.6;">
+          Share encrypted text, screenshots, and <strong style="color: var(--fg);">AI Debug Bundles</strong> from any page. Decrypts vnsh links inline with hover preview.
+        </p>
+
+        <div class="ext-features">
+          <div class="ext-feature">
+            <div class="ext-feature-icon">⌘D</div>
+            <div>
+              <strong style="color: var(--fg);">AI Debug Bundle</strong>
+              <p style="font-size: 0.75rem; color: var(--fg-dim); margin-top: 0.25rem;">Captures screenshot + console errors + selected text + URL — one encrypted link for Claude.</p>
+            </div>
+          </div>
+          <div class="ext-feature">
+            <div class="ext-feature-icon">🔗</div>
+            <div>
+              <strong style="color: var(--fg);">Inline Decryption</strong>
+              <p style="font-size: 0.75rem; color: var(--fg-dim); margin-top: 0.25rem;">Hover any vnsh link on GitHub, Slack, or Discord to see a decrypted preview tooltip.</p>
+            </div>
+          </div>
+          <div class="ext-feature">
+            <div class="ext-feature-icon">📋</div>
+            <div>
+              <strong style="color: var(--fg);">Right-Click Share</strong>
+              <p style="font-size: 0.75rem; color: var(--fg-dim); margin-top: 0.25rem;">Select text or right-click images — encrypt and share via context menu.</p>
+            </div>
+          </div>
+        </div>
+
+        <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener" class="ext-install-btn">
+          Install Chrome Extension
+        </a>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-top: 0.75rem;">Free &middot; Open source &middot; Manifest V3 &middot; No analytics</p>
       </div>
     </div>
   </div>
