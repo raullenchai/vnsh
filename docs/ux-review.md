@@ -63,7 +63,7 @@ The vnsh website has a clean, developer-focused aesthetic that aligns with the p
 
 #### 6. Architecture & Security Hidden by Default ✅ FIXED
 **Location**: Homepage, collapsed accordion
-**Issue**: Critical trust-building information is hidden. Users may not know vnsh is zero-knowledge.
+**Issue**: Critical trust-building information is hidden. Users may not know vnsh is host-blind.
 **Impact**: Security-conscious users may not trust the service.
 **Fix**: Consider showing a brief security summary above the fold, or auto-expand on first visit.
 

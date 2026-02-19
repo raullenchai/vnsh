@@ -16,6 +16,7 @@
 interface Env {
   VNSH_STORE: R2Bucket;
   VNSH_META: KVNamespace;
+  STATS_TOKEN?: string;
 }
 
 // Constants
@@ -56,7 +57,7 @@ function isValidBlobId(id: string): boolean {
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Vnsh-Client',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -207,6 +208,28 @@ function getClientIp(request: Request): string {
   return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
+// Parse X-Vnsh-Client header for source attribution
+function getClientSource(request: Request): string {
+  const header = request.headers.get('X-Vnsh-Client') || '';
+  const source = header.split('/')[0]; // e.g. "cli/2.0.0" -> "cli"
+  const valid = ['cli', 'cli-npm', 'mcp', 'extension', 'web', 'pipe'];
+  return valid.includes(source) ? source : 'unknown';
+}
+
+// Usage analytics: lightweight daily KV counters
+async function trackStat(env: Env, metric: string, ctx: ExecutionContext): Promise<void> {
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const key = `stats:${date}:${metric}`;
+  ctx.waitUntil(
+    env.VNSH_META.get(key).then(raw => {
+      const count = raw ? parseInt(raw) : 0;
+      return env.VNSH_META.put(key, String(count + 1), {
+        expirationTtl: 90 * 24 * 60 * 60, // 90 days
+      });
+    })
+  );
+}
+
 // Handle CORS preflight
 function handleOptions(): Response {
   return new Response(null, {
@@ -216,7 +239,7 @@ function handleOptions(): Response {
 }
 
 // POST /api/drop - Upload encrypted blob
-async function handleDrop(request: Request, env: Env): Promise<Response> {
+async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   // Check content length
   const contentLength = request.headers.get('content-length');
 
@@ -295,6 +318,11 @@ async function handleDrop(request: Request, env: Env): Promise<Response> {
       { expirationTtl: ttlHours * 60 * 60 }
     );
 
+    // Track upload analytics
+    const source = getClientSource(request);
+    trackStat(env, 'uploads', ctx);
+    trackStat(env, `source:${source}:uploads`, ctx);
+
     return new Response(
       JSON.stringify({
         id,
@@ -315,7 +343,7 @@ async function handleDrop(request: Request, env: Env): Promise<Response> {
 }
 
 // GET /api/blob/:id - Download encrypted blob
-async function handleBlob(id: string, request: Request, env: Env): Promise<Response> {
+async function handleBlob(id: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   // Check metadata first (fast path for expiry/404)
   const metaJson = await env.VNSH_META.get(`blob:${id}`);
 
@@ -384,6 +412,11 @@ async function handleBlob(id: string, request: Request, env: Env): Promise<Respo
     return errorResponse('NOT_FOUND', 'Blob not found', 404, request);
   }
 
+  // Track read analytics
+  const source = getClientSource(request);
+  trackStat(env, 'reads', ctx);
+  trackStat(env, `source:${source}:reads`, ctx);
+
   // Stream response with proper headers
   return new Response(object.body, {
     status: 200,
@@ -400,7 +433,7 @@ async function handleBlob(id: string, request: Request, env: Env): Promise<Respo
 
 // Main request handler
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -409,13 +442,42 @@ export default {
       return handleOptions();
     }
 
+    // Route: GET /api/stats - Usage analytics (authenticated)
+    if (request.method === 'GET' && path === '/api/stats') {
+      const token = url.searchParams.get('token');
+      if (!env.STATS_TOKEN || token !== env.STATS_TOKEN) {
+        return errorResponse('UNAUTHORIZED', 'Invalid or missing token', 401);
+      }
+      // Return last 30 days of stats
+      const stats: Record<string, number> = {};
+      const metrics = ['uploads', 'reads',
+        'source:cli:uploads', 'source:cli-npm:uploads', 'source:mcp:uploads',
+        'source:extension:uploads', 'source:web:uploads', 'source:pipe:uploads', 'source:unknown:uploads',
+        'source:cli:reads', 'source:cli-npm:reads', 'source:mcp:reads',
+        'source:extension:reads', 'source:web:reads', 'source:unknown:reads'];
+      const today = new Date();
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const date = d.toISOString().slice(0, 10);
+        for (const m of metrics) {
+          const val = await env.VNSH_META.get(`stats:${date}:${m}`);
+          if (val) stats[`${date}:${m}`] = parseInt(val);
+        }
+      }
+      return new Response(JSON.stringify(stats, null, 2), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Route: POST /api/drop
     if (path === '/api/drop') {
       if (request.method === 'POST') {
         const ip = getClientIp(request);
         const rl = await checkRateLimit(ip, 'upload', env);
         if (!rl.allowed) return rateLimitResponse('upload');
-        return handleDrop(request, env);
+        return handleDrop(request, env, ctx);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to upload', 405);
     }
@@ -427,7 +489,7 @@ export default {
       const ip = getClientIp(request);
       const rl = await checkRateLimit(ip, 'read', env);
       if (!rl.allowed) return rateLimitResponse('read');
-      return handleBlob(blobMatch[1], request, env);
+      return handleBlob(blobMatch[1], request, env, ctx);
     }
 
     // Route: GET /v/:id - Serve app directly (no redirect to preserve hash fragment)
@@ -678,7 +740,7 @@ fi
 openssl enc -aes-256-cbc -K "\$KEY" -iv "\$IV" -in "\$TMP" -out "\$ENC" 2>/dev/null
 _VN_TTL_QS=""
 if [ -n "\${TTL:-}" ]; then _VN_TTL_QS="?ttl=\$TTL"; fi
-RESP=\$(curl -s -X POST --data-binary @"\$ENC" -H "Content-Type: application/octet-stream" "\$HOST/api/drop\$_VN_TTL_QS")
+RESP=\$(curl -s -X POST --data-binary @"\$ENC" -H "Content-Type: application/octet-stream" -H "X-Vnsh-Client: cli/2.0.0" "\$HOST/api/drop\$_VN_TTL_QS")
 ID=\$(echo "\$RESP" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
 if [ -z "\$ID" ]; then
   echo "error: upload failed: \$RESP" >&2
@@ -718,11 +780,11 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <p class="meta">vnsh Chrome Extension &mdash; Effective February 14, 2026</p>
 
 <h2>Overview</h2>
-<p>The vnsh Chrome Extension is built on a <strong>zero-knowledge architecture</strong>. We cannot access, read, or decrypt your data.</p>
+<p>The vnsh Chrome Extension is built on a <strong>host-blind architecture</strong>. We cannot access, read, or decrypt your data.</p>
 
 <h2>Data Encryption</h2>
 <p>All data is encrypted <strong>locally in your browser</strong> using AES-256-CBC via the Web Crypto API before any transmission. The decryption key is embedded in the URL fragment (<code>#...</code>) and is never sent to our servers.</p>
-<p>The vnsh.dev server receives only encrypted binary blobs and metadata (blob size, upload timestamp, expiration time). <strong>The server has zero knowledge of your data&rsquo;s content.</strong></p>
+<p>The vnsh.dev server receives only encrypted binary blobs and metadata (blob size, upload timestamp, expiration time). <strong>The server is host-blind — it has no access to your data&rsquo;s content.</strong></p>
 
 <h2>Data Storage</h2>
 <p>Encrypted blobs are stored temporarily on vnsh.dev servers with a default retention of 24 hours. After expiration, data is permanently deleted and mathematically irretrievable.</p>
@@ -879,7 +941,7 @@ OS=\$(detect_os)
 # Windows notice
 if [ "\$OS" = "windows" ]; then
   echo "Detected Windows (Git Bash/MSYS/Cygwin)"
-  echo "For native Windows PowerShell, use: npm install -g vnsh-cli"
+  echo "For native Windows PowerShell, use: npm install -g vnsh"
   echo ""
 fi
 
@@ -1086,7 +1148,7 @@ vn() {
     return 1
   fi
   [ -t 2 ] && printf "Uploading...\\n" >&2
-  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- "\$_VN_HOST/api/drop")
+  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/drop")
   _VN_ID=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"id\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
   if [ -z "\$_VN_ID" ]; then
     _VN_ERR=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"error\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
@@ -1247,7 +1309,7 @@ metadata:
     requires:
       bins: ["curl", "openssl"]
     install:
-      - id: "vnsh-cli"
+      - id: "vnsh"
         kind: "shell"
         command: "curl -sL vnsh.dev/i | sh"
         label: "Install vnsh CLI (vn command)"
@@ -1399,7 +1461,7 @@ curl "https://vnsh.dev/api/blob/{id}"
 1. **Client-side encryption**: AES-256-CBC encryption happens locally
 2. **Fragment privacy**: Keys in URL fragment (\`#secret\`) are never sent to server
 3. **Ephemeral**: Content auto-deletes after TTL (default 24h)
-4. **Zero-knowledge**: Server stores encrypted blobs, cannot decrypt
+4. **Host-blind**: Server stores encrypted blobs, cannot decrypt
 
 ## Integration Tips
 
@@ -1441,7 +1503,7 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://vnsh.dev/blog/zero-knowledge-sharing-for-ai-coding</loc>
+    <loc>https://vnsh.dev/blog/host-blind-sharing-for-ai-coding</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -1451,7 +1513,7 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://vnsh.dev/blog/zero-knowledge-encryption-in-chrome-extension</loc>
+    <loc>https://vnsh.dev/blog/host-blind-encryption-in-chrome-extension</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -1477,7 +1539,7 @@ function blogPage(title: string, description: string, slug: string, date: string
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} | vnsh Blog</title>
   <meta name="description" content="${description}">
-  <meta name="keywords" content="encrypted sharing, AI coding, zero-knowledge, developer tools, Claude Code, privacy, ephemeral sharing, MCP, secure paste">
+  <meta name="keywords" content="encrypted sharing, AI coding, host-blind encryption, developer tools, Claude Code, privacy, ephemeral sharing, MCP, secure paste">
   <link rel="canonical" href="https://vnsh.dev/blog/${slug}">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${description}">
@@ -1590,7 +1652,7 @@ function blogPage(title: string, description: string, slug: string, date: string
       <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">Chrome Extension</a>
     </div>
     <div class="blog-footer">
-      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a> &middot; AES-256-CBC &middot; Zero-knowledge
+      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a> &middot; AES-256-CBC &middot; Host-blind
     </div>
   </div>
 </body>
@@ -1604,10 +1666,10 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Blog | vnsh — The Ephemeral Dropbox for AI</title>
-  <meta name="description" content="Technical articles on zero-knowledge encryption, AI coding workflows, and secure developer tooling from the vnsh team.">
+  <meta name="description" content="Technical articles on host-blind encryption, AI coding workflows, and secure developer tooling from the vnsh team.">
   <link rel="canonical" href="https://vnsh.dev/blog">
   <meta property="og:title" content="vnsh Blog">
-  <meta property="og:description" content="Technical articles on zero-knowledge encryption, AI coding workflows, and secure developer tooling.">
+  <meta property="og:description" content="Technical articles on host-blind encryption, AI coding workflows, and secure developer tooling.">
   <meta property="og:url" content="https://vnsh.dev/blog">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
@@ -1655,12 +1717,12 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
       <a href="/">vnsh</a> <span class="sep">/</span> <span style="color:#a3a3a3">blog</span>
     </nav>
     <h1>vnsh blog</h1>
-    <p class="blog-desc">Zero-knowledge encryption, AI coding workflows, and developer tooling.</p>
+    <p class="blog-desc">Host-blind encryption, AI coding workflows, and developer tooling.</p>
     <ul class="post-list">
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
         <div class="post-title"><a href="/blog/url-fragments-encryption-keys">Why URL Fragments Are the Best Place to Hide Encryption Keys</a></div>
-        <div class="post-excerpt">A security deep-dive into RFC 3986, the HTTP specification, and why the URL fragment (#) is the ideal transport for zero-knowledge encryption keys.</div>
+        <div class="post-excerpt">A security deep-dive into RFC 3986, the HTTP specification, and why the URL fragment (#) is the ideal transport for client-side encryption keys.</div>
       </li>
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
@@ -1669,7 +1731,7 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
       </li>
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
-        <div class="post-title"><a href="/blog/zero-knowledge-encryption-in-chrome-extension">How We Implemented Zero-Knowledge Encryption in a Chrome Extension</a></div>
+        <div class="post-title"><a href="/blog/host-blind-encryption-in-chrome-extension">How We Implemented Host-Blind Encryption in a Chrome Extension</a></div>
         <div class="post-excerpt">A technical deep-dive into building AES-256-CBC encryption across three platforms — OpenSSL, Node.js, and WebCrypto — with byte-identical output.</div>
       </li>
       <li class="post-item">
@@ -1679,8 +1741,8 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
       </li>
       <li class="post-item">
         <div class="post-date">February 18, 2026</div>
-        <div class="post-title"><a href="/blog/zero-knowledge-sharing-for-ai-coding">Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext</a></div>
-        <div class="post-excerpt">Every time you paste production logs into Claude or ChatGPT, the data crosses multiple trust boundaries. There's a better way: zero-knowledge encrypted sharing that keeps the server mathematically blind.</div>
+        <div class="post-title"><a href="/blog/host-blind-sharing-for-ai-coding">Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext</a></div>
+        <div class="post-excerpt">Every time you paste production logs into Claude or ChatGPT, the data crosses multiple trust boundaries. There's a better way: host-blind encrypted sharing where the server never sees your data.</div>
       </li>
     </ul>
     <div class="blog-footer">
@@ -1692,10 +1754,10 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
 
 // Blog posts
 const BLOG_POSTS: Record<string, string> = {
-  'zero-knowledge-sharing-for-ai-coding': blogPage(
+  'host-blind-sharing-for-ai-coding': blogPage(
     "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext",
-    'How zero-knowledge encryption protects your code, logs, and configs when sharing with AI coding tools like Claude Code and Cursor.',
-    'zero-knowledge-sharing-for-ai-coding',
+    'How host-blind encryption protects your code, logs, and configs when sharing with AI coding tools like Claude Code and Cursor.',
+    'host-blind-sharing-for-ai-coding',
     'February 18, 2026',
     `
 <h2>The Problem: Pasting Secrets Into AI</h2>
@@ -1713,11 +1775,11 @@ const BLOG_POSTS: Record<string, string> = {
 
 <p>Even with providers who promise not to train on your data, the <strong>data still crosses trust boundaries</strong>. Your production database connection string is sitting on someone else's server, protected only by their security practices and their promises.</p>
 
-<h2>Zero-Knowledge Architecture: A Better Model</h2>
+<h2>Host-Blind Architecture: A Better Model</h2>
 
 <p>What if the server storing your data was <strong>mathematically incapable</strong> of reading it? Not "we promise not to look" — but "we literally cannot decrypt this even if subpoenaed."</p>
 
-<p>This is the principle behind <strong>zero-knowledge encryption</strong>, and it's how <a href="https://vnsh.dev">vnsh</a> works:</p>
+<p>This is the principle behind <strong>host-blind encryption</strong> — the server is blind to the content it hosts. This is how <a href="https://vnsh.dev">vnsh</a> works:</p>
 
 <pre><code># Share a log file with your AI assistant
 cat server.log | vn
@@ -1940,7 +2002,7 @@ Paste link to Claude for instant analysis</code></pre>
 
 <h2>Security Model</h2>
 
-<p>Every log uploaded via the GitHub Action follows vnsh's zero-knowledge architecture:</p>
+<p>Every log uploaded via the GitHub Action follows vnsh's host-blind architecture:</p>
 
 <ul>
 <li><strong>Encryption happens in the Action runner</strong> — the log is encrypted with AES-256-CBC before upload</li>
@@ -1972,10 +2034,10 @@ Paste link to Claude for instant analysis</code></pre>
 `
   ),
 
-  'zero-knowledge-encryption-in-chrome-extension': blogPage(
-    "How We Implemented Zero-Knowledge Encryption in a Chrome Extension",
+  'host-blind-encryption-in-chrome-extension': blogPage(
+    "How We Implemented Host-Blind Encryption in a Chrome Extension",
     "A technical deep-dive into building AES-256-CBC client-side encryption in a Manifest V3 Chrome Extension using the WebCrypto API, with cross-platform byte-identical output.",
-    'zero-knowledge-encryption-in-chrome-extension',
+    'host-blind-encryption-in-chrome-extension',
     'February 18, 2026',
     `
 <h2>The Constraint: Three Platforms, One Ciphertext</h2>
@@ -2251,7 +2313,7 @@ function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
 
 <h2>Why This Matters for Encryption</h2>
 
-<p>Zero-knowledge encryption systems need to solve a fundamental problem: how do you give the recipient a decryption key without also giving it to the server?</p>
+<p>Host-blind encryption systems need to solve a fundamental problem: how do you give the recipient a decryption key without also giving it to the server?</p>
 
 <p>Common approaches:</p>
 
@@ -2388,9 +2450,9 @@ const APP_HTML = `<!DOCTYPE html>
   <title>vnsh | The Ephemeral Dropbox for AI & CLI Tool</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <meta name="description" content="A host-blind, client-side encrypted file sharing tool for AI agents like Claude. Pipe logs, diffs, and images from your terminal. AES-256 encryption. Vaporizes in 24 hours. Pastebin alternative for developers.">
-  <meta name="keywords" content="vnsh, cli file sharing, secure file upload, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, vibecoding, pastebin alternative, share logs with claude, terminal file upload">
-  <meta property="og:title" content="vnsh: Pipe context to Claude securely">
-  <meta property="og:description" content="End-to-end encrypted. Server is blind. 24h retention. The ultimate dead drop for vibecoding.">
+  <meta name="keywords" content="vnsh, cli file sharing, secure file upload, ai context sharing, encrypted dropbox, ephemeral file sharing, claude mcp, ai workflow, secure paste, pastebin alternative, share logs with claude, terminal file upload, npx vnsh">
+  <meta property="og:title" content="vnsh: The Ephemeral Dropbox for AI">
+  <meta property="og:description" content="Host-blind encrypted sharing. AES-256-CBC. Vaporizes in 24h. Pipe logs, diffs, and images to Claude securely.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://vnsh.dev">
   <meta property="og:image" content="https://vnsh.dev/og-image.png">
@@ -2435,7 +2497,7 @@ const APP_HTML = `<!DOCTYPE html>
       "CLI tool for terminal workflows",
       "Supports screenshots, logs, git diffs, PDFs, binaries",
       "OpenSSL compatible encryption",
-      "Secure dead drop for sensitive files"
+      "Host-blind encrypted sharing for sensitive files"
     ],
     "keywords": "cli, security, encryption, claude, mcp, file-sharing, pastebin alternative"
   }
@@ -3432,17 +3494,17 @@ const APP_HTML = `<!DOCTYPE html>
       <div class="cli-section">
         <div class="section-label">// Install</div>
         <div class="cli-install-row">
-          <div class="code-block" id="cli-install" onclick="copyCommand('curl -sL vnsh.dev/i | sh', this)">
-            <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
+          <div class="code-block" id="cli-install" onclick="copyCommand('npx vnsh', this)">
+            <code><span class="prompt">$ </span>npx vnsh</code>
             <button class="copy-btn" title="Copy">⧉</button>
           </div>
           <span style="color: var(--fg-dim); font-size: 0.75rem; flex-shrink: 0;">or</span>
-          <div class="code-block" onclick="copyCommand('npm i -g vnsh-cli', this)">
-            <code><span class="prompt">$ </span>npm i -g vnsh-cli</code>
+          <div class="code-block" onclick="copyCommand('curl -sL vnsh.dev/i | sh', this)">
+            <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
             <button class="copy-btn" title="Copy">⧉</button>
           </div>
         </div>
-        <p style="font-size: 0.7rem; color: var(--fg-dim); margin: 0.4rem 0 1rem;">Zero-install: <code style="color: var(--accent); cursor: pointer;" onclick="copyCommand('cat file.log | bash <(curl -sL vnsh.dev/pipe)', this.parentElement)">cat file.log | bash &lt;(curl -sL vnsh.dev/pipe)</code></p>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin: 0.4rem 0 1rem;">Global install: <code style="color: var(--accent); cursor: pointer;" onclick="copyCommand('npm i -g vnsh', this.parentElement)">npm i -g vnsh</code></p>
 
         <div class="section-label">// Usage</div>
         <div class="terminal-window" style="font-size: 0.75rem;">
@@ -3529,9 +3591,9 @@ const APP_HTML = `<!DOCTYPE html>
   <details class="architecture" style="margin-top: 2rem; max-width: 700px; width: 100%;">
     <summary style="cursor: pointer; color: var(--fg-dim); font-size: 0.75rem; margin-bottom: 1rem;">// Architecture & Security</summary>
     <div style="color: var(--fg-muted); font-size: 0.8rem; line-height: 1.7; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;">
-      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Zero-Access Architecture:</strong> vnsh implements true client-side encryption using AES-256-CBC with OpenSSL compatibility. Your data is encrypted entirely on your device before upload.</p>
+      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Host-Blind Architecture:</strong> vnsh implements true client-side encryption using AES-256-CBC with OpenSSL compatibility. Your data is encrypted entirely on your device before upload.</p>
       <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Host-Blind Storage:</strong> The server stores only opaque binary blobs. Decryption keys travel exclusively in the URL fragment (#k=...) which is never sent to servers per HTTP specification.</p>
-      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Secure Dead Drop:</strong> Unlike pastebins, vnsh cannot read your content even if subpoenaed. The server operator has no access to plaintext - mathematically impossible without the URL fragment.</p>
+      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Ephemeral by Design:</strong> Unlike pastebins, vnsh cannot read your content even if subpoenaed. Data vaporizes after 24 hours. The server operator has no access to plaintext - mathematically impossible without the URL fragment.</p>
       <p><strong style="color: var(--accent);">Auto-Vaporization:</strong> All data auto-destructs after 24 hours (configurable 1-168h). No history, no backups, no leaks. Perfect for ephemeral AI context sharing.</p>
     </div>
   </details>
@@ -3793,7 +3855,7 @@ const APP_HTML = `<!DOCTYPE html>
 
         const response = await fetch('/api/drop', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Vnsh-Client': 'web/1.0' },
           body: ciphertext
         });
 

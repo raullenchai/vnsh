@@ -36,6 +36,7 @@ import {
 // Configuration
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_CONTENT_SIZE = 50 * 1024 * 1024; // 50MB limit to prevent OOM
+const CLIENT_HEADER = { 'X-Vnsh-Client': 'mcp/1.2.0' };
 
 // Tool input schemas
 const ReadInputSchema = z.object({
@@ -185,6 +186,7 @@ export async function handleRead(args: unknown) {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/octet-stream',
+      ...CLIENT_HEADER,
     },
   });
 
@@ -422,6 +424,7 @@ export async function handleShare(args: unknown) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
+      ...CLIENT_HEADER,
     },
     body: new Uint8Array(encrypted),
   });
@@ -501,6 +504,7 @@ export async function handleShareFile(args: unknown) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
+      ...CLIENT_HEADER,
     },
     body: new Uint8Array(encrypted),
   });

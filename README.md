@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/raullenchai/vnsh/actions"><img src="https://img.shields.io/github/actions/workflow/status/raullenchai/vnsh/test.yml?branch=main&style=flat-square" alt="Build Status"></a>
-  <a href="https://www.npmjs.com/package/vnsh-cli"><img src="https://img.shields.io/npm/v/vnsh-cli?style=flat-square&label=vnsh-cli" alt="npm vnsh-cli"></a>
+  <a href="https://www.npmjs.com/package/vnsh"><img src="https://img.shields.io/npm/v/vnsh?style=flat-square&label=vnsh" alt="npm vnsh"></a>
   <a href="https://www.npmjs.com/package/vnsh-mcp"><img src="https://img.shields.io/npm/v/vnsh-mcp?style=flat-square&label=vnsh-mcp" alt="npm vnsh-mcp"></a>
   <a href="https://github.com/raullenchai/upload-to-vnsh"><img src="https://img.shields.io/badge/GitHub%20Action-upload--to--vnsh-green?style=flat-square&logo=githubactions" alt="GitHub Action"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License"></a>
@@ -52,14 +52,14 @@ git diff | vn
 
 > *"Built for the ephemeral nature of AI workflows. Once your session is done, the data should be too."*
 
-Unlike Dropbox or pastebins, vnsh implements a **Zero-Access Architecture** with automatic vaporization:
+Unlike Dropbox or pastebins, vnsh implements a **Host-Blind Architecture** with automatic vaporization:
 
 | Layer | What Happens |
 |-------|--------------|
 | **Encryption** | AES-256-CBC encryption happens entirely on your device |
 | **Transport** | Decryption keys travel only in the URL fragment (`#secret`) — never sent to servers |
-| **Storage** | Server stores encrypted binary blobs with zero knowledge of contents |
-| **Vaporization** | Data auto-destructs after 24 hours. No history. No leaks. |
+| **Storage** | Server stores encrypted binary blobs — host-blind, no access to contents |
+| **Vaporization** | Data vaporizes after 24 hours. No history. No leaks. |
 
 ## Quick Start
 
@@ -69,15 +69,14 @@ Visit **[vnsh.dev](https://vnsh.dev)**, drag & drop a file, or paste text. Get a
 
 ### Option 2: CLI Installation
 
-**NPM** (recommended for Node.js users):
+**Zero-install** (just run it):
 ```bash
-npm install -g vnsh-cli
+echo "hello" | npx vnsh
 ```
 
-**Homebrew** (macOS/Linux):
+**NPM** (global install):
 ```bash
-brew tap raullenchai/vnsh
-brew install vnsh
+npm install -g vnsh
 ```
 
 **Shell script** (cross-platform: macOS, Linux, WSL, Git Bash):
@@ -376,7 +375,7 @@ vnsh/
 │   └── tests/
 ├── cli/
 │   ├── vn           # Bash CLI script
-│   ├── npm/         # NPM package (vnsh-cli)
+│   ├── npm/         # NPM package (vnsh)
 │   │   ├── src/
 │   │   │   ├── cli.ts
 │   │   │   └── crypto.ts
@@ -392,7 +391,7 @@ vnsh/
 
 | Package | Description | Install |
 |---------|-------------|---------|
-| [vnsh-cli](https://www.npmjs.com/package/vnsh-cli) | CLI tool | `npm i -g vnsh-cli` |
+| [vnsh](https://www.npmjs.com/package/vnsh) | CLI tool | `npx vnsh` or `npm i -g vnsh` |
 | [vnsh-mcp](https://www.npmjs.com/package/vnsh-mcp) | MCP server for Claude | `npx vnsh-mcp` |
 | [vnsh extension](extension/) | Chrome Extension | [Chrome Web Store](https://chromewebstore.google.com/detail/vnsh) |
 | [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) | GitHub Action for CI/CD | `uses: raullenchai/upload-to-vnsh@v1` |

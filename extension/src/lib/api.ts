@@ -5,6 +5,8 @@
 
 import { VNSH_HOST } from './constants';
 
+const CLIENT_HEADER = { 'X-Vnsh-Client': 'extension/1.0.0' };
+
 export interface DropResponse {
   id: string;
   expires: string;
@@ -25,7 +27,7 @@ export async function uploadBlob(
   const params = ttl ? `?ttl=${ttl}` : '';
   const response = await fetch(`${host}/api/drop${params}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream' },
+    headers: { 'Content-Type': 'application/octet-stream', ...CLIENT_HEADER },
     body: ciphertext,
   });
 
@@ -47,7 +49,7 @@ export async function downloadBlob(
   host: string = VNSH_HOST,
 ): Promise<{ data: ArrayBuffer; expires?: string }> {
   const response = await fetch(`${host}/api/blob/${id}`, {
-    headers: { Accept: 'application/octet-stream' },
+    headers: { Accept: 'application/octet-stream', ...CLIENT_HEADER },
   });
 
   if (response.status === 404) {

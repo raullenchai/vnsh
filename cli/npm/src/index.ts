@@ -1,9 +1,9 @@
 /**
- * vnsh-cli - Programmatic API
+ * vnsh - Programmatic API
  *
  * @example
  * ```typescript
- * import { share, read } from 'vnsh-cli';
+ * import { share, read } from 'vnsh';
  *
  * // Share content
  * const url = await share('Hello, World!');
@@ -69,7 +69,10 @@ export async function share(
   // Upload
   const response = await fetch(apiUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream' },
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vnsh-Client': 'cli-npm/2.0.0',
+    },
     body: encrypted,
   });
 

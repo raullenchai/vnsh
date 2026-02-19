@@ -91,7 +91,7 @@ vnsh should NOT require traditional accounts. API keys are the right primitive f
 | Max TTL | **24 hours** | 30 days |
 | Upload limit | 20/hour per IP | 200/hour |
 | Read limit | 120/min per IP | Unlimited |
-| Burn-on-read | No | Yes |
+| Burn-on-Read | No | Yes |
 | View count | No | Yes |
 | Password-protected links | No | Yes |
 
@@ -100,7 +100,7 @@ vnsh should NOT require traditional accounts. API keys are the right primitive f
 1. **TTL** — Free tier gets 24h only. The moment someone needs a 7-day link, they upgrade. This is the #1 conversion trigger because it happens organically: a recipient can't open a link the next day.
 2. **Upload volume** — CI/CD pipelines (GitHub Action uploading build artifacts) hit 20/hour within minutes.
 3. **File size** — Screenshots, PDFs, and video clips push past 25MB quickly.
-4. **Burn-on-read** — Security-conscious users want guaranteed single-access.
+4. **Burn-on-Read** — Security-conscious users want guaranteed single-access.
 
 ### 2.3 Stripe Subscription
 

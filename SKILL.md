@@ -14,13 +14,13 @@ openclaw:
     - file-sharing
     - ephemeral
     - security
-    - zero-knowledge
+    - host-blind
   requires:
     bins:
       - curl
       - openssl
   install:
-    - id: vnsh-cli
+    - id: vnsh
       kind: shell
       command: "curl -sL vnsh.dev/i | sh"
       label: "Install vnsh CLI (vn command)"
@@ -164,7 +164,7 @@ Your action:
 - **Client-side encryption**: AES-256-CBC, keys generated locally
 - **Fragment privacy**: Keys in URL `#k=...` are never sent to server
 - **Ephemeral**: Auto-deletes after TTL (default 24h, max 168h)
-- **Zero-knowledge**: Server stores encrypted blobs, cannot decrypt
+- **Host-blind**: Server stores encrypted blobs, cannot decrypt
 
 ## Fallback: Zero-Dependency One-Liners (No vn CLI needed)
 

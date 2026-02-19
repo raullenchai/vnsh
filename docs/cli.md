@@ -22,7 +22,7 @@ The install script is cross-platform and works on:
 | **Linux** | bash, zsh, sh | Most distros use bash |
 | **Windows (WSL)** | bash, zsh | Full support via Windows Subsystem for Linux |
 | **Windows (Git Bash)** | bash | Works with Git for Windows |
-| **Windows (Native)** | PowerShell | Use `npm install -g vnsh-cli` instead |
+| **Windows (Native)** | PowerShell | Use `npm install -g vnsh` instead |
 
 The installer automatically detects your shell and adds `vn` to the appropriate config file (`.zshrc`, `.bashrc`, `.bash_profile`, `.profile`, or `config.fish`).
 
@@ -253,7 +253,7 @@ source ~/.profile      # sh/dash
 For native Windows PowerShell, the shell script won't work. Use npm instead:
 
 ```powershell
-npm install -g vnsh-cli
+npm install -g vnsh
 ```
 
 For Git Bash or WSL, the shell script works normally.

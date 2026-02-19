@@ -379,6 +379,7 @@ main() {
     -X POST \
     --data-binary @"$encrypted_file" \
     -H "Content-Type: application/octet-stream" \
+    -H "X-Vnsh-Client: cli/$VERSION" \
     "${VNSH_HOST}/api/drop${url_params}")
 
   http_code=$(echo "$response" | tail -n 1)

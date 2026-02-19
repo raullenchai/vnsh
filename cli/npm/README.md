@@ -1,21 +1,25 @@
-# vnsh-cli
+# vnsh
 
-The Ephemeral Dropbox for AI - CLI tool for encrypted file sharing.
+The Ephemeral Dropbox for AI - CLI tool for host-blind encrypted sharing.
 
-[![npm version](https://img.shields.io/npm/v/vnsh-cli.svg)](https://www.npmjs.com/package/vnsh-cli)
+[![npm version](https://img.shields.io/npm/v/vnsh.svg)](https://www.npmjs.com/package/vnsh)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
 
-- **End-to-end encryption**: AES-256-CBC encryption happens locally
-- **Host-blind**: Server never sees your encryption keys
-- **Ephemeral**: Data auto-destructs after 24 hours (configurable)
+- **Host-blind encryption**: AES-256-CBC encryption happens locally
+- **Server never sees your keys**: Keys travel only in the URL fragment
+- **Ephemeral**: Data vaporizes after 24 hours (configurable)
 - **Simple**: Pipe anything, get a shareable URL
 
 ## Installation
 
 ```bash
-npm install -g vnsh-cli
+# Zero-install (just run it)
+echo "hello" | npx vnsh
+
+# Or install globally
+npm install -g vnsh
 ```
 
 ## CLI Usage
@@ -59,7 +63,7 @@ vn read "https://vnsh.dev/v/abc123#k=...&iv=..."
 ## Programmatic Usage
 
 ```typescript
-import { share, read, readString } from 'vnsh-cli';
+import { share, read, readString } from 'vnsh';
 
 // Share content
 const url = await share('Hello, World!');
@@ -85,7 +89,7 @@ const text = await readString(url);
 - Encryption keys are generated locally and never sent to the server
 - Keys travel only in the URL fragment (`#k=...`), which is never transmitted to servers
 - The server stores only encrypted binary blobs
-- All data auto-destructs after the configured TTL
+- All data vaporizes after the configured TTL
 
 ## License
 

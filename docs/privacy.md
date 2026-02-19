@@ -5,7 +5,7 @@
 
 ## Overview
 
-The vnsh Chrome Extension is built on a **zero-knowledge architecture**. We cannot access, read, or decrypt your data.
+The vnsh Chrome Extension is built on a **host-blind architecture**. We cannot access, read, or decrypt your data.
 
 ## Data Encryption
 
@@ -15,7 +15,7 @@ The vnsh.dev server receives only:
 - Encrypted binary blobs (unreadable ciphertext)
 - Metadata: blob size, upload timestamp, expiration time
 
-**The server has zero knowledge of your data's content.**
+**The server is host-blind — it has no access to your data's content.**
 
 ## Data Storage
 

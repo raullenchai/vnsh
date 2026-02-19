@@ -20,6 +20,7 @@ crons = ["0 3 * * *"]
 # Note: Static assets removed - all HTML is served inline from worker
 
 # Environment variables (set via wrangler secret)
+# STATS_TOKEN - for /api/stats endpoint authentication
 # JWT_SECRET - for signing payment tokens
 # STRIPE_SECRET_KEY - for Stripe API
 # LIGHTNING_API_KEY - for Lightning payments

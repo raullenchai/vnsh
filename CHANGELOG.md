@@ -15,7 +15,7 @@ All notable changes to vnsh are documented in this file.
 - **5 SEO blog posts**:
   - "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext"
   - "Debug CI Failures Faster with vnsh + Claude Code"
-  - "How We Implemented Zero-Knowledge Encryption in a Chrome Extension"
+  - "How We Implemented Host-Blind Encryption in a Chrome Extension"
   - "One-Click AI Debug Bundles: Packaging Browser Context for LLMs"
   - "Why URL Fragments Are the Best Place to Hide Encryption Keys"
 - **Compact tab layouts**: Redesigned Terminal, Agent, and Extension tabs to fit content without scrolling. Agent manual setup collapsed into `<details>`.

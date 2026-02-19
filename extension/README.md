@@ -164,7 +164,7 @@ npm run test:cov
 
 ## Security
 
-- **Zero-knowledge**: The server stores encrypted blobs. It never sees keys, plaintext, or file types.
+- **Host-blind**: The server stores encrypted blobs. It never sees keys, plaintext, or file types.
 - **Client-side crypto**: AES-256-CBC encryption happens entirely in your browser via WebCrypto.
 - **Fragment-only keys**: The decryption key is in the URL fragment (`#`), which browsers never send to servers.
 - **Ephemeral**: Data auto-expires (default 24h). After expiry, the ciphertext is deleted from storage.
