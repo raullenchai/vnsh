@@ -6,6 +6,25 @@ All notable changes to vnsh are documented in this file.
 
 ---
 
+## [2.3.0] - 2026-02-18
+
+### Added
+- **Usage analytics**: Lightweight KV-based daily counters tracking uploads/downloads by client source. `GET /api/stats?token=SECRET` endpoint for viewing 30 days of metrics (90-day TTL auto-expiry).
+- **X-Vnsh-Client headers**: All clients now send source attribution headers (cli, cli-npm, mcp, extension, web, pipe) for per-source analytics.
+- **`npx vnsh` zero-install**: npm package renamed from `vnsh-cli` to `vnsh` v2.0.0, enabling `echo "hello" | npx vnsh` with no global install.
+- **Canonical glossary**: `docs/glossary.md` as single source of truth for all user-facing terminology.
+
+### Changed
+- **Terminology standardization**: Replaced all "zero-knowledge" references with "Host-Blind" across website, blog posts, docs, extension, README, and store assets. "Zero-Knowledge Proof" is a specific cryptographic protocol; vnsh uses client-side encryption.
+- **Blog slug rename**: `zero-knowledge-sharing-for-ai-coding` → `host-blind-sharing-for-ai-coding`, `zero-knowledge-encryption-in-chrome-extension` → `host-blind-encryption-in-chrome-extension`.
+- Homepage install section updated: `npx vnsh` as primary, curl as secondary.
+- All `vnsh-cli` references updated to `vnsh` across docs, README, SKILL.md, CLI README.
+
+### Published
+- `vnsh@2.0.0` on npm
+
+---
+
 ## [2.2.0] - 2026-02-18
 
 ### Added
