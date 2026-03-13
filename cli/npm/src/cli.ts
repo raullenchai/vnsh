@@ -18,7 +18,7 @@ import {
   buildVnshUrl,
 } from './crypto.js';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 
