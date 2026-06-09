@@ -175,18 +175,27 @@ async function checkRateLimit(
 ): Promise<{ allowed: boolean; remaining: number }> {
   const { limit, windowSeconds } = RATE_LIMITS[action];
   const key = `rl:${action}:${ip}`;
-  const raw = await env.VNSH_META.get(key);
-  const count = raw ? parseInt(raw) : 0;
 
-  if (count >= limit) {
-    return { allowed: false, remaining: 0 };
+  try {
+    const raw = await env.VNSH_META.get(key);
+    const count = raw ? parseInt(raw) : 0;
+
+    if (count >= limit) {
+      return { allowed: false, remaining: 0 };
+    }
+
+    // Increment counter (fire-and-forget for performance)
+    await env.VNSH_META.put(key, String(count + 1), {
+      expirationTtl: windowSeconds,
+    });
+    return { allowed: true, remaining: limit - count - 1 };
+  } catch (err) {
+    // KV unavailable (e.g. free-plan daily write quota exhausted, code 10048).
+    // Rate limiting is best-effort infrastructure — it must never take down the
+    // core service. Fail open: allow the request rather than throwing a 500.
+    console.error(`Rate limit check failed (${action}), failing open:`, err);
+    return { allowed: true, remaining: -1 };
   }
-
-  // Increment counter (fire-and-forget for performance)
-  await env.VNSH_META.put(key, String(count + 1), {
-    expirationTtl: windowSeconds,
-  });
-  return { allowed: true, remaining: limit - count - 1 };
 }
 
 function rateLimitResponse(action: keyof typeof RATE_LIMITS): Response {
@@ -226,6 +235,9 @@ async function trackStat(env: Env, metric: string, ctx: ExecutionContext): Promi
       return env.VNSH_META.put(key, String(count + 1), {
         expirationTtl: 90 * 24 * 60 * 60, // 90 days
       });
+    }).catch(() => {
+      // Analytics are best-effort: swallow KV errors (e.g. daily write quota)
+      // so they never surface as unhandled rejections or affect the response.
     })
   );
 }
@@ -298,25 +310,20 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
   const expiresAt = now + ttlHours * 60 * 60 * 1000;
 
   try {
-    // Store blob in R2
-    await env.VNSH_STORE.put(id, body, {
-      customMetadata: {
-        createdAt: new Date(now).toISOString(),
-        expiresAt: new Date(expiresAt).toISOString(),
-      },
-    });
-
-    // Store metadata in KV for fast expiry checks
-    await env.VNSH_META.put(
-      `blob:${id}`,
-      JSON.stringify({
-        createdAt: now,
-        expiresAt,
-        hasPayment,
-        priceUSD,
-      }),
-      { expirationTtl: ttlHours * 60 * 60 }
-    );
+    // Store blob in R2. R2 customMetadata is the SINGLE SOURCE OF TRUTH for
+    // expiry and payment info — the core read/write path must not depend on KV,
+    // which on the free plan caps at ~1000 writes/day and throws once exhausted.
+    const customMetadata: Record<string, string> = {
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+    if (hasPayment) {
+      customMetadata.hasPayment = 'true';
+      if (priceUSD !== undefined) {
+        customMetadata.priceUSD = String(priceUSD);
+      }
+    }
+    await env.VNSH_STORE.put(id, body, { customMetadata });
 
     // Track upload analytics
     const source = getClientSource(request);
@@ -344,44 +351,44 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
 
 // GET /api/blob/:id - Download encrypted blob
 async function handleBlob(id: string, request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  // Check metadata first (fast path for expiry/404)
-  const metaJson = await env.VNSH_META.get(`blob:${id}`);
+  // R2 is the source of truth. The read path must not depend on KV, which on the
+  // free plan can hit its daily quota and throw — that previously surfaced as a
+  // hard 500 (Cloudflare error 1101) on every request.
+  //
+  // Use head() for metadata-only checks (expiry, payment) so we never open a body
+  // stream we don't stream back — an undrained R2 body leaks the storage handle.
+  // Only get() the body once we've decided to stream it (the success path).
+  const head = await env.VNSH_STORE.head(id);
 
-  if (!metaJson) {
-    // Blob not found or expired (KV auto-deletes expired entries)
+  if (!head) {
+    // Legacy KV metadata (if any) self-expires via its own TTL — no cleanup needed.
     return errorResponse('NOT_FOUND', 'Blob not found or expired', 404, request);
   }
 
-  const meta = JSON.parse(metaJson) as {
-    createdAt: number;
-    expiresAt: number;
-    hasPayment?: boolean;
-    priceUSD?: number;
-  };
+  const md = head.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  const hasExpiry = !isNaN(expiresAtMs);
 
-  // Check expiry (belt and suspenders)
-  if (Date.now() > meta.expiresAt) {
-    // Clean up expired blob
-    await Promise.all([
-      env.VNSH_STORE.delete(id),
-      env.VNSH_META.delete(`blob:${id}`),
-    ]);
+  // Check expiry (belt; the daily cron job is the suspenders)
+  if (hasExpiry && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(id);
     return errorResponse('EXPIRED', 'Blob has expired', 410, request);
   }
 
-  // Check for payment requirement
-  if (meta.hasPayment) {
+  // Check for payment requirement (x402)
+  if (md.hasPayment === 'true') {
     const url = new URL(request.url);
     const paymentProof = url.searchParams.get('paymentProof');
 
     if (!paymentProof) {
+      const priceUSD = md.priceUSD ? parseFloat(md.priceUSD) : undefined;
       // Return 402 Payment Required with payment info
       return new Response(
         JSON.stringify({
           error: 'PAYMENT_REQUIRED',
           message: 'This blob requires payment',
           payment: {
-            price: meta.priceUSD,
+            price: priceUSD,
             currency: 'USD',
             methods: ['lightning', 'stripe'],
           },
@@ -390,7 +397,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
           status: 402,
           headers: {
             'Content-Type': 'application/json',
-            'X-Payment-Price': String(meta.priceUSD),
+            'X-Payment-Price': String(priceUSD),
             'X-Payment-Currency': 'USD',
             'X-Payment-Methods': 'lightning,stripe',
             ...corsHeaders,
@@ -403,13 +410,11 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
     // For now, accept any non-empty proof for testing
   }
 
-  // Fetch from R2
+  // All checks passed — fetch the body to stream it back.
   const object = await env.VNSH_STORE.get(id);
-
   if (!object) {
-    // R2 object missing but metadata exists - inconsistent state
-    await env.VNSH_META.delete(`blob:${id}`);
-    return errorResponse('NOT_FOUND', 'Blob not found', 404, request);
+    // Rare race: blob deleted/expired between head and get.
+    return errorResponse('NOT_FOUND', 'Blob not found or expired', 404, request);
   }
 
   // Track read analytics
@@ -425,7 +430,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
       'Content-Length': String(object.size),
       'Cache-Control': 'private, no-store, no-cache',
       'X-Content-Type-Options': 'nosniff',
-      'X-Opaque-Expires': new Date(meta.expiresAt).toISOString(),
+      ...(hasExpiry ? { 'X-Opaque-Expires': new Date(expiresAtMs).toISOString() } : {}),
       ...corsHeaders,
     },
   });
@@ -434,6 +439,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
 // Main request handler
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+   try {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -678,6 +684,13 @@ export default {
 
     // 404 for unknown routes
     return errorResponse('NOT_FOUND', 'Endpoint not found', 404, request);
+   } catch (err) {
+    // Final safety net: any uncaught exception above (e.g. an R2/KV call failing
+    // when the free-plan quota is hit) returns a clean, CORS-enabled JSON 500
+    // instead of a raw Cloudflare error 1101 that breaks clients and CORS.
+    console.error('Unhandled request error:', err);
+    return errorResponse('INTERNAL_ERROR', 'Internal server error', 500, request);
+   }
   },
 
   // Cron trigger: clean up expired R2 blobs daily
