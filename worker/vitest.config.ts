@@ -7,7 +7,6 @@ export default defineWorkersConfig({
       workers: {
         wrangler: { configPath: './wrangler.toml' },
         miniflare: {
-          kvNamespaces: ['VNSH_META'],
           r2Buckets: ['VNSH_STORE'],
         },
       },

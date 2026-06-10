@@ -15,8 +15,18 @@
 
 interface Env {
   VNSH_STORE: R2Bucket;
-  VNSH_META: KVNamespace;
+  // Native edge rate limiters (no storage writes — replaces the old KV counters
+  // that exhausted the free-plan 1000-writes/day cap and 500'd the whole site).
+  UPLOAD_LIMITER: RateLimit;
+  READ_LIMITER: RateLimit;
+  // Usage analytics (replaces KV counters; non-blocking, high write allowance).
+  // Optional: the binding may be absent until Analytics Engine is enabled on the
+  // account — trackEvent() no-ops when it is missing.
+  VNSH_ANALYTICS?: AnalyticsEngineDataset;
   STATS_TOKEN?: string;
+  // For the /api/stats endpoint to query Analytics Engine via the SQL API.
+  CF_ACCOUNT_ID?: string;
+  CF_API_TOKEN?: string;
 }
 
 // Constants
@@ -162,51 +172,31 @@ function ERROR_HTML(code: string, message: string, status: number): string {
 </html>`;
 }
 
-// Rate limiting via KV counters
-const RATE_LIMITS = {
-  upload: { limit: 50, windowSeconds: 3600 },   // 50 uploads per hour
-  read:   { limit: 50, windowSeconds: 60 },      // 50 reads per minute
-} as const;
+// Rate limiting via Cloudflare's native Rate Limiting binding. Runs in-colo with
+// no storage writes, so it never touches the free-plan KV write quota. The binding
+// only supports 10s or 60s windows, so limits are expressed per-minute.
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
-async function checkRateLimit(
-  ip: string,
-  action: keyof typeof RATE_LIMITS,
-  env: Env,
-): Promise<{ allowed: boolean; remaining: number }> {
-  const { limit, windowSeconds } = RATE_LIMITS[action];
-  const key = `rl:${action}:${ip}`;
-
+// Check a request against a rate limiter. Fails open on any error — rate limiting
+// must never take down the core service.
+async function checkRateLimit(limiter: RateLimit, ip: string): Promise<boolean> {
   try {
-    const raw = await env.VNSH_META.get(key);
-    const count = raw ? parseInt(raw) : 0;
-
-    if (count >= limit) {
-      return { allowed: false, remaining: 0 };
-    }
-
-    // Increment counter (fire-and-forget for performance)
-    await env.VNSH_META.put(key, String(count + 1), {
-      expirationTtl: windowSeconds,
-    });
-    return { allowed: true, remaining: limit - count - 1 };
+    const { success } = await limiter.limit({ key: ip });
+    return success;
   } catch (err) {
-    // KV unavailable (e.g. free-plan daily write quota exhausted, code 10048).
-    // Rate limiting is best-effort infrastructure — it must never take down the
-    // core service. Fail open: allow the request rather than throwing a 500.
-    console.error(`Rate limit check failed (${action}), failing open:`, err);
-    return { allowed: true, remaining: -1 };
+    console.error('Rate limit check failed, failing open:', err);
+    return true;
   }
 }
 
-function rateLimitResponse(action: keyof typeof RATE_LIMITS): Response {
-  const { windowSeconds } = RATE_LIMITS[action];
+function rateLimitResponse(): Response {
   return new Response(
     JSON.stringify({ error: 'RATE_LIMITED', message: 'Too many requests' }),
     {
       status: 429,
       headers: {
         'Content-Type': 'application/json',
-        'Retry-After': String(windowSeconds),
+        'Retry-After': String(RATE_LIMIT_WINDOW_SECONDS),
         ...corsHeaders,
       },
     },
@@ -225,21 +215,23 @@ function getClientSource(request: Request): string {
   return valid.includes(source) ? source : 'unknown';
 }
 
-// Usage analytics: lightweight daily KV counters
-async function trackStat(env: Env, metric: string, ctx: ExecutionContext): Promise<void> {
-  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  const key = `stats:${date}:${metric}`;
-  ctx.waitUntil(
-    env.VNSH_META.get(key).then(raw => {
-      const count = raw ? parseInt(raw) : 0;
-      return env.VNSH_META.put(key, String(count + 1), {
-        expirationTtl: 90 * 24 * 60 * 60, // 90 days
-      });
-    }).catch(() => {
-      // Analytics are best-effort: swallow KV errors (e.g. daily write quota)
-      // so they never surface as unhandled rejections or affect the response.
-    })
-  );
+// Usage analytics via Workers Analytics Engine. writeDataPoint is non-blocking and
+// fire-and-forget (no await / waitUntil needed) with a high write allowance, so it
+// replaces the racy read-modify-write KV counters. Schema:
+//   blob1 = event type ('upload' | 'read'), blob2 = client source, double1 = count,
+//   index1 = event type (sampling key). timestamp is added automatically.
+function trackEvent(env: Env, event: 'upload' | 'read', source: string): void {
+  if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
+  try {
+    env.VNSH_ANALYTICS.writeDataPoint({
+      blobs: [event, source],
+      doubles: [1],
+      indexes: [event],
+    });
+  } catch (err) {
+    // Best-effort analytics: never let metrics affect the response.
+    console.error('Analytics write failed:', err);
+  }
 }
 
 // Handle CORS preflight
@@ -326,9 +318,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
     await env.VNSH_STORE.put(id, body, { customMetadata });
 
     // Track upload analytics
-    const source = getClientSource(request);
-    trackStat(env, 'uploads', ctx);
-    trackStat(env, `source:${source}:uploads`, ctx);
+    trackEvent(env, 'upload', getClientSource(request));
 
     return new Response(
       JSON.stringify({
@@ -418,9 +408,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
   }
 
   // Track read analytics
-  const source = getClientSource(request);
-  trackStat(env, 'reads', ctx);
-  trackStat(env, `source:${source}:reads`, ctx);
+  trackEvent(env, 'read', getClientSource(request));
 
   // Stream response with proper headers
   return new Response(object.body, {
@@ -449,30 +437,43 @@ export default {
     }
 
     // Route: GET /api/stats - Usage analytics (authenticated)
+    // Queries Workers Analytics Engine via the SQL API. Requires CF_ACCOUNT_ID and
+    // a CF_API_TOKEN secret with the "Account Analytics Read" permission.
     if (request.method === 'GET' && path === '/api/stats') {
       const token = url.searchParams.get('token');
       if (!env.STATS_TOKEN || token !== env.STATS_TOKEN) {
         return errorResponse('UNAUTHORIZED', 'Invalid or missing token', 401);
       }
-      // Return last 30 days of stats
-      const stats: Record<string, number> = {};
-      const metrics = ['uploads', 'reads',
-        'source:cli:uploads', 'source:cli-npm:uploads', 'source:mcp:uploads',
-        'source:extension:uploads', 'source:web:uploads', 'source:pipe:uploads', 'source:unknown:uploads',
-        'source:cli:reads', 'source:cli-npm:reads', 'source:mcp:reads',
-        'source:extension:reads', 'source:web:reads', 'source:unknown:reads'];
-      const today = new Date();
-      for (let i = 0; i < 30; i++) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const date = d.toISOString().slice(0, 10);
-        for (const m of metrics) {
-          const val = await env.VNSH_META.get(`stats:${date}:${m}`);
-          if (val) stats[`${date}:${m}`] = parseInt(val);
-        }
+      if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) {
+        return errorResponse(
+          'NOT_CONFIGURED',
+          'Set CF_ACCOUNT_ID and CF_API_TOKEN (Account Analytics Read) to query stats',
+          501,
+        );
       }
-      return new Response(JSON.stringify(stats, null, 2), {
-        status: 200,
+      // Daily counts per event type and source over the last 30 days.
+      // sum(_sample_interval) reconstructs true counts from Analytics Engine sampling.
+      const sql = `SELECT
+          toStartOfDay(timestamp) AS day,
+          blob1 AS event,
+          blob2 AS source,
+          sum(_sample_interval) AS count
+        FROM vnsh_events
+        WHERE timestamp > now() - INTERVAL '30' DAY
+        GROUP BY day, event, source
+        ORDER BY day DESC, event, source
+        FORMAT JSON`;
+      const aeResp = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/analytics_engine/sql`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` },
+          body: sql,
+        },
+      );
+      const text = await aeResp.text();
+      return new Response(text, {
+        status: aeResp.ok ? 200 : 502,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
@@ -481,8 +482,7 @@ export default {
     if (path === '/api/drop') {
       if (request.method === 'POST') {
         const ip = getClientIp(request);
-        const rl = await checkRateLimit(ip, 'upload', env);
-        if (!rl.allowed) return rateLimitResponse('upload');
+        if (!(await checkRateLimit(env.UPLOAD_LIMITER, ip))) return rateLimitResponse();
         return handleDrop(request, env, ctx);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to upload', 405);
@@ -493,8 +493,7 @@ export default {
     const blobMatch = path.match(/^\/api\/blob\/([a-zA-Z0-9-]+)$/);
     if (request.method === 'GET' && blobMatch && isValidBlobId(blobMatch[1])) {
       const ip = getClientIp(request);
-      const rl = await checkRateLimit(ip, 'read', env);
-      if (!rl.allowed) return rateLimitResponse('read');
+      if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
       return handleBlob(blobMatch[1], request, env, ctx);
     }
 

@@ -3,15 +3,35 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
-# R2 bucket for blob storage
+# R2 bucket for blob storage. R2 customMetadata is the source of truth for blob
+# expiry and payment info — the core read/write path depends on nothing else.
 [[r2_buckets]]
 binding = "VNSH_STORE"
 bucket_name = "vnsh-store"
 
-# KV namespace for metadata (expiry, payment info)
-[[kv_namespaces]]
-binding = "VNSH_META"
-id = "67d2bdbe539e4620a20a65be26744a5e"
+# Native edge rate limiters (in-colo, no storage writes). The binding only allows
+# 10s or 60s windows, so limits are per-minute. namespace_id is an arbitrary unique
+# positive integer per limiter.
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1001"
+[ratelimits.simple]
+limit = 10
+period = 60
+
+[[ratelimits]]
+name = "READ_LIMITER"
+namespace_id = "1002"
+[ratelimits.simple]
+limit = 50
+period = 60
+
+# Usage analytics. Re-enable once Analytics Engine finishes enabling on the account
+# (dataset "vnsh_events" already created in the dashboard). Until then trackEvent()
+# no-ops because the binding is absent.
+# [[analytics_engine_datasets]]
+# binding = "VNSH_ANALYTICS"
+# dataset = "vnsh_events"
 
 # Cron trigger: clean up expired R2 blobs daily at 03:00 UTC
 [triggers]
@@ -21,6 +41,8 @@ crons = ["0 3 * * *"]
 
 # Environment variables (set via wrangler secret)
 # STATS_TOKEN - for /api/stats endpoint authentication
+# CF_ACCOUNT_ID - account id for the Analytics Engine SQL API (used by /api/stats)
+# CF_API_TOKEN - token with "Account Analytics Read" to query stats
 # JWT_SECRET - for signing payment tokens
 # STRIPE_SECRET_KEY - for Stripe API
 # LIGHTNING_API_KEY - for Lightning payments
