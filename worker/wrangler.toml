@@ -26,12 +26,10 @@ namespace_id = "1002"
 limit = 50
 period = 60
 
-# Usage analytics. Re-enable once Analytics Engine finishes enabling on the account
-# (dataset "vnsh_events" already created in the dashboard). Until then trackEvent()
-# no-ops because the binding is absent.
-# [[analytics_engine_datasets]]
-# binding = "VNSH_ANALYTICS"
-# dataset = "vnsh_events"
+# Usage analytics via Workers Analytics Engine. Dataset auto-creates on first write.
+[[analytics_engine_datasets]]
+binding = "VNSH_ANALYTICS"
+dataset = "vnsh_events"
 
 # Cron trigger: clean up expired R2 blobs daily at 03:00 UTC
 [triggers]
