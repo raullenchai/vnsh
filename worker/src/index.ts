@@ -1013,8 +1013,15 @@ detect_rc() {
 RC_FILE=\$(detect_rc)
 touch "\$RC_FILE" 2>/dev/null || true
 
-# The vn function - POSIX compatible, works on BSD (macOS) and GNU (Linux)
-VN_FUNCTION='
+# The vn function - POSIX compatible, works on BSD (macOS) and GNU (Linux).
+# Written to a temp file via a QUOTED heredoc so the body (which contains single
+# quotes and backslash escapes like tr -d '\\n') is preserved verbatim. A plain
+# single-quoted VN_FUNCTION='...' assignment mangled those (corrupting the v2 URL
+# decode), and \$(cat <<'EOF' ...) breaks on macOS bash 3.2 because the ')' inside
+# the body (e.g. case patterns) prematurely closes the command substitution.
+VN_TMP=\$(mktemp)
+cat > "\$VN_TMP" <<'VNEOF'
+
 # vnsh CLI v2.0.0 - Host-Blind Context Tunnel (https://vnsh.dev)
 vn() {
   _VN_HOST="\${VNSH_HOST:-https://vnsh.dev}"
@@ -1185,25 +1192,29 @@ vn() {
   unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET
 }
 # vnsh CLI END
-'
+VNEOF
 
 # Install or upgrade
 if grep -q "# vnsh CLI END" "\$RC_FILE" 2>/dev/null; then
-  # New format with END marker - remove between markers
-  sed -i.bak '/# vnsh CLI - Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null || \\
-    sed -i '' '/# vnsh CLI - Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null
-  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  # Remove ALL existing vnsh blocks between the header and END markers. The header
+  # pattern is version-independent so it keeps matching across CLI versions
+  # (the old fixed '# vnsh CLI - Host-Blind' pattern broke when the version was
+  # added to the header, leaving stale definitions stacked in the rc file).
+  sed -i.bak '/# vnsh CLI.*Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null || \\
+    sed -i '' '/# vnsh CLI.*Host-Blind/,/# vnsh CLI END/d' "\$RC_FILE" 2>/dev/null
+  cat "\$VN_TMP" >> "\$RC_FILE"
   printf "%b✓%b Upgraded vn in %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
 elif grep -q "vnsh CLI" "\$RC_FILE" 2>/dev/null; then
   # Old format without END marker - remove function definition to closing brace
   # Create temp file, filter out old function, replace
   awk '/# vnsh CLI/{skip=1} /^}$/{if(skip){skip=0;next}} !skip' "\$RC_FILE" > "\$RC_FILE.tmp" && mv "\$RC_FILE.tmp" "\$RC_FILE"
-  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  cat "\$VN_TMP" >> "\$RC_FILE"
   printf "%b✓%b Upgraded vn in %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
 else
-  printf "%s\\n" "\$VN_FUNCTION" >> "\$RC_FILE"
+  cat "\$VN_TMP" >> "\$RC_FILE"
   printf "%b✓%b Added vn to %s\\n" "\$GREEN" "\$NC" "\$RC_FILE"
 fi
+rm -f "\$VN_TMP"
 
 echo ""
 printf "%bInstallation complete!%b\\n" "\$GREEN" "\$NC"
