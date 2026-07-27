@@ -66,8 +66,12 @@ function isValidBlobId(id: string): boolean {
 // CORS headers for cross-origin access
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Vnsh-Client',
+  'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Write, X-Vnsh-Write-Hash',
+  // Browser clients need to read the version off a workspace GET to build the
+  // If-Match on the next write; without this the fetch() response hides it.
+  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -218,13 +222,25 @@ function getClientSource(request: Request): string {
 // Usage analytics via Workers Analytics Engine. writeDataPoint is non-blocking and
 // fire-and-forget (no await / waitUntil needed) with a high write allowance, so it
 // replaces the racy read-modify-write KV counters. Schema:
-//   blob1 = event type ('upload' | 'read'), blob2 = client source, double1 = count,
-//   index1 = event type (sampling key). timestamp is added automatically.
-function trackEvent(env: Env, event: 'upload' | 'read', source: string): void {
+//   blob1 = event type, blob2 = client source, blob3 = workspace id (workspace
+//   events only), double1 = count, index1 = event type (sampling key).
+//   timestamp is added automatically.
+//
+// blob3 exists to answer the one question v2 is built to test: has a single
+// workspace been written by more than one distinct source? Without it we cannot
+// distinguish "three agents collaborated" from "one agent wrote three times".
+type TrackedEvent =
+  | 'upload'
+  | 'read'
+  | 'workspace_create'
+  | 'workspace_read'
+  | 'workspace_update';
+
+function trackEvent(env: Env, event: TrackedEvent, source: string, workspaceId?: string): void {
   if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
   try {
     env.VNSH_ANALYTICS.writeDataPoint({
-      blobs: [event, source],
+      blobs: workspaceId ? [event, source, workspaceId] : [event, source],
       doubles: [1],
       indexes: [event],
     });
@@ -424,6 +440,294 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
   });
 }
 
+// ---------------------------------------------------------------------------
+// Workspaces (v2) — mutable, versioned, host-blind.
+//
+// A workspace is a stable ID whose content can be replaced by anyone holding the
+// write token. The server stays blind: it only ever sees ciphertext plus
+// H = SHA-256(W), a one-way derivation of the write token. It cannot recover the
+// root secret, cannot decrypt, and cannot forge a write.
+//
+// Phase 0 stores only the latest version at `w/{id}`; the version counter lives
+// in customMetadata so optimistic concurrency works today and per-version history
+// can be added later without changing the URL format.
+// ---------------------------------------------------------------------------
+
+const WORKSPACE_PREFIX = 'w/';
+
+function isValidWorkspaceId(id: string): boolean {
+  return /^[0-9A-Za-z]{12}$/.test(id);
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// Length-independent comparison so a mismatching hash can't be recovered byte by
+// byte from response timing.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// A 64-char hex string — the shape of both H and W.
+function isValidWriteHash(value: string | null): value is string {
+  return !!value && /^[a-f0-9]{64}$/.test(value);
+}
+
+function workspaceExpiry(): { expiresAt: number; iso: string } {
+  const expiresAt = Date.now() + DEFAULT_TTL_HOURS * 60 * 60 * 1000;
+  return { expiresAt, iso: new Date(expiresAt).toISOString() };
+}
+
+// POST /api/workspace — create a workspace and return its ID.
+async function handleWorkspaceCreate(request: Request, env: Env): Promise<Response> {
+  const writeHash = request.headers.get('X-Vnsh-Write-Hash');
+  if (!isValidWriteHash(writeHash)) {
+    return errorResponse(
+      'INVALID_WRITE_HASH',
+      'X-Vnsh-Write-Hash must be the SHA-256 of the write token, as 64 hex chars',
+      400,
+    );
+  }
+
+  const contentLength = request.headers.get('Content-Length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_BLOB_SIZE) {
+    return errorResponse(
+      'PAYLOAD_TOO_LARGE',
+      `Maximum workspace size is ${MAX_BLOB_SIZE / 1024 / 1024}MB`,
+      413,
+    );
+  }
+
+  const body = request.body;
+  if (!body) {
+    return errorResponse('EMPTY_BODY', 'Request body is required', 400);
+  }
+
+  let id = generateShortId();
+  for (let attempts = 0; attempts < 5; attempts++) {
+    if (!(await env.VNSH_STORE.head(WORKSPACE_PREFIX + id))) break;
+    id = generateShortId();
+  }
+
+  const { iso } = workspaceExpiry();
+  try {
+    await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, body, {
+      customMetadata: {
+        writeHash,
+        version: '1',
+        createdAt: new Date().toISOString(),
+        expiresAt: iso,
+      },
+    });
+  } catch (err) {
+    console.error('Failed to create workspace:', err);
+    return errorResponse('STORAGE_ERROR', 'Failed to create workspace', 500);
+  }
+
+  trackEvent(env, 'workspace_create', getClientSource(request), id);
+
+  return new Response(JSON.stringify({ id, version: 1, expires: iso }), {
+    status: 201,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+// GET /api/workspace/:id — return the latest ciphertext. Dumb pipe, as with blobs.
+async function handleWorkspaceGet(id: string, request: Request, env: Env): Promise<Response> {
+  const key = WORKSPACE_PREFIX + id;
+  const head = await env.VNSH_STORE.head(key);
+  if (!head) {
+    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  }
+
+  const md = head.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(key);
+    return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
+  }
+
+  const object = await env.VNSH_STORE.get(key);
+  if (!object) {
+    // Rare race: deleted between head and get.
+    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  }
+
+  trackEvent(env, 'workspace_read', getClientSource(request), id);
+
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(object.size),
+      'Cache-Control': 'private, no-store, no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      // The version IS the ETag — one concept, not two.
+      ETag: `"${md.version || '1'}"`,
+      ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      ...corsHeaders,
+    },
+  });
+}
+
+// PUT /api/workspace/:id — replace content, bump version, renew TTL.
+async function handleWorkspacePut(id: string, request: Request, env: Env): Promise<Response> {
+  const key = WORKSPACE_PREFIX + id;
+
+  const writeToken = request.headers.get('X-Vnsh-Write');
+  if (!isValidWriteHash(writeToken)) {
+    return errorResponse(
+      'INVALID_WRITE_TOKEN',
+      'X-Vnsh-Write must be the write token, as 64 hex chars',
+      401,
+    );
+  }
+
+  const ifMatch = request.headers.get('If-Match');
+  if (!ifMatch) {
+    // Refusing an unconditional write is what stops one agent silently clobbering
+    // another's update.
+    return errorResponse(
+      'PRECONDITION_REQUIRED',
+      'If-Match with the current version is required',
+      428,
+    );
+  }
+
+  const contentLength = request.headers.get('Content-Length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_BLOB_SIZE) {
+    return errorResponse(
+      'PAYLOAD_TOO_LARGE',
+      `Maximum workspace size is ${MAX_BLOB_SIZE / 1024 / 1024}MB`,
+      413,
+    );
+  }
+
+  const head = await env.VNSH_STORE.head(key);
+  if (!head) {
+    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  }
+
+  const md = head.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(key);
+    return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
+  }
+
+  const expectedHash = md.writeHash || '';
+  const presentedHash = await sha256Hex(writeToken);
+  if (!timingSafeEqual(presentedHash, expectedHash)) {
+    return errorResponse('FORBIDDEN', 'Invalid write token', 403, request);
+  }
+
+  const currentVersion = md.version || '1';
+  if (ifMatch.replace(/"/g, '') !== currentVersion) {
+    return errorResponse(
+      'VERSION_CONFLICT',
+      `Workspace is at version ${currentVersion}; re-read it, merge your change, then retry`,
+      412,
+      request,
+    );
+  }
+
+  const body = request.body;
+  if (!body) {
+    return errorResponse('EMPTY_BODY', 'Request body is required', 400);
+  }
+
+  const nextVersion = String(parseInt(currentVersion, 10) + 1);
+  const { iso } = workspaceExpiry();
+
+  try {
+    // etagMatches makes this a genuine compare-and-swap: two agents that both read
+    // version 7 cannot both land a version 8.
+    const written = await env.VNSH_STORE.put(key, body, {
+      onlyIf: { etagMatches: head.etag },
+      customMetadata: {
+        writeHash: expectedHash,
+        version: nextVersion,
+        createdAt: md.createdAt || new Date().toISOString(),
+        expiresAt: iso,
+      },
+    });
+
+    if (!written) {
+      return errorResponse(
+        'VERSION_CONFLICT',
+        'Workspace changed during this write; re-read it, merge your change, then retry',
+        412,
+        request,
+      );
+    }
+  } catch (err) {
+    console.error('Failed to update workspace:', err);
+    return errorResponse('STORAGE_ERROR', 'Failed to update workspace', 500);
+  }
+
+  trackEvent(env, 'workspace_update', getClientSource(request), id);
+
+  return new Response(
+    JSON.stringify({ id, version: parseInt(nextVersion, 10), expires: iso }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ETag: `"${nextVersion}"`, ...corsHeaders },
+    },
+  );
+}
+
+// Landing page for /w/:id. Static and content-free by design — the workspace key
+// is in the fragment, and nothing here should ever touch it.
+const WORKSPACE_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>vnsh workspace</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:#0d1117;color:#c9d1d9;font:15px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:24px}
+  main{max-width:34rem}
+  h1{font-size:1.25rem;margin:0 0 .6em;color:#e6edf3;font-weight:600}
+  p{margin:0 0 1em;color:#9da7b3}
+  code{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.86em;background:#161b22;
+    border:1px solid #21262d;border-radius:5px;padding:.15em .45em;color:#e6edf3;display:inline-block}
+  pre{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px 16px;overflow-x:auto;
+    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.82rem;color:#adbac7;margin:0 0 1em}
+  .k{color:#7ee787}
+  small{color:#6e7681;font-size:.82rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>This is a vnsh workspace</h1>
+  <p>
+    A shared, encrypted document that several AI agents can read and write through
+    one link. The decryption key is in this URL's <code>#</code> fragment, which
+    browsers never send to the server &mdash; so vnsh cannot read this workspace.
+  </p>
+  <p>Open it with an agent that has the vnsh MCP server, or from a terminal:</p>
+  <pre><span class="k">npx vnsh workspace read</span> "&lt;this full URL&gt;"</pre>
+  <p>
+    <small>
+      Content is not rendered on this page on purpose: running a workspace's own HTML
+      here would let it read the key out of the address bar. Agents render it locally instead.
+      Workspaces expire 24 hours after the last write.
+    </small>
+  </p>
+</main>
+</body>
+</html>`;
+
 // Main request handler
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -486,6 +790,47 @@ export default {
         return handleDrop(request, env, ctx);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to upload', 405);
+    }
+
+    // Route: POST /api/workspace - create a mutable workspace
+    if (path === '/api/workspace') {
+      if (request.method === 'POST') {
+        const ip = getClientIp(request);
+        if (!(await checkRateLimit(env.UPLOAD_LIMITER, ip))) return rateLimitResponse();
+        return handleWorkspaceCreate(request, env);
+      }
+      return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to create a workspace', 405);
+    }
+
+    // Route: GET/PUT /api/workspace/:id
+    const workspaceMatch = path.match(/^\/api\/workspace\/([a-zA-Z0-9]+)$/);
+    if (workspaceMatch && isValidWorkspaceId(workspaceMatch[1])) {
+      const ip = getClientIp(request);
+      if (request.method === 'GET') {
+        if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
+        return handleWorkspaceGet(workspaceMatch[1], request, env);
+      }
+      if (request.method === 'PUT') {
+        if (!(await checkRateLimit(env.UPLOAD_LIMITER, ip))) return rateLimitResponse();
+        return handleWorkspacePut(workspaceMatch[1], request, env);
+      }
+      return errorResponse('METHOD_NOT_ALLOWED', 'Use GET or PUT', 405);
+    }
+
+    // Route: GET /w/:id - workspace landing page.
+    // Phase 0 deliberately does NOT render workspace content here: doing so would
+    // run user-supplied HTML on the vnsh.dev origin, where it could read the key
+    // out of location.hash. Agents open workspaces locally from file:// instead.
+    const workspacePageMatch = path.match(/^\/w\/([a-zA-Z0-9]+)$/);
+    if (request.method === 'GET' && workspacePageMatch && isValidWorkspaceId(workspacePageMatch[1])) {
+      return new Response(WORKSPACE_PAGE, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Referrer-Policy': 'no-referrer',
+        },
+      });
     }
 
     // Route: GET /api/blob/:id
@@ -699,9 +1044,19 @@ export default {
     let checked = 0;
     let cursor: string | undefined;
 
-    // R2 list is paginated (max 1000 per call)
+    // R2 list is paginated (max 1000 per call).
+    // include:['customMetadata'] is REQUIRED — without it R2 returns an empty
+    // customMetadata object, expiresAt reads as undefined, and every object falls
+    // through to the 8-day legacy branch below instead of its real 24h expiry.
     do {
-      const listed = await env.VNSH_STORE.list({ limit: 1000, cursor });
+      const listed = await env.VNSH_STORE.list({
+        limit: 1000,
+        cursor,
+        include: ['customMetadata'],
+        // The runtime supports `include`, but the pinned @cloudflare/workers-types
+        // (4.20241230) predates it being added to R2ListOptions. Verified against
+        // workerd: without the flag customMetadata comes back as {}.
+      } as R2ListOptions & { include: ('customMetadata' | 'httpMetadata')[] });
 
       for (const obj of listed.objects) {
         checked++;
@@ -1092,9 +1447,9 @@ vn() {
     _vn_cleanup() { rm -f "\$_VN_TMP" 2>/dev/null; }
     trap _vn_cleanup EXIT INT TERM
     if [ -t 2 ]; then
-      curl -f --progress-bar "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -f --progress-bar -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     else
-      curl -sf "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -sf -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     fi
     _VN_RET=\$?
     if [ \$_VN_RET -ne 0 ] || [ ! -s "\$_VN_TMP" ]; then
@@ -4077,7 +4432,7 @@ const APP_HTML = `<!DOCTYPE html>
     async function fetchAndDecrypt(id, keyHex, ivHex) {
       try {
         document.getElementById('step-fetch').className = 'step active';
-        const res = await fetch('/api/blob/' + id);
+        const res = await fetch('/api/blob/' + id, { headers: { 'X-Vnsh-Client': 'web/1.0' } });
         if (res.status === 404) throw new Error('Blob not found or expired.');
         if (res.status === 410) throw new Error('Blob has expired.');
         if (!res.ok) throw new Error('Fetch failed: ' + res.status);

@@ -268,7 +268,9 @@ describe('vnsh API', () => {
       expect(html).toContain('ai-instructions');
       expect(html).toContain('AI Agent');
       expect(html).toContain('curl -sL vnsh.dev/claude | sh');
-      expect(html).toContain('vnsh_read');
+      // The banner points at the zero-install path so an agent with only a shell
+      // can act on it; it no longer names the MCP tool, which requires setup first.
+      expect(html).toContain('npx vnsh read');
     });
 
     it('does not redirect (would break hash fragment)', async () => {
@@ -368,6 +370,32 @@ describe('vnsh API', () => {
       expect(response.status).toBe(404);
       const body = await response.json() as { error: string };
       expect(body.error).toBe('NOT_FOUND');
+    });
+  });
+
+  // Regression: list() without include:['customMetadata'] returns an empty
+  // customMetadata object, so expiresAt read as undefined and every object fell
+  // through to the 8-day legacy branch — blobs lived ~8 days instead of 24h.
+  describe('cleanup cron', () => {
+    it('sees customMetadata when listing, so expired objects are collected', async () => {
+      const key = 'cccccccccccc';
+      await env.VNSH_STORE.put(key, 'expired-bytes', {
+        customMetadata: { expiresAt: new Date(Date.now() - 1000).toISOString() },
+      });
+
+      const listed = await env.VNSH_STORE.list({
+        limit: 1000,
+        include: ['customMetadata'],
+      } as R2ListOptions & { include: ('customMetadata' | 'httpMetadata')[] });
+
+      const found = listed.objects.find((o) => o.key === key);
+      expect(found?.customMetadata?.expiresAt).toBeDefined();
+
+      const ctx = createExecutionContext();
+      await worker.scheduled!({} as ScheduledEvent, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(await env.VNSH_STORE.head(key)).toBeNull();
     });
   });
 });
