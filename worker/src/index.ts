@@ -699,9 +699,19 @@ export default {
     let checked = 0;
     let cursor: string | undefined;
 
-    // R2 list is paginated (max 1000 per call)
+    // R2 list is paginated (max 1000 per call).
+    // include:['customMetadata'] is REQUIRED — without it R2 returns an empty
+    // customMetadata object, expiresAt reads as undefined, and every object falls
+    // through to the 8-day legacy branch below instead of its real 24h expiry.
     do {
-      const listed = await env.VNSH_STORE.list({ limit: 1000, cursor });
+      const listed = await env.VNSH_STORE.list({
+        limit: 1000,
+        cursor,
+        include: ['customMetadata'],
+        // The runtime supports `include`, but the pinned @cloudflare/workers-types
+        // (4.20241230) predates it being added to R2ListOptions. Verified against
+        // workerd: without the flag customMetadata comes back as {}.
+      } as R2ListOptions & { include: ('customMetadata' | 'httpMetadata')[] });
 
       for (const obj of listed.objects) {
         checked++;
