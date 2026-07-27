@@ -9,6 +9,7 @@
  * - vnsh_read: Decrypt and read content from a vnsh URL
  * - vnsh_share: Encrypt and upload text content, return shareable URL
  * - vnsh_share_file: Encrypt and upload a local file, return shareable URL
+ * - vnsh_workspace_create/read/update/open: mutable, versioned shared workspaces
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -31,6 +32,12 @@ import {
   parseVnshUrl,
   buildVnshUrl,
   bufferToHex,
+  generateRootSecret,
+  deriveWorkspaceKeys,
+  encryptWorkspace,
+  decryptWorkspace,
+  buildWorkspaceUrl,
+  parseWorkspaceUrl,
 } from './crypto.js';
 
 // Configuration
@@ -53,6 +60,21 @@ const ShareFileInputSchema = z.object({
   file_path: z.string().describe('Absolute path to the file to encrypt and share'),
   ttl: z.number().optional().describe('Time-to-live in hours (default: 24, max: 168)'),
   host: z.string().optional().describe('Override the vnsh host URL'),
+});
+
+const WorkspaceCreateSchema = z.object({
+  content: z.string().describe('Initial workspace content'),
+  host: z.string().optional(),
+});
+
+const WorkspaceUrlSchema = z.object({
+  url: z.string().describe('Full workspace URL including the #w= fragment'),
+});
+
+const WorkspaceUpdateSchema = z.object({
+  url: z.string(),
+  content: z.string(),
+  base_version: z.number().optional(),
 });
 
 // Create MCP server
@@ -141,6 +163,80 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path'],
         },
       },
+      {
+        name: 'vnsh_workspace_create',
+        description:
+          'Creates a shared workspace and returns one link that any agent can read AND write. ' +
+          'Use this when work will continue somewhere else: handing a plan, status doc, ' +
+          'design, or investigation to another agent or another session, or when the user ' +
+          'says they will pick this up in a different tool. Unlike vnsh_share (a one-shot ' +
+          'snapshot), a workspace keeps the same URL as its content evolves. ' +
+          'Content is encrypted locally; the server never sees the key. Expires 24h after ' +
+          'the last write.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            content: {
+              type: 'string',
+              description: 'Initial content. HTML renders as a page via vnsh_workspace_open.',
+            },
+            host: { type: 'string', description: 'Override the vnsh host URL' },
+          },
+          required: ['content'],
+        },
+      },
+      {
+        name: 'vnsh_workspace_read',
+        description:
+          'Reads the current content of a vnsh workspace URL (a /w/ link with a #w= fragment). ' +
+          'Use this whenever the user provides such a link — it is how you pick up work another ' +
+          'agent left for you. Returns the content and its version number; pass that version to ' +
+          'vnsh_workspace_update to write safely.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'vnsh_workspace_update',
+        description:
+          'Replaces the content of a vnsh workspace, keeping the same URL. Use this to record ' +
+          'progress so far, revise a shared plan, or leave the next agent an updated document. ' +
+          'Writes are version-checked: if someone else wrote first, this returns their current ' +
+          'content so you can merge it with yours and call this again.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+            content: { type: 'string', description: 'The full new content (replaces everything)' },
+            base_version: {
+              type: 'number',
+              description:
+                'Version this edit is based on. Omit to read the latest first. Pass the version ' +
+                'from vnsh_workspace_read when you have already merged against it.',
+            },
+          },
+          required: ['url', 'content'],
+        },
+      },
+      {
+        name: 'vnsh_workspace_open',
+        description:
+          'Decrypts a vnsh workspace to a local temp file and opens it in the browser. ' +
+          'Use this when the user wants to LOOK at a workspace rather than have its content ' +
+          'read into context — HTML reports, dashboards, and diagrams render properly this way. ' +
+          'Rendering happens locally from file://, so nothing is exposed to any server.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+          },
+          required: ['url'],
+        },
+      },
     ],
   };
 });
@@ -156,6 +252,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await handleShare(args);
     } else if (name === 'vnsh_share_file') {
       return await handleShareFile(args);
+    } else if (name === 'vnsh_workspace_create') {
+      return await handleWorkspaceCreate(args);
+    } else if (name === 'vnsh_workspace_read') {
+      return await handleWorkspaceRead(args);
+    } else if (name === 'vnsh_workspace_update') {
+      return await handleWorkspaceUpdate(args);
+    } else if (name === 'vnsh_workspace_open') {
+      return await handleWorkspaceOpen(args);
     } else {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
@@ -539,6 +643,225 @@ export async function handleShareFile(args: unknown) {
       fileName,
       originalSize: stat.size,
     },
+  };
+}
+
+/**
+ * Handle vnsh_workspace_create tool call
+ * @internal Exported for testing
+ */
+export async function handleWorkspaceCreate(args: unknown) {
+  const { content, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const host = hostOverride || DEFAULT_HOST;
+
+  const secret = generateRootSecret();
+  const { key, writeHash } = deriveWorkspaceKeys(secret);
+  const encrypted = encryptWorkspace(content, key);
+
+  const response = await fetch(`${host}/api/workspace`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vnsh-Write-Hash': writeHash,
+      ...CLIENT_HEADER,
+    },
+    body: new Uint8Array(encrypted),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Create failed: HTTP ${response.status} - ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { id: string; version: number; expires: string };
+  const url = buildWorkspaceUrl(host, data.id, secret);
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Workspace created at version ${data.version}.\n\n${url}\n\n` +
+          `Expires ${data.expires} (24h after the last write — each update renews it).\n` +
+          `Hand this URL to any other agent or session: they can read it with ` +
+          `vnsh_workspace_read and write to it with vnsh_workspace_update. ` +
+          `The key lives in the #w= fragment and never reaches the server.`,
+      },
+    ],
+    metadata: { url, workspaceId: data.id, version: data.version, expires: data.expires },
+  };
+}
+
+// Fetch and decrypt a workspace. Shared by read/update/open.
+async function fetchWorkspace(url: string) {
+  const { host, id, secret } = parseWorkspaceUrl(url);
+  const { key, writeToken } = deriveWorkspaceKeys(secret);
+
+  const response = await fetch(`${host}/api/workspace/${id}`, {
+    headers: { Accept: 'application/octet-stream', ...CLIENT_HEADER },
+  });
+
+  if (response.status === 404) {
+    throw new Error('Workspace not found — it may have expired (24h after the last write).');
+  }
+  if (response.status === 410) {
+    throw new Error('Workspace has expired.');
+  }
+  if (!response.ok) {
+    throw new Error(`Read failed: HTTP ${response.status} - ${await response.text()}`);
+  }
+
+  const payload = Buffer.from(await response.arrayBuffer());
+  if (payload.length > MAX_CONTENT_SIZE) {
+    throw new Error(`Workspace is too large (${payload.length} bytes)`);
+  }
+
+  const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+
+  let plaintext: Buffer;
+  try {
+    plaintext = decryptWorkspace(payload, key);
+  } catch {
+    // GCM tag failure means the key is wrong or the bytes were altered — the
+    // integrity guarantee CBC could not give us.
+    throw new Error(
+      'Decryption failed: the key in the URL does not match, or the content was tampered with.',
+    );
+  }
+
+  return { host, id, version, writeToken, key, secret, plaintext };
+}
+
+/**
+ * Handle vnsh_workspace_read tool call
+ * @internal Exported for testing
+ */
+export async function handleWorkspaceRead(args: unknown) {
+  const { url } = WorkspaceUrlSchema.parse(args);
+  const { id, version, plaintext } = await fetchWorkspace(url);
+  const text = plaintext.toString('utf-8');
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Workspace ${id} — version ${version}.\n` +
+          `To modify it, call vnsh_workspace_update with base_version: ${version}.\n\n` +
+          text,
+      },
+    ],
+    metadata: { workspaceId: id, version, size: plaintext.length },
+  };
+}
+
+/**
+ * Handle vnsh_workspace_update tool call
+ * @internal Exported for testing
+ */
+export async function handleWorkspaceUpdate(args: unknown) {
+  const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
+  const { host, id, secret } = parseWorkspaceUrl(url);
+  const { key, writeToken } = deriveWorkspaceKeys(secret);
+
+  // Without an explicit base, read the latest so we write against something real.
+  let version = base_version;
+  if (version === undefined) {
+    version = (await fetchWorkspace(url)).version;
+  }
+
+  const encrypted = encryptWorkspace(content, key);
+  const response = await fetch(`${host}/api/workspace/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vnsh-Write': writeToken,
+      'If-Match': `"${version}"`,
+      ...CLIENT_HEADER,
+    },
+    body: new Uint8Array(encrypted),
+  });
+
+  if (response.status === 412) {
+    // Someone wrote first. Hand back their content in the same turn so the agent
+    // can merge and retry immediately instead of guessing what changed.
+    const current = await fetchWorkspace(url);
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `Write rejected: the workspace moved to version ${current.version} while you were ` +
+            `working from version ${version}. Your content was NOT saved.\n\n` +
+            `Below is the current content. Merge your intended change into it, then call ` +
+            `vnsh_workspace_update again with base_version: ${current.version}.\n\n` +
+            `--- current version ${current.version} ---\n${current.plaintext.toString('utf-8')}`,
+        },
+      ],
+      isError: true,
+      metadata: { workspaceId: id, conflict: true, currentVersion: current.version },
+    };
+  }
+
+  if (response.status === 403) {
+    throw new Error('This URL does not grant write access to that workspace.');
+  }
+  if (!response.ok) {
+    throw new Error(`Update failed: HTTP ${response.status} - ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { version: number; expires: string };
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Workspace updated to version ${data.version}. The URL is unchanged.\n` +
+          `Expires ${data.expires}.`,
+      },
+    ],
+    metadata: { workspaceId: id, version: data.version, expires: data.expires },
+  };
+}
+
+/**
+ * Handle vnsh_workspace_open tool call
+ * @internal Exported for testing
+ */
+export async function handleWorkspaceOpen(args: unknown) {
+  const { url } = WorkspaceUrlSchema.parse(args);
+  const { id, version, plaintext } = await fetchWorkspace(url);
+
+  const text = plaintext.toString('utf-8');
+  const looksHtml = /^\s*(<!doctype html|<html|<head|<body|<div|<style|<h1)/i.test(text);
+  const ext = looksHtml ? 'html' : 'txt';
+  const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
+  fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
+
+  // Rendering from file:// keeps user content off every vnsh origin, so a
+  // workspace can never script the site or read another workspace.
+  const opener =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  let opened = true;
+  try {
+    const { spawn } = await import('child_process');
+    spawn(opener, [filePath], { detached: true, stdio: 'ignore', shell: process.platform === 'win32' }).unref();
+  } catch {
+    opened = false;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          (opened
+            ? `Opened workspace ${id} (version ${version}) in the browser.\n`
+            : `Could not launch a browser automatically.\n`) +
+          `File: ${filePath}\n` +
+          `Rendered locally from file:// — the decrypted content never leaves this machine.`,
+      },
+    ],
+    metadata: { workspaceId: id, version, filePath, opened },
   };
 }
 

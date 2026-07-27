@@ -169,3 +169,104 @@ export function buildVnshUrl(host: string, id: string, key: Buffer, iv: Buffer):
   const secretBase64url = bufferToBase64url(secret);
   return `${host}/v/${id}#${secretBase64url}`;
 }
+
+// ---------------------------------------------------------------------------
+// Workspace crypto (v2) — AES-256-GCM with a random per-write nonce.
+//
+// A single root secret S lives only in the URL fragment. Everything else is
+// derived from it, so the server can verify writes without ever being able to
+// decrypt:
+//
+//   K = HKDF(S, "vnsh/enc/v2")     content key
+//   W = HKDF(S, "vnsh/write/v2")   write token, sent as 64 hex chars
+//   H = SHA-256(W)                 the only derived value the server stores
+//
+// GCM is used rather than CBC because workspace content is mutable: without an
+// authentication tag, anyone able to rewrite storage (including the host) could
+// flip ciphertext bits undetectably.
+//
+// The nonce is random per write and prepended to the ciphertext rather than
+// derived from a version number. Reusing a nonce under GCM leaks the
+// authentication key, not just plaintext — and a fresh random 96-bit nonce per
+// write makes reuse impossible without any version bookkeeping on the client.
+// ---------------------------------------------------------------------------
+
+import { createHash, hkdfSync } from 'crypto';
+
+const GCM_NONCE_BYTES = 12;
+const GCM_TAG_BYTES = 16;
+
+export function generateRootSecret(): Buffer {
+  return randomBytes(32);
+}
+
+function derive(secret: Buffer, info: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), Buffer.from(info, 'utf-8'), 32));
+}
+
+export interface WorkspaceKeys {
+  /** AES-256-GCM content key. */
+  key: Buffer;
+  /** Write token, as the 64 hex chars sent in X-Vnsh-Write. */
+  writeToken: string;
+  /** SHA-256 of the write token — what the server stores and compares. */
+  writeHash: string;
+}
+
+export function deriveWorkspaceKeys(secret: Buffer): WorkspaceKeys {
+  const key = derive(secret, 'vnsh/enc/v2');
+  const writeToken = derive(secret, 'vnsh/write/v2').toString('hex');
+  // Must hash the hex *string*, matching the worker's
+  // sha256Hex(header) which encodes the header text as UTF-8.
+  const writeHash = createHash('sha256').update(writeToken, 'utf-8').digest('hex');
+  return { key, writeToken, writeHash };
+}
+
+/** Encrypt to `nonce ‖ ciphertext ‖ tag`. */
+export function encryptWorkspace(plaintext: string | Buffer, key: Buffer): Buffer {
+  const nonce = randomBytes(GCM_NONCE_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  const input = typeof plaintext === 'string' ? Buffer.from(plaintext, 'utf-8') : plaintext;
+  const ciphertext = Buffer.concat([cipher.update(input), cipher.final()]);
+  return Buffer.concat([nonce, ciphertext, cipher.getAuthTag()]);
+}
+
+/** Decrypt `nonce ‖ ciphertext ‖ tag`. Throws if the tag does not verify. */
+export function decryptWorkspace(payload: Buffer, key: Buffer): Buffer {
+  if (payload.length < GCM_NONCE_BYTES + GCM_TAG_BYTES) {
+    throw new Error('Workspace payload is too short to be valid');
+  }
+  const nonce = payload.subarray(0, GCM_NONCE_BYTES);
+  const tag = payload.subarray(payload.length - GCM_TAG_BYTES);
+  const ciphertext = payload.subarray(GCM_NONCE_BYTES, payload.length - GCM_TAG_BYTES);
+
+  const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+/** `https://host/w/{id}#w={base64url(S)}` */
+export function buildWorkspaceUrl(host: string, id: string, secret: Buffer): string {
+  return `${host}/w/${id}#w=${bufferToBase64url(secret)}`;
+}
+
+export function parseWorkspaceUrl(url: string): { host: string; id: string; secret: Buffer } {
+  const [urlPart, fragment] = url.split('#');
+  if (!fragment) {
+    throw new Error('Invalid workspace URL: missing #w= fragment');
+  }
+
+  const urlObj = new URL(urlPart);
+  const pathMatch = urlObj.pathname.match(/^\/w\/([0-9A-Za-z]{12})$/);
+  if (!pathMatch) {
+    throw new Error('Invalid workspace URL: expected a /w/{id} path');
+  }
+
+  const encoded = fragment.startsWith('w=') ? fragment.slice(2) : fragment;
+  const secret = base64urlToBuffer(encoded);
+  if (secret.length !== 32) {
+    throw new Error(`Invalid workspace URL: secret must be 32 bytes (got ${secret.length})`);
+  }
+
+  return { host: urlObj.origin, id: pathMatch[1], secret };
+}

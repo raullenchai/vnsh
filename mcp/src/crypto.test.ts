@@ -12,7 +12,14 @@ import {
   bufferToHex,
   parseVnshUrl,
   buildVnshUrl,
+  generateRootSecret,
+  deriveWorkspaceKeys,
+  encryptWorkspace,
+  decryptWorkspace,
+  buildWorkspaceUrl,
+  parseWorkspaceUrl,
 } from './crypto.js';
+import { createHash } from 'crypto';
 
 describe('generateKey', () => {
   it('generates a 32-byte key', () => {
@@ -234,5 +241,89 @@ describe('OpenSSL compatibility', () => {
     expect(ciphertext.length).toBeGreaterThanOrEqual(16);
     // The ciphertext length should be a multiple of 16 (AES block size)
     expect(ciphertext.length % 16).toBe(0);
+  });
+});
+
+describe('workspace crypto (v2)', () => {
+  it('round-trips content through AES-256-GCM', () => {
+    const secret = generateRootSecret();
+    const { key } = deriveWorkspaceKeys(secret);
+    const plaintext = 'multi-agent workspace content 中文 🔑';
+
+    const payload = encryptWorkspace(plaintext, key);
+    expect(decryptWorkspace(payload, key).toString('utf-8')).toBe(plaintext);
+  });
+
+  it('derives deterministically from the root secret', () => {
+    const secret = generateRootSecret();
+    const a = deriveWorkspaceKeys(secret);
+    const b = deriveWorkspaceKeys(secret);
+
+    expect(a.key.toString('hex')).toBe(b.key.toString('hex'));
+    expect(a.writeToken).toBe(b.writeToken);
+    expect(a.writeHash).toBe(b.writeHash);
+  });
+
+  it('keeps the content key and write token independent', () => {
+    const { key, writeToken } = deriveWorkspaceKeys(generateRootSecret());
+    expect(key.toString('hex')).not.toBe(writeToken);
+  });
+
+  it('computes writeHash the way the worker does: SHA-256 over the hex string', () => {
+    const { writeToken, writeHash } = deriveWorkspaceKeys(generateRootSecret());
+    // The worker runs sha256Hex(header), which UTF-8 encodes the header text.
+    // Hashing the raw bytes instead would silently break every write.
+    const expected = createHash('sha256').update(writeToken, 'utf-8').digest('hex');
+    expect(writeHash).toBe(expected);
+    expect(writeToken).toMatch(/^[a-f0-9]{64}$/);
+    expect(writeHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('uses a fresh nonce per write, so identical plaintext yields different bytes', () => {
+    const { key } = deriveWorkspaceKeys(generateRootSecret());
+    const a = encryptWorkspace('same', key);
+    const b = encryptWorkspace('same', key);
+
+    expect(a.subarray(0, 12).toString('hex')).not.toBe(b.subarray(0, 12).toString('hex'));
+    expect(a.toString('hex')).not.toBe(b.toString('hex'));
+  });
+
+  it('rejects tampered ciphertext', () => {
+    const { key } = deriveWorkspaceKeys(generateRootSecret());
+    const payload = encryptWorkspace('trusted content', key);
+    payload[payload.length - 20] ^= 0xff; // flip a bit inside the ciphertext
+
+    expect(() => decryptWorkspace(payload, key)).toThrow();
+  });
+
+  it('rejects the wrong key', () => {
+    const payload = encryptWorkspace('secret', deriveWorkspaceKeys(generateRootSecret()).key);
+    const other = deriveWorkspaceKeys(generateRootSecret()).key;
+
+    expect(() => decryptWorkspace(payload, other)).toThrow();
+  });
+
+  it('rejects a truncated payload', () => {
+    const { key } = deriveWorkspaceKeys(generateRootSecret());
+    expect(() => decryptWorkspace(Buffer.alloc(8), key)).toThrow(/too short/);
+  });
+
+  it('round-trips a workspace URL', () => {
+    const secret = generateRootSecret();
+    const url = buildWorkspaceUrl('https://vnsh.dev', 'aBcDeFgHiJkL', secret);
+
+    expect(url).toMatch(/^https:\/\/vnsh\.dev\/w\/aBcDeFgHiJkL#w=[A-Za-z0-9_-]+$/);
+
+    const parsed = parseWorkspaceUrl(url);
+    expect(parsed.host).toBe('https://vnsh.dev');
+    expect(parsed.id).toBe('aBcDeFgHiJkL');
+    expect(parsed.secret.toString('hex')).toBe(secret.toString('hex'));
+  });
+
+  it('rejects malformed workspace URLs', () => {
+    const secret = generateRootSecret().toString('base64url');
+    expect(() => parseWorkspaceUrl('https://vnsh.dev/w/aBcDeFgHiJkL')).toThrow(/fragment/);
+    expect(() => parseWorkspaceUrl(`https://vnsh.dev/v/aBcDeFgHiJkL#w=${secret}`)).toThrow(/\/w\//);
+    expect(() => parseWorkspaceUrl('https://vnsh.dev/w/aBcDeFgHiJkL#w=c2hvcnQ')).toThrow(/32 bytes/);
   });
 });
