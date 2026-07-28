@@ -83,7 +83,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Write, X-Vnsh-Write-Hash',
+    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
   'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires',
@@ -260,19 +260,45 @@ type TrackedEvent =
   | 'read'
   | 'workspace_create'
   | 'workspace_read'
-  | 'workspace_update';
+  | 'workspace_update'
+  // Client-side-only conversions. These produce no other request, so the page
+  // reports them explicitly via POST /api/event.
+  | 'page_view'
+  | 'prompt_copy';
+
+// Events a page is allowed to report for itself. Everything else is inferred
+// from a real request, and must not be forgeable through the beacon.
+const BEACON_EVENTS: readonly TrackedEvent[] = ['page_view', 'prompt_copy'];
+
+// Where the visitor came from, for the reader -> creator funnel. 'w' means they
+// arrived from someone else's workspace page, which is the whole growth loop:
+// the link is the advertisement. Without this dimension a create from a reader
+// and a create from a cold visitor are indistinguishable.
+const REFERRERS = ['w', 'home', 'direct'] as const;
+
+function getClientRef(value: string | null): string {
+  const ref = (value || '').toLowerCase();
+  return (REFERRERS as readonly string[]).includes(ref) ? ref : 'direct';
+}
+
+interface EventDimensions {
+  workspaceId?: string;
+  agent?: string;
+  ref?: string;
+}
 
 function trackEvent(
   env: Env,
   event: TrackedEvent,
   source: string,
-  workspaceId?: string,
-  agent?: string,
+  dims: EventDimensions = {},
 ): void {
   if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
   try {
+    // Fixed slot layout so blob positions stay stable as dimensions are added:
+    // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer.
     env.VNSH_ANALYTICS.writeDataPoint({
-      blobs: workspaceId ? [event, source, workspaceId, agent || 'unknown'] : [event, source],
+      blobs: [event, source, dims.workspaceId || '', dims.agent || '', dims.ref || ''],
       doubles: [1],
       indexes: [event],
     });
@@ -280,6 +306,26 @@ function trackEvent(
     // Best-effort analytics: never let metrics affect the response.
     console.error('Analytics write failed:', err);
   }
+}
+
+/**
+ * POST /api/event — the page reporting a conversion it alone can observe.
+ *
+ * Deliberately minimal: an event name from a fixed whitelist and a referrer
+ * bucket, nothing identifying. Always answers 204, even on garbage input, so a
+ * measurement problem can never surface as a user-visible error.
+ */
+async function handleEvent(request: Request, env: Env): Promise<Response> {
+  const noContent = new Response(null, { status: 204, headers: corsHeaders });
+  try {
+    const body = (await request.json()) as { event?: string; ref?: string };
+    const event = body?.event as TrackedEvent;
+    if (!BEACON_EVENTS.includes(event)) return noContent;
+    trackEvent(env, event, getClientSource(request), { ref: getClientRef(body?.ref ?? null) });
+  } catch {
+    // Malformed body: count nothing, tell the caller nothing.
+  }
+  return noContent;
 }
 
 // Handle CORS preflight
@@ -610,7 +656,11 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     return errorResponse('STORAGE_ERROR', 'Failed to create workspace', 500);
   }
 
-  trackEvent(env, 'workspace_create', getClientSource(request), id, getClientAgent(request));
+  trackEvent(env, 'workspace_create', getClientSource(request), {
+    workspaceId: id,
+    agent: getClientAgent(request),
+    ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
+  });
 
   return new Response(JSON.stringify({ id, version: 1, expires: iso }), {
     status: 201,
@@ -639,7 +689,10 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
   }
 
-  trackEvent(env, 'workspace_read', getClientSource(request), id, getClientAgent(request));
+  trackEvent(env, 'workspace_read', getClientSource(request), {
+    workspaceId: id,
+    agent: getClientAgent(request),
+  });
 
   return new Response(object.body, {
     status: 200,
@@ -752,7 +805,10 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     return errorResponse('STORAGE_ERROR', 'Failed to update workspace', 500);
   }
 
-  trackEvent(env, 'workspace_update', getClientSource(request), id, getClientAgent(request));
+  trackEvent(env, 'workspace_update', getClientSource(request), {
+    workspaceId: id,
+    agent: getClientAgent(request),
+  });
 
   return new Response(
     JSON.stringify({ id, version: parseInt(nextVersion, 10), expires: iso }),
@@ -843,7 +899,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <span class="brand"><a href="https://vnsh.dev">vnsh</a></span>
+  <span class="brand"><a href="https://vnsh.dev/?ref=w">vnsh</a></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
   <span class="share-wrap">
@@ -1157,9 +1213,26 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   // the thing working, sent by someone they trust. Hand them the same one-liner
   // rather than sending them to the homepage to start over.
   var SETUP_PROMPT = ${JSON.stringify(AGENT_SETUP_PROMPT)};
+
+  // Reading someone else's workspace is the top of the growth loop, and copying
+  // the prompt is the only conversion on this page that leaves no other trace.
+  // Report both, or the loop stays unmeasurable. Never let it throw.
+  function report(event) {
+    try {
+      fetch('/api/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Vnsh-Client': 'web' },
+        body: JSON.stringify({ event: event, ref: 'w' }),
+        keepalive: true,
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  report('page_view');
+
   var cta = document.getElementById('get-vnsh');
   if (cta) {
     cta.onclick = function () {
+      report('prompt_copy');
       var done = function () {
         cta.textContent = 'Prompt copied \u2014 paste it into your agent';
         setTimeout(function () { cta.textContent = 'Get this in your own agent \u2192'; }, 3000);
@@ -1275,6 +1348,16 @@ export default {
         return handleWorkspaceCreate(request, env);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to create a workspace', 405);
+    }
+
+    // Route: POST /api/event - page-reported conversions (see handleEvent)
+    if (path === '/api/event') {
+      if (request.method === 'POST') {
+        const ip = getClientIp(request);
+        if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
+        return handleEvent(request, env);
+      }
+      return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to report an event', 405);
     }
 
     // Route: GET/PUT /api/workspace/:id
