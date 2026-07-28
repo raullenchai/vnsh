@@ -227,3 +227,16 @@ describe('GET /w/:id landing page', () => {
     expect(html).not.toContain('<script');
   });
 });
+
+describe('landing page copy', () => {
+  it('does not advertise commands that do not exist', async () => {
+    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
+    const html = await response.text();
+    // `vnsh workspace read` was in the first draft of this page but was never
+    // implemented in the npm CLI — dogfooding caught the page telling users to
+    // run a command that errors out.
+    expect(html).not.toContain('vnsh workspace read');
+    // It should point at something that actually ships.
+    expect(html).toContain('vnsh_workspace_read');
+  });
+});

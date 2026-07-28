@@ -715,8 +715,12 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     one link. The decryption key is in this URL's <code>#</code> fragment, which
     browsers never send to the server &mdash; so vnsh cannot read this workspace.
   </p>
-  <p>Open it with an agent that has the vnsh MCP server, or from a terminal:</p>
-  <pre><span class="k">npx vnsh workspace read</span> "&lt;this full URL&gt;"</pre>
+  <p>
+    Reading it needs a client that can decrypt locally. Today that means an agent
+    with the vnsh MCP server configured &mdash; ask it to open this link, and it will
+    call <code>vnsh_workspace_read</code> or <code>vnsh_workspace_open</code>.
+  </p>
+  <pre><span class="k">claude mcp add vnsh</span> -- npx -y vnsh-mcp</pre>
   <p>
     <small>
       Content is not rendered on this page on purpose: running a workspace's own HTML
