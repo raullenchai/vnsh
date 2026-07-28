@@ -3570,6 +3570,21 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     /* Upload Panel (Web) */
+    .mode-switch { display: grid; gap: 8px; margin-bottom: 1rem; }
+    @media (min-width: 640px) { .mode-switch { grid-template-columns: 1fr 1fr; } }
+    .mode { text-align: left; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; cursor: pointer; font: inherit; color: var(--fg-muted);
+      transition: border-color .15s, background .15s; }
+    .mode:hover { border-color: var(--accent); }
+    .mode.active { border-color: var(--accent); background: rgba(34,197,94,0.06); }
+    .mode-t { display: block; font-weight: 600; color: var(--fg); font-size: 0.9rem; }
+    .mode.active .mode-t { color: var(--accent); }
+    .mode-d { display: block; font-size: 0.76rem; margin-top: 3px; line-height: 1.45; }
+    .result-view { display: none; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+    .result-view.show { display: block; }
+    .result-view-label { font-size: 0.76rem; color: var(--fg-muted); margin-bottom: 5px; }
+    .result-view-url { font-family: monospace; font-size: 0.72rem; color: var(--fg-muted);
+      word-break: break-all; margin-bottom: 8px; }
     .dropzone {
       border: 2px dashed var(--border);
       border-radius: 6px;
@@ -4368,10 +4383,10 @@ const APP_HTML = `<!DOCTYPE html>
       <span class="prompt">></span> vnsh: portable workspaces for AI agents<span class="cursor"></span>
     </h1>
     <p class="hero-subtitle">
-      <span class="dim">Stop pasting walls of text.</span> <span class="bright">Pipe it. Share it. Vaporize it.</span>
+      <span class="dim">One link your agents can all read and write.</span> <span class="bright">Encrypted here, gone in 24h.</span>
     </p>
     <div class="security-badge">
-      <span>🔒</span> AES-256 encrypted · Server never sees your data · Auto-vaporizes in 24h
+      <span>🔒</span> Encrypted in your browser · vnsh can't read it · Gone 24h after the last edit
     </div>
     <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="github-star-btn">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -4382,7 +4397,7 @@ const APP_HTML = `<!DOCTYPE html>
   <!-- Console with Tabs -->
   <div class="console">
     <div class="tabs">
-      <button class="tab active" data-tab="web">Web Upload</button>
+      <button class="tab active" data-tab="web">Create</button>
       <button class="tab" data-tab="terminal">Terminal (CLI)</button>
       <button class="tab" data-tab="agent">Agent (MCP)</button>
       <button class="tab" data-tab="extension">Extension</button>
@@ -4390,6 +4405,16 @@ const APP_HTML = `<!DOCTYPE html>
 
     <!-- Web Upload Panel -->
     <div class="tab-panel active" id="panel-web">
+      <div class="mode-switch">
+        <button class="mode active" data-mode="workspace">
+          <span class="mode-t">Workspace</span>
+          <span class="mode-d">Your agents can read and write it. The link stays the same as it changes.</span>
+        </button>
+        <button class="mode" data-mode="drop">
+          <span class="mode-t">One-shot drop</span>
+          <span class="mode-d">A link to something fixed. Nobody can change it.</span>
+        </button>
+      </div>
       <div class="dropzone" id="dropzone">
         <div class="dropzone-icon">┌──────────┐
 │    ↓↓    │
@@ -4419,8 +4444,13 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
         <div class="result-actions">
           <button class="btn btn-primary" onclick="copyUrl()">Copy URL</button>
-          <button class="btn" onclick="copyForClaude()" data-tooltip="Copy URL with markdown instruction for Claude">For Claude</button>
+          <button class="btn" onclick="copyForClaude()" data-tooltip="Copy the link with a note telling the agent to read it">For agent</button>
           <button class="btn" onclick="openViewer()">Preview</button>
+        </div>
+        <div class="result-view" id="result-view">
+          <div class="result-view-label">View-only link &mdash; they can read it, not change it</div>
+          <div class="result-view-url" id="result-view-url"></div>
+          <button class="btn" onclick="copyViewOnly()">Copy view-only link</button>
         </div>
       </div>
     </div>
@@ -4466,10 +4496,17 @@ const APP_HTML = `<!DOCTYPE html>
     <!-- Agent Panel -->
     <div class="tab-panel" id="panel-agent">
       <div class="mcp-section">
-        <div class="section-label" style="margin-bottom: 0.5rem;">// Agent (MCP) — Let Claude Read vnsh Links</div>
-        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.5;">
-          <strong style="color: var(--fg);">Model Context Protocol</strong> lets Claude decrypt vnsh links directly. Share the URL — Claude reads it locally.
+        <div class="section-label" style="margin-bottom: 0.5rem;">// Agent (MCP) — one workspace, every agent</div>
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.8rem; line-height: 1.5;">
+          <strong style="color: var(--fg);">Model Context Protocol</strong> is spoken by Claude Code, Cursor, OpenHands and others.
+          Install once and any of them can read <em style="color: var(--fg);">and write</em> the same workspace &mdash; the link never changes as the document does.
         </p>
+        <div style="font-size: 0.74rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.9;">
+          <div><code style="color: var(--accent);">vnsh_workspace_create</code> &nbsp;open one, get an edit link and a view-only link</div>
+          <div><code style="color: var(--accent);">vnsh_workspace_read</code> &nbsp;&nbsp;&nbsp;pick up what the last agent left</div>
+          <div><code style="color: var(--accent);">vnsh_workspace_update</code> &nbsp;write a new version; conflicts hand back the current text to merge</div>
+          <div><code style="color: var(--accent);">vnsh_workspace_open</code> &nbsp;&nbsp;&nbsp;render it locally, sandboxed</div>
+        </div>
 
         <div class="code-block" id="mcp-box" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)" style="margin-bottom: 0.4rem;">
           <code><span class="prompt">$ </span>curl -sL vnsh.dev/claude | sh</code>
@@ -4763,12 +4800,101 @@ const APP_HTML = `<!DOCTYPE html>
       await upload(new Uint8Array(await file.arrayBuffer()));
     }
 
+    let shareMode = 'workspace';
+    let viewOnlyUrl = '';
+
+    document.querySelectorAll('.mode').forEach(function (b) {
+      b.addEventListener('click', function () {
+        document.querySelectorAll('.mode').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        shareMode = b.dataset.mode;
+        resultEl.classList.remove('show');
+      });
+    });
+
+    // Same key schedule as the viewer and the MCP server:
+    //   K = HKDF(S,"vnsh/enc/v2")   W = HKDF(S,"vnsh/write/v2")   H = SHA-256(W)
+    // The server only ever receives H, so it can authorise a write without being
+    // able to decrypt; the view-only link is just K, a one-way derivation that can
+    // never be turned back into write access.
+    async function hkdf32(secret, info) {
+      const ikm = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+      return new Uint8Array(await crypto.subtle.deriveBits(
+        { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0),
+          info: new TextEncoder().encode(info) }, ikm, 256));
+    }
+    function toHex(bytes) {
+      return Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+    async function sha256HexOf(text) {
+      const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return toHex(new Uint8Array(d));
+    }
+
+    async function createWorkspace(plaintext) {
+      progressText.textContent = '> Deriving keys...';
+      progressFill.style.width = '15%';
+      const S = crypto.getRandomValues(new Uint8Array(32));
+      const K = await hkdf32(S, 'vnsh/enc/v2');
+      const W = toHex(await hkdf32(S, 'vnsh/write/v2'));
+      const H = await sha256HexOf(W);
+
+      progressText.textContent = '> Encrypting (AES-256-GCM)...';
+      progressFill.style.width = '40%';
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const aes = await crypto.subtle.importKey('raw', K, { name: 'AES-GCM' }, false, ['encrypt']);
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, plaintext));
+      const payload = new Uint8Array(nonce.length + ct.length);
+      payload.set(nonce, 0); payload.set(ct, nonce.length);
+
+      progressText.textContent = '> Creating workspace...';
+      progressFill.style.width = '70%';
+      const res = await fetch('/api/workspace', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'X-Vnsh-Client': 'web/1.0',
+          'X-Vnsh-Write-Hash': H,
+        },
+        body: payload,
+      });
+      if (!res.ok) throw new Error('Create failed: ' + res.status);
+      const data = await res.json();
+      return {
+        edit: location.origin + '/w/' + data.id + '#w=' + bytesToBase64url(S),
+        view: location.origin + '/w/' + data.id + '#r=' + bytesToBase64url(K),
+      };
+    }
+
     async function upload(plaintext) {
       document.title = 'Encrypting...';
       progressEl.classList.add('show');
       resultEl.classList.remove('show');
 
       try {
+        if (shareMode === 'workspace') {
+          const links = await createWorkspace(plaintext);
+          generatedUrl = links.edit;
+          viewOnlyUrl = links.view;
+          progressFill.style.width = '100%';
+          progressText.textContent = '> Done!';
+          await sleep(300);
+          progressEl.classList.remove('show');
+          resultEl.classList.add('show');
+          document.querySelector('.result-header').textContent = '\u2713 Workspace ready';
+          document.querySelector('.result-expiry').textContent =
+            '\uD83D\uDD25 Gone 24h after the last edit \u00b7 every write renews it';
+          resultUrlShort.textContent = truncateUrl(generatedUrl);
+          resultUrlFull.textContent = generatedUrl;
+          document.getElementById('result-view-url').textContent = viewOnlyUrl;
+          document.getElementById('result-view').classList.add('show');
+          document.title = '\u2713 vnsh';
+          resultEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        document.getElementById('result-view').classList.remove('show');
+        document.querySelector('.result-header').textContent = '\u2713 Secure Link Ready';
+        document.querySelector('.result-expiry').textContent = '\uD83D\uDD25 Expires in 24 hours';
         progressText.textContent = '> Generating key...';
         progressFill.style.width = '10%';
         await sleep(100);
@@ -4834,6 +4960,9 @@ const APP_HTML = `<!DOCTYPE html>
       }
     }
 
+    function copyViewOnly() {
+      navigator.clipboard.writeText(viewOnlyUrl).then(function () { showToast('View-only link copied'); });
+    }
     function copyUrl() {
       navigator.clipboard.writeText(generatedUrl).then(() => {
         showToast('URL copied to clipboard!');

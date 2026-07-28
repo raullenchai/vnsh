@@ -394,3 +394,23 @@ describe('agent attribution', () => {
     await response.arrayBuffer();
   });
 });
+
+describe('homepage', () => {
+  it('can create a workspace, not just an immutable drop', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // The site was repositioned around workspaces while its only control still
+    // produced a one-shot blob — it could not do the thing it claimed to be for.
+    expect(html).toContain('/api/workspace');
+    expect(html).toContain('vnsh/enc/v2');
+    expect(html).toContain('AES-GCM');
+    expect(html).toContain("data-mode=\"workspace\"");
+  });
+
+  it('keeps one-shot file sharing available', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    expect(html).toContain("data-mode=\"drop\"");
+    expect(html).toContain('/api/drop');
+    expect(html).toContain('id="dropzone"');
+  });
+});
