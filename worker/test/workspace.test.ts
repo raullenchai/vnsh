@@ -215,28 +215,98 @@ describe('Workspaces', () => {
   });
 });
 
-describe('GET /w/:id landing page', () => {
-  it('serves a page instead of 404 so the URL is not a dead end', async () => {
+describe('GET /w/:id viewer', () => {
+  it('serves the viewer page', async () => {
     const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
     expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
     const html = await response.text();
     expect(html).toContain('vnsh workspace');
-    // Phase 0 must not render workspace content on the vnsh origin — user HTML
-    // there could read the key out of location.hash.
+  });
+
+  it('renders workspace content only inside a sandboxed frame', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    // allow-same-origin alongside allow-scripts would defeat the sandbox entirely:
+    // the frame could then read parent.location.hash, which is the key.
+    expect(html).toContain("setAttribute('sandbox', 'allow-scripts')");
+    expect(html).not.toContain('allow-same-origin allow-scripts');
+    expect(html).not.toContain('allow-scripts allow-same-origin');
+
+    // Decrypted content must never be written into this document.
+    expect(html).not.toMatch(/innerHTML\s*=\s*plaintext/);
+  });
+
+  it('injects a network-blocking CSP into the framed content', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    // Without default-src 'none' the content could fetch the plaintext back out
+    // to an attacker, which would break the host-blind guarantee from the inside.
     expect(html).toContain("default-src 'none'");
-    expect(html).not.toContain('<script');
+    expect(html).toContain("form-action 'none'");
+  });
+
+  it('places the CSP by parsing the document, not by pattern-matching it', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    // The first version injected the policy after the first /<head[^>]*>/ match,
+    // so content containing an HTML comment holding a fake head tag swallowed the
+    // <meta> into that comment and silently disabled the whole policy. Verified
+    // exploitable in Chromium before this fix.
+    expect(html).toContain('DOMParser');
+    expect(html).toContain('doc.head.insertBefore');
+    expect(html).not.toContain('html.match(/<head');
+  });
+
+  it('does not advertise commands that do not exist', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    // An earlier draft told recipients to run `npx vnsh workspace read`, which the
+    // npm CLI has never implemented.
+    expect(html).not.toContain('vnsh workspace read');
   });
 });
 
-describe('landing page copy', () => {
-  it('does not advertise commands that do not exist', async () => {
-    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
-    const html = await response.text();
-    // `vnsh workspace read` was in the first draft of this page but was never
-    // implemented in the npm CLI — dogfooding caught the page telling users to
-    // run a command that errors out.
-    expect(html).not.toContain('vnsh workspace read');
-    // It should point at something that actually ships.
-    expect(html).toContain('vnsh_workspace_read');
+describe('body size limits', () => {
+  // Content-Length is caller-supplied. Enforcing only on the header let a client
+  // omit or understate it and stream past the 25MB ceiling straight into R2.
+  function chunked(bytes: number): ReadableStream<Uint8Array> {
+    let sent = 0;
+    return new ReadableStream({
+      pull(controller) {
+        if (sent >= bytes) return controller.close();
+        const size = Math.min(1024 * 1024, bytes - sent);
+        controller.enqueue(new Uint8Array(size));
+        sent += size;
+      },
+    });
+  }
+
+  it('rejects an oversized body that declares no Content-Length', async () => {
+    const response = await call(
+      new Request('http://localhost/api/workspace', {
+        method: 'POST',
+        headers: { 'X-Vnsh-Write-Hash': await sha256Hex(WRITE_TOKEN) },
+        body: chunked(26 * 1024 * 1024),
+      } as RequestInit),
+    );
+    expect(response.status).toBe(413);
+    await response.arrayBuffer();
+  });
+
+  it('rejects an oversized update and leaves the workspace untouched', async () => {
+    const { id } = await createWorkspace('original');
+
+    const response = await call(
+      new Request(`http://localhost/api/workspace/${id}`, {
+        method: 'PUT',
+        headers: { 'X-Vnsh-Write': WRITE_TOKEN, 'If-Match': '"1"' },
+        body: chunked(26 * 1024 * 1024),
+      } as RequestInit),
+    );
+    expect(response.status).toBe(413);
+    await response.arrayBuffer();
+
+    const read = await call(new Request(`http://localhost/api/workspace/${id}`));
+    expect(read.headers.get('ETag')).toBe('"1"');
+    expect(await read.text()).toBe('original');
   });
 });

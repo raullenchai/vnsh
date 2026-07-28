@@ -56,3 +56,8 @@ docs/screenshot.png
 
 # Growth tracking (internal)
 growth/
+
+# Review loop local state (per-developer, not shared)
+.claude/review-loop.local.md
+.claude/review-loop-run-codex.sh
+.claude/review-loop.lock

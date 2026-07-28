@@ -331,7 +331,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
         customMetadata.priceUSD = String(priceUSD);
       }
     }
-    await env.VNSH_STORE.put(id, body, { customMetadata });
+    await env.VNSH_STORE.put(id, await readCapped(body, MAX_BLOB_SIZE), { customMetadata });
 
     // Track upload analytics
     trackEvent(env, 'upload', getClientSource(request));
@@ -350,6 +350,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
       }
     );
   } catch (err) {
+    if (isTooLarge(err)) return tooLargeResponse();
     console.error('Failed to store blob:', err);
     return errorResponse('STORAGE_ERROR', 'Failed to store blob', 500);
   }
@@ -453,6 +454,51 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
 // can be added later without changing the URL format.
 // ---------------------------------------------------------------------------
 
+// Content-Length is supplied by the caller and can be omitted or understated, so
+// it can only ever be a fast reject — never the actual limit. Read the body with a
+// hard cap instead.
+//
+// This buffers rather than streaming into R2 because R2.put() requires a stream of
+// known length, and any stream we wrap to count bytes no longer has one. At a 25MB
+// ceiling against the 128MB isolate limit that trade is safe, and it is the only
+// way to bound a body whose declared length we cannot trust.
+async function readCapped(body: ReadableStream<Uint8Array>, max: number): Promise<Uint8Array> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > max) throw new Error('PAYLOAD_TOO_LARGE');
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function isTooLarge(err: unknown): boolean {
+  return err instanceof Error && err.message === 'PAYLOAD_TOO_LARGE';
+}
+
+function tooLargeResponse(): Response {
+  return errorResponse(
+    'PAYLOAD_TOO_LARGE',
+    `Maximum size is ${MAX_BLOB_SIZE / 1024 / 1024}MB`,
+    413,
+  );
+}
+
 const WORKSPACE_PREFIX = 'w/';
 
 function isValidWorkspaceId(id: string): boolean {
@@ -518,7 +564,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
 
   const { iso } = workspaceExpiry();
   try {
-    await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, body, {
+    await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, await readCapped(body, MAX_BLOB_SIZE), {
       customMetadata: {
         writeHash,
         version: '1',
@@ -527,6 +573,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
       },
     });
   } catch (err) {
+    if (isTooLarge(err)) return tooLargeResponse();
     console.error('Failed to create workspace:', err);
     return errorResponse('STORAGE_ERROR', 'Failed to create workspace', 500);
   }
@@ -649,7 +696,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   try {
     // etagMatches makes this a genuine compare-and-swap: two agents that both read
     // version 7 cannot both land a version 8.
-    const written = await env.VNSH_STORE.put(key, body, {
+    const written = await env.VNSH_STORE.put(key, await readCapped(body, MAX_BLOB_SIZE), {
       onlyIf: { etagMatches: head.etag },
       customMetadata: {
         writeHash: expectedHash,
@@ -668,6 +715,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
       );
     }
   } catch (err) {
+    if (isTooLarge(err)) return tooLargeResponse();
     console.error('Failed to update workspace:', err);
     return errorResponse('STORAGE_ERROR', 'Failed to update workspace', 500);
   }
@@ -692,43 +740,247 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>vnsh workspace</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src data:; img-src data:">
 <style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-    background:#0d1117;color:#c9d1d9;font:15px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;padding:24px}
-  main{max-width:34rem}
-  h1{font-size:1.25rem;margin:0 0 .6em;color:#e6edf3;font-weight:600}
-  p{margin:0 0 1em;color:#9da7b3}
-  code{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.86em;background:#161b22;
-    border:1px solid #21262d;border-radius:5px;padding:.15em .45em;color:#e6edf3;display:inline-block}
-  pre{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px 16px;overflow-x:auto;
-    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.82rem;color:#adbac7;margin:0 0 1em}
-  .k{color:#7ee787}
-  small{color:#6e7681;font-size:.82rem}
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#21262d;
+    --ink:#e6edf3; --ink-2:#9da7b3; --ink-3:#6e7681;
+    --accent:#d29922; --accent-soft:#2b2113;
+    --ok:#3fb950;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',system-ui,sans-serif}
+  header{flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel);
+    padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .brand{font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+  .brand a{color:inherit;text-decoration:none}
+  .meta{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.72rem;color:var(--ink-3)}
+  .spacer{flex:1 1 auto}
+  .warn{display:flex;align-items:center;gap:.5em;font-size:.74rem;color:var(--accent);
+    background:var(--accent-soft);border:1px solid #3d2f16;border-radius:5px;padding:.25em .6em;
+    font-family:ui-monospace,'SF Mono',Menlo,monospace}
+  button{font:inherit;font-size:.78rem;background:#21262d;color:var(--ink);border:1px solid #30363d;
+    border-radius:5px;padding:.32em .7em;cursor:pointer}
+  button:hover{background:#30363d}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  main{flex:1 1 auto;position:relative;min-height:0}
+  iframe{width:100%;height:100%;border:0;background:#fff;display:block}
+  #status{padding:40px 20px;text-align:center;color:var(--ink-2);font-size:.9rem}
+  #status b{color:var(--ink);display:block;margin-bottom:.4em;font-size:1rem}
+  #text{margin:0;padding:18px 20px;white-space:pre-wrap;word-break:break-word;overflow:auto;height:100%;
+    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.8rem;color:var(--ink-2)}
+  code{font-family:ui-monospace,'SF Mono',Menlo,monospace;background:#21262d;border:1px solid var(--line);
+    border-radius:4px;padding:.1em .35em;font-size:.86em}
+  a{color:var(--accent)}
 </style>
 </head>
 <body>
+<header>
+  <span class="brand"><a href="https://vnsh.dev">vnsh</a></span>
+  <span class="meta" id="meta"></span>
+  <span class="spacer"></span>
+  <span class="warn" title="This content was written by whoever created the link, not by vnsh.">untrusted content</span>
+  <button id="dl" hidden>Download</button>
+  <button id="raw" hidden>View source</button>
+</header>
 <main>
-  <h1>This is a vnsh workspace</h1>
-  <p>
-    A shared, encrypted document that several AI agents can read and write through
-    one link. The decryption key is in this URL's <code>#</code> fragment, which
-    browsers never send to the server &mdash; so vnsh cannot read this workspace.
-  </p>
-  <p>
-    Reading it needs a client that can decrypt locally. Today that means an agent
-    with the vnsh MCP server configured &mdash; ask it to open this link, and it will
-    call <code>vnsh_workspace_read</code> or <code>vnsh_workspace_open</code>.
-  </p>
-  <pre><span class="k">claude mcp add vnsh</span> -- npx -y vnsh-mcp</pre>
-  <p>
-    <small>
-      Content is not rendered on this page on purpose: running a workspace's own HTML
-      here would let it read the key out of the address bar. Agents render it locally instead.
-      Workspaces expire 24 hours after the last write.
-    </small>
-  </p>
+  <div id="status"><b>Decrypting…</b>The key never leaves your browser.</div>
 </main>
+
+<script>
+(function () {
+  var statusEl = document.getElementById('status');
+  var metaEl = document.getElementById('meta');
+  var mainEl = document.querySelector('main');
+  var plaintext = null, fileName = 'workspace', showingSource = false;
+
+  function fail(title, detail) {
+    statusEl.innerHTML = '<b></b>';
+    statusEl.firstChild.textContent = title;
+    statusEl.appendChild(document.createTextNode(detail || ''));
+  }
+
+  function b64urlToBytes(str) {
+    var b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    b64 += '==='.slice(0, (4 - b64.length % 4) % 4);
+    var bin = atob(b64), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  // Must match the clients' HKDF(sha256, S, salt="", info, 32).
+  async function deriveKey(secret) {
+    var ikm = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+    var bits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0),
+        info: new TextEncoder().encode('vnsh/enc/v2') }, ikm, 256);
+    return crypto.subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['decrypt']);
+  }
+
+  function looksLikeHtml(s) {
+    return /^\\s*(<!doctype html|<html|<head|<body|<div|<section|<main|<article|<style|<h1)/i.test(s);
+  }
+
+  // A CSP <meta> is only honoured inside <head>, and only if it is really in the
+  // head — an earlier regex version injected it after the first /<head[^>]*>/ it
+  // found, so content containing an HTML comment with a fake head tag swallowed
+  // the policy into that comment and disabled it. Parse the document instead of
+  // pattern-matching it.
+  var CSP_VALUE =
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
+    'img-src data: blob:; media-src data: blob:; font-src data:; ' +
+    "form-action 'none'; base-uri 'none'";
+
+  function harden(html) {
+    var doc = null;
+    try {
+      // text/html parsing never runs scripts, and it normalises head/body the same
+      // way the iframe itself would.
+      doc = new DOMParser().parseFromString(html, 'text/html');
+    } catch (e) { /* fall through */ }
+
+    if (!doc || !doc.head || !doc.documentElement) {
+      return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+             '<meta http-equiv="Content-Security-Policy" content="' + CSP_VALUE + '">' +
+             '</head><body></body></html>';
+    }
+
+    var meta = doc.createElement('meta');
+    meta.setAttribute('http-equiv', 'Content-Security-Policy');
+    meta.setAttribute('content', CSP_VALUE);
+    // First child of <head> so it is parsed before anything it must govern. A
+    // second, more permissive policy from the author cannot loosen this one:
+    // multiple policies are enforced as an intersection.
+    doc.head.insertBefore(meta, doc.head.firstChild);
+
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
+  function renderHtml(html) {
+    var frame = document.createElement('iframe');
+    // allow-scripts WITHOUT allow-same-origin: the frame gets a unique opaque
+    // origin, so it cannot reach parent.location.hash (the key), our storage, or
+    // any same-origin API. Combined with the injected CSP it also has no network.
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.setAttribute('title', 'Workspace content');
+    frame.srcdoc = harden(html);
+    mainEl.innerHTML = '';
+    mainEl.appendChild(frame);
+  }
+
+  function renderText(text) {
+    var pre = document.createElement('pre');
+    pre.id = 'text';
+    pre.textContent = text;
+    mainEl.innerHTML = '';
+    mainEl.appendChild(pre);
+  }
+
+  function render() {
+    if (!showingSource && looksLikeHtml(plaintext)) renderHtml(plaintext);
+    else renderText(plaintext);
+  }
+
+  async function main() {
+    var m = location.pathname.match(/^\\/w\\/([0-9A-Za-z]{12})$/);
+    if (!m) return fail('Not a workspace URL', '');
+    var id = m[1];
+
+    var frag = location.hash.replace(/^#/, '');
+    if (frag.indexOf('w=') === 0) frag = frag.slice(2);
+    if (!frag) {
+      return fail('This link is missing its key',
+        'The part after # was lost. Ask the sender for the full URL.');
+    }
+
+    var secret;
+    try {
+      secret = b64urlToBytes(frag);
+      if (secret.length !== 32) throw 0;
+    } catch (e) {
+      return fail('This link is malformed', 'The key after # is not valid.');
+    }
+
+    var res;
+    try {
+      res = await fetch('/api/workspace/' + id, { headers: { 'X-Vnsh-Client': 'web/1.0' } });
+    } catch (e) {
+      return fail('Could not reach vnsh', 'Check your connection and reload.');
+    }
+    if (res.status === 404 || res.status === 410) {
+      return fail('This workspace is gone',
+        'Workspaces are deleted 24 hours after their last update.');
+    }
+    if (!res.ok) return fail('Could not load this workspace', 'Server returned ' + res.status + '.');
+
+    var version = (res.headers.get('ETag') || '').replace(/"/g, '') || '1';
+    var expires = res.headers.get('X-Vnsh-Expires');
+    var payload = new Uint8Array(await res.arrayBuffer());
+    if (payload.length < 28) return fail('This workspace is empty', '');
+
+    try {
+      var key = await deriveKey(secret);
+      var buf = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: payload.slice(0, 12) }, key, payload.slice(12));
+      plaintext = new TextDecoder().decode(buf);
+    } catch (e) {
+      return fail('Could not decrypt this workspace',
+        'The key in the link does not match, or the content was altered.');
+    }
+
+    fileName = 'vnsh-' + id + '-v' + version + (looksLikeHtml(plaintext) ? '.html' : '.txt');
+    var when = expires ? new Date(expires) : null;
+    metaEl.textContent = id + ' · v' + version +
+      (when ? ' · expires ' + when.toLocaleString() : '');
+    document.title = 'vnsh workspace ' + id;
+
+    var dl = document.getElementById('dl'), raw = document.getElementById('raw');
+    dl.hidden = false;
+    dl.onclick = function () {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([plaintext], { type: 'application/octet-stream' }));
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    if (looksLikeHtml(plaintext)) {
+      raw.hidden = false;
+      raw.onclick = function () {
+        showingSource = !showingSource;
+        raw.textContent = showingSource ? 'View page' : 'View source';
+        render();
+      };
+    }
+
+    render();
+  }
+
+  function run() {
+    main().catch(function () { fail('Something went wrong', 'Try reloading the page.'); });
+  }
+
+  // Pasting a complete link over a truncated one only changes the fragment, which
+  // is a same-document navigation — without this the page would sit on the old
+  // "missing its key" error until the user thought to reload.
+  var lastHash = location.hash;
+  window.addEventListener('hashchange', function () {
+    if (location.hash === lastHash) return;
+    lastHash = location.hash;
+    plaintext = null; showingSource = false;
+    document.getElementById('dl').hidden = true;
+    document.getElementById('raw').hidden = true;
+    metaEl.textContent = '';
+    mainEl.innerHTML = '<div id="status"><b>Decrypting\u2026</b>The key never leaves your browser.</div>';
+    statusEl = document.getElementById('status');
+    run();
+  });
+
+  run();
+})();
+</script>
 </body>
 </html>`;
 

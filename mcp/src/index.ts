@@ -832,19 +832,27 @@ export async function handleWorkspaceOpen(args: unknown) {
   const { id, version, plaintext } = await fetchWorkspace(url);
 
   const text = plaintext.toString('utf-8');
-  const looksHtml = /^\s*(<!doctype html|<html|<head|<body|<div|<style|<h1)/i.test(text);
+  const looksHtml = /^\s*(<!doctype html|<html|<head|<body|<div|<section|<main|<article|<style|<h1)/i
+    .test(text);
   const ext = looksHtml ? 'html' : 'txt';
   const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
-  fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
 
-  // Rendering from file:// keeps user content off every vnsh origin, so a
-  // workspace can never script the site or read another workspace.
+  // Workspace content is untrusted — it came from whoever holds the link. Writing
+  // it straight to disk and opening it would run it as a file:// document, where
+  // scripts can fetch freely and would happily post the decrypted plaintext to an
+  // attacker. Wrap it in the same isolation the web viewer uses instead.
+  fs.writeFileSync(filePath, looksHtml ? sandboxHtml(text) : plaintext, { mode: 0o600 });
+
   const opener =
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   let opened = true;
   try {
     const { spawn } = await import('child_process');
-    spawn(opener, [filePath], { detached: true, stdio: 'ignore', shell: process.platform === 'win32' }).unref();
+    spawn(opener, [filePath], {
+      detached: true,
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    }).unref();
   } catch {
     opened = false;
   }
@@ -858,11 +866,83 @@ export async function handleWorkspaceOpen(args: unknown) {
             ? `Opened workspace ${id} (version ${version}) in the browser.\n`
             : `Could not launch a browser automatically.\n`) +
           `File: ${filePath}\n` +
-          `Rendered locally from file:// — the decrypted content never leaves this machine.`,
+          `Rendered locally — the decrypted content never leaves this machine, and it runs\n` +
+          `in a sandboxed frame with no network access so it cannot send itself anywhere.`,
       },
     ],
-    metadata: { workspaceId: id, version, filePath, opened },
+    metadata: { workspaceId: id, version, filePath, opened, sandboxed: looksHtml },
   };
+}
+
+/**
+ * Wrap untrusted HTML so opening it locally cannot leak the plaintext.
+ *
+ * The payload is base64-encoded rather than templated in, so no combination of
+ * `</script>` or quoting in the content can break out of the wrapper. The wrapper
+ * then hardens it with DOMParser — inserting the CSP into the real <head> rather
+ * than after the first `<head` match, which content can fake inside a comment —
+ * and hands it to an iframe with `allow-scripts` but deliberately without
+ * `allow-same-origin`, so the frame gets an opaque origin and cannot read the
+ * wrapper, its URL, or local storage.
+ */
+export function sandboxHtml(html: string): string {
+  const payload = Buffer.from(html, 'utf-8').toString('base64');
+  const csp =
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
+    'img-src data: blob:; media-src data: blob:; font-src data:; ' +
+    "form-action 'none'; base-uri 'none'";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vnsh workspace</title>
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;background:#0d1117;color:#e6edf3;
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',system-ui,sans-serif}
+  header{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:9px 14px;
+    background:#161b22;border-bottom:1px solid #21262d}
+  .b{font-weight:700}
+  .w{margin-left:auto;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.72rem;
+    color:#d29922;background:#2b2113;border:1px solid #3d2f16;border-radius:5px;padding:.25em .6em}
+  iframe{flex:1 1 auto;width:100%;border:0;background:#fff}
+</style>
+</head>
+<body>
+<header><span class="b">vnsh</span><span class="w">untrusted content &middot; no network</span></header>
+<script>
+(function () {
+  var CSP = ${JSON.stringify(csp)};
+  var raw = new TextDecoder().decode(
+    Uint8Array.from(atob(${JSON.stringify(payload)}), function (c) { return c.charCodeAt(0); }));
+
+  var doc = null;
+  try { doc = new DOMParser().parseFromString(raw, 'text/html'); } catch (e) {}
+  var out;
+  if (doc && doc.head && doc.documentElement) {
+    var m = doc.createElement('meta');
+    m.setAttribute('http-equiv', 'Content-Security-Policy');
+    m.setAttribute('content', CSP);
+    doc.head.insertBefore(m, doc.head.firstChild);
+    out = '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  } else {
+    out = '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="' +
+          CSP + '"></head><body></body></html>';
+  }
+
+  var f = document.createElement('iframe');
+  f.setAttribute('sandbox', 'allow-scripts');
+  f.setAttribute('referrerpolicy', 'no-referrer');
+  f.setAttribute('title', 'Workspace content');
+  f.srcdoc = out;
+  document.body.appendChild(f);
+})();
+</script>
+</body>
+</html>`;
 }
 
 // Start the server
