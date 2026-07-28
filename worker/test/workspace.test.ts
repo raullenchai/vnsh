@@ -450,7 +450,21 @@ describe('agent setup prompt', () => {
     // Installing a tool does not make an agent reach for it, so the setup
     // instructions have to include writing a standing rule somewhere durable.
     expect(llms).toContain('standing rule');
-    expect(llms).toContain('CLAUDE.md, .cursorrules');
+
+    // Naming the file is the part that matters: writing the rule is what makes
+    // vnsh a default rather than merely installed, so "whichever file you read"
+    // was close to no instruction at all. Verified by fetching this page as an
+    // agent — it asked where to put it until these paths were spelled out.
+    for (const path of [
+      '~/.claude/CLAUDE.md',
+      '.cursor/rules',
+      '.openhands/microagents',
+      '.clinerules',
+      '.windsurfrules',
+      'AGENTS.md',
+    ]) {
+      expect(llms).toContain(path);
+    }
     for (const agent of ['Cursor', 'OpenHands', 'Cline', 'Windsurf', 'Zed']) {
       expect(llms).toContain(agent);
     }
