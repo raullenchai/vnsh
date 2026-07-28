@@ -35,7 +35,8 @@ describe('vnsh API', () => {
       const html = await response.text();
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('vnsh');
-      expect(html).toContain('portable workspaces for AI agents');
+      // The headline has to name the object, not just the mechanism.
+      expect(html).toContain('One workspace all your agents can read and write.');
     });
   });
 

@@ -3560,7 +3560,7 @@ const APP_HTML = `<!DOCTYPE html>
       "priceCurrency": "USD"
     },
     "featureList": [
-      "End-to-end encryption (AES-256-CBC)",
+      "End-to-end encryption (AES-256-GCM for workspaces, AES-256-CBC for one-shot blobs)",
       "Host-blind architecture - server never sees your data",
       "24-hour auto-vaporization",
       "Native MCP integration for Claude Code",
@@ -3578,258 +3578,288 @@ const APP_HTML = `<!DOCTYPE html>
   <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0a0a;
-      --bg-card: #111111;
-      --bg-elevated: #1a1a1a;
-      --bg-terminal: #0d0d0d;
-      --fg: #e5e5e5;
-      --fg-muted: #a3a3a3;
-      --fg-dim: #525252;
-      --fg-dimmer: #3f3f3f;
+      /* Cool-biased near-blacks. Sections separate by ground shade, not rules. */
+      --ground:  #08090b;
+      --surface: #0e1013;
+      --raised:  #14171c;
+      --line:    #21252c;
+      --line-lit:#2f353e;
+
+      --ink:       #e9ecef;
+      --ink-soft:  #a7aeb8;
+      --ink-faint: #6b7280;
+      --ink-ghost: #464c55;
+
+      /* One accent, spent twice per screen: the live key, and the primary action. */
       --accent: #22c55e;
-      --accent-dim: rgba(34, 197, 94, 0.15);
+      --accent-wash: rgba(34, 197, 94, 0.10);
+      --accent-edge: rgba(34, 197, 94, 0.35);
+
+      /* Expiry has its own hue so "urgent" never competes with "go". */
+      --ember: #f0a13a;
+
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+      --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+      /* Retained names: the viewer overlay, modals and fold panels style off these. */
+      --bg: var(--ground);
+      --bg-card: var(--surface);
+      --bg-elevated: var(--raised);
+      --bg-terminal: #0b0d10;
+      --fg: var(--ink);
+      --fg-muted: var(--ink-soft);
+      --fg-dim: var(--ink-faint);
+      --fg-dimmer: var(--ink-ghost);
+      --accent-dim: var(--accent-wash);
       --accent-glow: rgba(34, 197, 94, 0.4);
-      --border: #2a2a2a;
-      --border-active: #3a3a3a;
+      --border: var(--line);
+      --border-active: var(--line-lit);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* Sans carries prose; mono is reserved for machine text — code, URLs, keys,
+       labels. The old page set everything in mono at one size, which is what read
+       as clutter: with no contrast, nothing could be a signal. */
     body {
-      font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      background: var(--bg);
-      color: var(--fg);
+      font-family: var(--sans);
+      background: var(--ground);
+      color: var(--ink);
       min-height: 100vh;
       line-height: 1.6;
-      font-size: 14px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
     }
+
+    code, kbd, .mono { font-family: var(--mono); }
+
+    .band { padding: 0 20px; }
+    .band-surface { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .rail { max-width: 900px; margin: 0 auto; }
+    .rail-narrow { max-width: 660px; margin: 0 auto; }
+
+    /* Nav */
+    .nav {
+      display: flex; align-items: center; justify-content: space-between;
+      max-width: 900px; margin: 0 auto; padding: 18px 0;
+    }
+    .wordmark { font-family: var(--mono); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+    .wordmark span { color: var(--accent); }
+    .nav-links { display: flex; gap: 22px; font-size: 13.5px; color: var(--ink-faint); }
+    .nav-links a { color: inherit; text-decoration: none; }
+    .nav-links a:hover { color: var(--ink); }
 
     /* Hero */
-    .hero {
-      text-align: center;
-      margin-bottom: 3rem;
+    .hero { padding: 52px 0 0; text-align: center; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 11px; font-weight: 500;
+      letter-spacing: 0.16em; text-transform: uppercase;
+      color: var(--accent); opacity: 0.85; margin-bottom: 18px;
     }
-
     .hero-title {
-      font-size: 1.4rem;
-      font-weight: 400;
-      color: var(--fg);
-      margin-bottom: 1rem;
+      font-size: clamp(2rem, 5.2vw, 3.05rem);
+      line-height: 1.08; letter-spacing: -0.032em; font-weight: 640;
+      margin: 0 auto 18px; max-width: 19ch; text-wrap: balance;
     }
-
-    .hero-title .prompt { color: var(--accent); }
-
-    .hero-title .cursor {
-      display: inline-block;
-      width: 0.55em;
-      height: 1.1em;
-      background: var(--accent);
-      margin-left: 2px;
-      animation: blink 1s step-end infinite;
-      vertical-align: text-bottom;
-      box-shadow: 0 0 10px var(--accent-glow);
-    }
-
-    @keyframes blink { 50% { opacity: 0; } }
-
     .hero-subtitle {
-      font-size: 1rem;
-      line-height: 1.5;
+      font-size: 16.5px; line-height: 1.62; color: var(--ink-soft);
+      max-width: 54ch; margin: 0 auto; text-wrap: pretty;
+    }
+    .hero-subtitle .pain { color: var(--ink-faint); }
+    .hero-subtitle b { color: var(--ink); font-weight: 560; }
+
+    /* The diagram: three zones, and the boundary is the whole point */
+    .diagram-band { padding: 40px 0 46px; }
+    .diagram { width: 100%; height: auto; display: block; }
+    .d-zone-label {
+      font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.17em;
+      text-transform: uppercase; fill: var(--ink-ghost);
+    }
+    .d-zone-label.mid { fill: var(--accent); opacity: 0.8; }
+    .d-divider { stroke: var(--line-lit); stroke-width: 1; stroke-dasharray: 2 5; }
+    .d-card { fill: var(--surface); stroke: var(--line-lit); stroke-width: 1; }
+    /* The host: a cage drawn around the workspace, deliberately not solid. */
+    .d-frame { fill: none; stroke: var(--line-lit); stroke-width: 1; stroke-dasharray: 3 4; }
+    /* The workspace: the one solid, named, addressed object on the page. */
+    .d-ws { fill: rgba(34, 197, 94, 0.05); stroke: var(--accent-edge); stroke-width: 1.2; }
+    .d-ws-rule { stroke: var(--accent-edge); stroke-width: 1; opacity: 0.55; }
+    .d-ws-id { font-family: var(--mono); font-size: 11px; fill: var(--accent); opacity: 0.9; letter-spacing: 0.04em; }
+    .d-ws-ver { font-family: var(--mono); font-size: 10px; fill: var(--ink-ghost); letter-spacing: 0.06em; }
+    .d-chip { fill: var(--raised); stroke: var(--line-lit); stroke-width: 1; }
+    .d-name { font-family: var(--sans); font-size: 12.5px; fill: var(--ink-soft); }
+    .d-cap { font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; fill: var(--ink-ghost); }
+    .d-cap-lit { fill: var(--accent); opacity: 0.85; }
+    .d-hex { font-family: var(--mono); font-size: 11px; fill: var(--ink-ghost); letter-spacing: 0.09em; }
+    .d-doc-line { fill: var(--line-lit); }
+    .d-wire { stroke: var(--line-lit); stroke-width: 1.1; fill: none; }
+    .d-glyph { stroke: var(--accent); stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* A dash offset follows any curve exactly, unlike a translated shape. */
+    .d-pulse {
+      stroke: var(--accent); stroke-width: 1.6; fill: none; stroke-linecap: round;
+      stroke-dasharray: 16 400; opacity: 0.9;
+      animation: travel 4.4s linear infinite;
+    }
+    @keyframes travel { from { stroke-dashoffset: 416; } to { stroke-dashoffset: 0; } }
+    .p1 { animation-delay: 0s; }
+    .p2 { animation-delay: 0.55s; }
+    .p3 { animation-delay: 0.75s; }
+    .p4 { animation-delay: 0.95s; }
+    .d-breathe { animation: breathe 4.4s ease-in-out infinite; }
+    @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+    .diagram-note {
+      text-align: center; font-size: 14px; color: var(--ink-faint);
+      margin: 26px auto 0; max-width: 56ch; line-height: 1.6;
+    }
+    .diagram-note b { color: var(--ink-soft); font-weight: 560; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .d-pulse, .d-breathe { animation: none; }
+      .d-pulse { stroke-dasharray: none; opacity: 0.35; }
     }
 
-    .hero-subtitle .dim {
-      color: var(--fg-muted);
+    /* The two doors */
+    .doors-band { padding: 52px 0 56px; }
+    /* stretch, not start: they are peers and must read as a matched pair */
+    .doors { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+    @media (max-width: 760px) { .doors { grid-template-columns: 1fr; } }
+
+    .door {
+      border: 1px solid var(--line); border-radius: 14px; background: var(--ground);
+      padding: 22px; display: flex; flex-direction: column;
     }
-
-    .hero-subtitle .bright {
-      color: #ffffff;
-      font-weight: 500;
+    .door-promote {
+      border-color: var(--accent-edge);
+      background: linear-gradient(180deg, var(--accent-wash), rgba(34, 197, 94, 0) 55%), var(--ground);
     }
-
-    /* Console Container */
-    .console {
-      width: 100%;
-      max-width: 700px;
-      border: 1px solid var(--border);
-      background: var(--bg-card);
-      border-radius: 6px;
-      overflow: hidden;
+    .door-tag {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--ink-ghost); margin-bottom: 10px;
     }
+    .door-promote .door-tag { color: var(--accent); opacity: 0.8; }
+    .door-title { font-size: 19px; font-weight: 600; letter-spacing: -0.018em; margin-bottom: 7px; }
+    .door-lede { font-size: 13.5px; color: var(--ink-faint); margin-bottom: 18px; line-height: 1.55; }
 
-    /* Tab Bar */
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg);
-    }
-
-    .tab {
-      flex: 1;
-      padding: 0.875rem 1rem;
-      background: transparent;
-      border: none;
-      color: var(--fg-dimmer);
-      font-family: inherit;
-      font-size: 0.75rem;
-      font-weight: 500;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -1px;
-    }
-
-    .tab:hover {
-      color: var(--fg-muted);
-      background: var(--bg-elevated);
-    }
-
-    .tab.active {
-      color: var(--accent);
-      font-weight: 700;
-      border-bottom-color: var(--accent);
-      background: rgba(34, 197, 94, 0.08);
-    }
-
-    /* Tab Panels */
-    .tab-panel {
-      display: none;
-      padding: 2rem;
-      height: 420px;
-      overflow-y: auto;
-      border-top: 1px solid var(--border);
-    }
-
-    .tab-panel.active {
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start;
-    }
-
-    /* Upload Panel (Web) */
-    .flow { display: flex; align-items: center; justify-content: center; gap: 10px;
-      flex-wrap: wrap; max-width: 760px; margin: 0 auto 0.5rem; font-size: 0.78rem; }
-    .flow-node { color: var(--fg-muted); border: 1px solid var(--border); border-radius: 6px;
-      padding: 5px 11px; white-space: nowrap; }
-    .flow-link { color: var(--accent); border: 1px solid var(--accent); border-radius: 6px;
-      padding: 5px 12px; font-weight: 600; white-space: nowrap; background: rgba(34,197,94,0.07); }
-    .flow-arrow { color: var(--fg-dim); font-size: 0.9rem; }
-    .flow-note { text-align: center; font-size: 0.74rem; color: var(--fg-dim); margin-bottom: 1.4rem; }
-    @media (max-width: 560px) { .flow-arrow { display: none; } .flow { gap: 6px; } }
-
-    .cta-block { max-width: 720px; margin: 0 auto 1.1rem; }
-    .cta-label { font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.5rem; text-align: center; }
-    .cta-note { font-size: 0.72rem; color: var(--fg-dim); line-height: 1.55; text-align: center; margin-top: 0.55rem; }
-    .or-rule { display: flex; align-items: center; gap: 12px; max-width: 720px; margin: 0 auto 1.1rem;
-      color: var(--fg-dim); font-size: 0.72rem; }
-    .or-rule::before, .or-rule::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-    .panel-main { padding: 1.5rem; }
-    .more { border-top: 1px solid var(--border); }
-    .more > summary { cursor: pointer; padding: 1rem 1.5rem; font-size: 0.8rem; color: var(--fg-muted);
-      list-style: none; transition: background .12s, color .12s; }
-    .more > summary:hover { background: rgba(255,255,255,0.03); }
-    .more > summary::-webkit-details-marker { display: none; }
-    .more > summary::before { content: '+ '; color: var(--accent); }
-    .more[open] > summary::before { content: '\\2212 '; }
-    .more > summary:hover { color: var(--fg); }
-    .more-body { padding: 0.25rem 1.5rem 1.75rem; line-height: 1.7; }
-    .setup-prompt { position: relative; background: rgba(34,197,94,0.05); border: 1px solid var(--accent);
-      border-radius: 8px; padding: 14px 16px; cursor: pointer; margin-bottom: 0.5rem;
-      transition: background .15s; }
-    .setup-prompt:hover { background: rgba(34,197,94,0.09); }
-    .setup-prompt-text { font-family: monospace; font-size: 0.76rem; line-height: 1.65; color: var(--fg);
-      white-space: pre-wrap; word-break: break-word; margin-bottom: 10px; }
-    .setup-prompt-btn { font-size: 0.78rem; }
-    .mode-switch { display: grid; gap: 8px; margin-bottom: 1rem; }
-    @media (min-width: 640px) { .mode-switch { grid-template-columns: 1fr 1fr; } }
-    .mode { text-align: left; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
-      border-radius: 8px; padding: 12px 14px; cursor: pointer; font: inherit; color: var(--fg-muted);
-      transition: border-color .15s, background .15s; }
-    .mode:hover { border-color: var(--accent); }
-    .mode.active { border-color: var(--accent); background: rgba(34,197,94,0.06); }
-    .mode-t { display: block; font-weight: 600; color: var(--fg); font-size: 0.9rem; }
-    .mode.active .mode-t { color: var(--accent); }
-    .mode-d { display: block; font-size: 0.76rem; margin-top: 3px; line-height: 1.45; }
-    .result-view { display: none; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
-    .result-view.show { display: block; }
-    .result-view-label { font-size: 0.76rem; color: var(--fg-muted); margin-bottom: 5px; }
-    .result-view-url { font-family: monospace; font-size: 0.72rem; color: var(--fg-muted);
-      word-break: break-all; margin-bottom: 8px; }
+    /* Reads as a container, not a text block: a tinted well sunk into the card. */
     .dropzone {
-      border: 2px dashed var(--accent);
-      border-radius: 12px;
-      background: rgba(34,197,94,0.04);
-      padding: 3rem 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: background .15s, border-color .15s, transform .1s;
+      flex: 1; min-height: 150px; max-height: 260px;
+      border: 1.5px dashed var(--line-lit); border-radius: 11px;
+      background:
+        radial-gradient(120% 90% at 50% 0%, rgba(34, 197, 94, 0.07), rgba(34, 197, 94, 0) 70%),
+        var(--surface);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), inset 0 0 34px rgba(0, 0, 0, 0.45);
+      padding: 30px 18px; text-align: center; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
     }
-    .dropzone:hover { background: rgba(34,197,94,0.09); }
-    .dropzone:active { transform: scale(0.995); }
-    .dropzone.dragover {
-      border-color: var(--accent);
-      background: var(--accent-dim);
-      animation: pulse-border 0.8s ease-in-out infinite;
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent-edge);
+      background:
+        radial-gradient(120% 90% at 50% 0%, rgba(34, 197, 94, 0.13), rgba(34, 197, 94, 0) 70%),
+        var(--surface);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 0 34px rgba(0, 0, 0, 0.35);
     }
-
-    @keyframes pulse-border {
-      0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
-      50% { box-shadow: 0 0 20px 4px var(--accent-glow); }
-    }
-
     .dropzone-icon {
-      font-size: 1.2rem;
-      color: var(--fg-dim);
-      margin-bottom: 1rem;
-      font-family: inherit;
-      white-space: pre;
-      line-height: 1.2;
+      width: 40px; height: 40px; margin-bottom: 13px; display: grid; place-items: center;
+      border: 1.5px solid var(--line-lit); border-radius: 10px; color: var(--accent);
+      transition: border-color 0.2s, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .dropzone:hover .dropzone-icon { border-color: var(--accent-edge); transform: translateY(-2px); }
+    .dropzone-icon svg { width: 19px; height: 19px; }
+    .dropzone-text { font-size: 15px; font-weight: 560; letter-spacing: -0.01em; }
+    .dropzone-hint { font-size: 12.5px; color: var(--ink-faint); margin-top: 6px; transition: color 0.2s; }
+    .dropzone:hover .dropzone-hint { color: var(--ink-soft); }
+    .dropzone-hint kbd {
+      font-family: var(--mono); font-size: 11px; padding: 1.5px 5px; border-radius: 4px;
+      border: 1px solid var(--line-lit); background: var(--raised); color: var(--ink-soft);
+      transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+    }
+    .dropzone:hover .dropzone-hint kbd {
+      border-color: var(--accent-edge); color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.07);
     }
 
-    .dropzone-text {
-      font-size: 1rem;
-      color: var(--fg-muted);
-      margin-bottom: 0.5rem;
+    /* Once there is a result the dropzone shrinks to a bar but never leaves:
+       dropping a file is what this box IS, and making another must not require
+       hunting for a reset link. */
+    .dropzone.compact {
+      flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 12px;
+      padding: 13px 15px; text-align: left; margin-bottom: 14px;
     }
+    .dropzone.compact .dropzone-icon { width: 30px; height: 30px; margin: 0; border-radius: 8px; }
+    .dropzone.compact .dropzone-icon svg { width: 15px; height: 15px; }
+    .dropzone.compact .dropzone-text { font-size: 13.5px; }
+    .dropzone.compact .dropzone-hint { display: none; }
 
-    .dropzone-hint {
-      font-size: 0.85rem;
-      color: var(--accent);
-      background: var(--accent-dim);
-      display: inline-block;
-      padding: 0.25rem 0.75rem;
-      border-radius: 3px;
-      margin-top: 0.5rem;
-    }
+    #file-input { display: none; }
 
-    input[type="file"] { display: none; }
+    /* The setup prompt: the only thing on the page that produces a second use. */
+    .setup-prompt {
+      border: 1px solid var(--accent-edge); border-radius: 11px; background: var(--surface);
+      padding: 15px; cursor: pointer; margin-bottom: 12px;
+    }
+    .setup-prompt:hover { border-color: rgba(34, 197, 94, 0.6); }
+    .setup-prompt-text {
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+      color: var(--ink); word-break: break-word;
+    }
+    .setup-prompt-text .u { color: var(--accent); }
 
-    /* Terminal Panel */
-    .cli-section {
-      text-align: left;
+    .then { list-style: none; margin-top: 16px; }
+    .then li {
+      display: flex; gap: 10px; align-items: flex-start;
+      font-size: 13px; color: var(--ink-faint); line-height: 1.5; margin-bottom: 9px;
     }
-    .cli-install-row {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin-bottom: 0;
+    .then li .n {
+      font-family: var(--mono); font-size: 10px; color: var(--accent); opacity: 0.8;
+      border: 1px solid var(--accent-edge); border-radius: 5px;
+      width: 18px; height: 18px; display: grid; place-items: center; flex-shrink: 0; margin-top: 1px;
     }
+    .then li b { color: var(--ink-soft); font-weight: 560; }
+
+    .door-foot { margin-top: auto; padding-top: 16px; font-size: 12.5px; color: var(--ink-ghost); line-height: 1.55; }
+    .door-foot b { color: var(--ink-faint); font-weight: 500; }
+
+    .fold { margin-top: 10px; }
+    .fold > summary {
+      list-style: none; cursor: pointer; font-size: 12.5px; color: var(--ink-faint);
+      display: flex; align-items: center; gap: 7px; padding: 4px 0;
+    }
+    .fold > summary::-webkit-details-marker { display: none; }
+    .fold > summary::before { content: '+'; font-family: var(--mono); color: var(--ink-ghost); }
+    .fold[open] > summary::before { content: '\\2212'; }
+    .fold > summary:hover { color: var(--ink); }
+    .fold-body { padding: 6px 0 4px; }
+    .fold-body p { font-size: 12.5px; color: var(--ink-faint); margin: 8px 0 2px; }
+
+    /* Trust */
+    .trust { padding: 52px 0 48px; }
+    .trust-title { font-size: 24px; letter-spacing: -0.022em; font-weight: 620; margin-bottom: 24px; text-align: center; text-wrap: balance; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    @media (max-width: 760px) { .cards { grid-template-columns: 1fr; } }
+    .card {
+      border: 1px solid var(--line); border-radius: 12px; background: var(--ground); padding: 18px;
+      display: flex; flex-direction: column;
+    }
+    .card h3 { font-size: 14.5px; font-weight: 580; margin-bottom: 7px; letter-spacing: -0.01em; }
+    .card p { font-size: 13.5px; color: var(--ink-faint); line-height: 1.58; }
+    .card .spec {
+      font-family: var(--mono); font-size: 10.5px; color: var(--ink-ghost);
+      margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); letter-spacing: 0.04em;
+    }
+    .card-icon { color: var(--accent); margin-bottom: 11px; display: block; }
+    .card-icon svg { width: 17px; height: 17px; }
+
+    .honest {
+      margin-top: 16px; padding: 14px 16px; border-radius: 11px;
+      border: 1px solid var(--line); border-left: 2px solid var(--ember);
+      background: var(--ground); font-size: 13px; color: var(--ink-faint); line-height: 1.6;
+    }
+    .honest b { color: var(--ink-soft); font-weight: 560; }
     .cli-install-row .code-block {
       flex: 1;
       margin-bottom: 0;
-    }
-
-    .section-label {
-      font-size: 0.75rem;
-      color: var(--fg-dim);
-      margin-bottom: 0.75rem;
-      font-style: italic;
     }
 
     .code-block {
@@ -3877,59 +3907,8 @@ const APP_HTML = `<!DOCTYPE html>
       color: var(--accent);
     }
 
-    .terminal-window {
-      background: var(--bg-terminal);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 0.5rem;
-    }
-
-    .terminal-header {
-      background: var(--bg);
-      padding: 0.5rem 0.75rem;
-      font-size: 0.7rem;
-      color: var(--fg-dim);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .terminal-dots {
-      display: flex;
-      gap: 0.35rem;
-    }
-
-    .terminal-dots span {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--fg-dim);
-      opacity: 0.5;
-    }
-
-    .terminal-body {
-      padding: 1rem;
-      font-size: 0.8rem;
-    }
-
     .terminal-body .line { margin-bottom: 0.35rem; }
     .terminal-body .prompt { color: var(--accent); }
-    .terminal-body .cmd { color: var(--fg-muted); }
-    .terminal-body .output { color: var(--fg-dim); font-style: italic; }
-
-    .cli-desc {
-      margin-top: 1.25rem;
-      font-size: 0.8rem;
-      color: var(--fg-dim);
-      text-align: center;
-    }
-
-    /* Agent Panel */
-    .mcp-section {
-      text-align: left;
-    }
 
     .mcp-config {
       background: var(--bg-terminal);
@@ -3950,199 +3929,81 @@ const APP_HTML = `<!DOCTYPE html>
     .mcp-config .key { color: #a78bfa; }
     .mcp-config .str { color: var(--accent); }
 
-    .mcp-desc {
-      margin-top: 1.25rem;
-      font-size: 0.8rem;
-      color: var(--fg-dim);
-      text-align: center;
-    }
-
-    /* Extension Panel */
-    .ext-section {
-      padding: 0.25rem 0;
-      text-align: center;
-    }
-    .ext-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1.25rem;
-      margin-bottom: 1.25rem;
-    }
-    .ext-top-text {
-      text-align: left;
-      flex: 1;
-    }
-    .ext-install-btn {
-      display: inline-block;
-      flex-shrink: 0;
-      padding: 0.7rem 1.5rem;
-      background: var(--accent);
-      color: #000;
-      border-radius: 4px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 0.8rem;
-      font-family: inherit;
-      transition: background 0.15s;
-      white-space: nowrap;
-    }
-    .ext-install-btn:hover { background: #16a34a; text-decoration: none; }
-    .ext-features {
-      display: flex;
-      gap: 0.75rem;
-    }
-    .ext-feature {
-      flex: 1;
-      padding: 0.6rem 0.75rem;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      text-align: left;
-      font-size: 0.7rem;
-    }
-    .ext-feature strong {
-      display: block;
-      color: var(--fg);
-      font-size: 0.75rem;
-      margin-bottom: 0.2rem;
-    }
-    .ext-feature span { color: var(--fg-dim); }
-
     /* Progress & Result */
-    .progress-container {
-      margin-top: 1.5rem;
-      display: none;
-    }
-
+    .progress-container { display: none; padding: 22px 0; text-align: center; }
     .progress-container.show { display: block; }
+    .progress-text { font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+    .progress-bar { height: 2px; background: var(--line); border-radius: 2px; margin: 15px auto 0; max-width: 190px; overflow: hidden; }
+    .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.28s linear; }
 
-    .progress-text {
-      font-size: 0.8rem;
-      color: var(--fg-muted);
-      margin-bottom: 0.5rem;
+    .result-box { display: none; }
+    .result-box.show { display: block; animation: rise 0.34s cubic-bezier(0.16, 1, 0.3, 1) both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 13px; flex-wrap: wrap; }
+    .result-header { font-size: 14px; font-weight: 580; color: var(--ink); }
+    .result-header .tick { color: var(--accent); }
+    .result-expiry {
+      font-family: var(--mono); font-size: 10.5px; color: var(--ember);
+      border: 1px solid rgba(240, 161, 58, 0.28); background: rgba(240, 161, 58, 0.07);
+      padding: 2.5px 8px; border-radius: 999px; white-space: nowrap;
     }
 
-    .progress-bar {
-      height: 3px;
-      background: var(--border);
-      border-radius: 2px;
-      overflow: hidden;
+    .link-card { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 12px 13px; margin-bottom: 9px; }
+    .link-card.primary { border-color: var(--accent-edge); }
+    .link-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .link-name { font-size: 12.5px; font-weight: 580; }
+    .link-role { font-size: 11.5px; color: var(--ink-faint); }
+    .link-row { display: flex; align-items: center; gap: 8px; }
+    .result-url, .result-view-url {
+      flex: 1; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft);
+      background: var(--ground); border: 1px solid var(--line); border-radius: 7px;
+      padding: 8px 10px; overflow-x: auto; white-space: nowrap;
     }
+    .result-url::-webkit-scrollbar, .result-view-url::-webkit-scrollbar { height: 0; }
+    .result-url .key, .result-view-url .key { color: var(--accent); }
+    .result-url-full { display: none; }
 
-    .progress-fill {
-      height: 100%;
-      background: var(--accent);
-      width: 0%;
-      transition: width 0.3s ease;
+    /* A view-only link is a fact about the key schedule, not a setting, so it is
+       shown beside the edit link rather than hidden behind a toggle. */
+    .result-view { margin-bottom: 9px; }
+
+    .handoff {
+      margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line);
+      font-size: 12.5px; color: var(--ink-faint); line-height: 1.55;
     }
-
-    .result-box {
-      margin-top: 1.5rem;
-      padding: 1.25rem;
-      background: var(--bg);
-      border: 1px solid var(--accent);
-      border-radius: 4px;
-      display: none;
-    }
-
-    .result-box.show { display: block; }
-
-    .result-header {
-      font-size: 0.85rem;
-      color: var(--accent);
-      margin-bottom: 1rem;
-    }
-
-    .result-url {
-      font-size: 0.75rem;
-      color: var(--fg-dim);
-      word-break: break-all;
-      padding: 0.75rem;
-      background: var(--bg-card);
-      border-radius: 3px;
-      margin-bottom: 1rem;
-    }
-
-    .result-actions {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
+    .handoff b { color: var(--ink-soft); font-weight: 560; }
 
     .btn {
-      background: var(--bg-elevated);
-      color: var(--fg);
-      border: 1px solid var(--border);
-      padding: 0.5rem 1rem;
-      border-radius: 3px;
-      cursor: pointer;
-      font-family: inherit;
-      font-size: 0.75rem;
-      transition: all 0.15s ease;
+      background: var(--raised); color: var(--ink); border: 1px solid var(--line-lit);
+      padding: 8px 14px; border-radius: 8px; cursor: pointer;
+      font-family: var(--sans); font-size: 12.5px; font-weight: 560; white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
     }
-
-    .btn:hover {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    .btn-primary {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--accent);
-    }
-
-    .btn-primary:hover {
-      background: #16a34a;
-      color: #000;
-    }
+    .btn:hover { background: #1b1f25; border-color: #3a414b; color: var(--ink); }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: #04140a; border-color: var(--accent); }
+    .btn-primary:hover { background: #2bd46b; border-color: #2bd46b; color: #04140a; }
+    .btn-wide { width: 100%; padding: 11px 14px; font-size: 13.5px; }
 
     /* GitHub Star Button */
     .github-star-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-top: 1rem;
-      padding: 0.6rem 1.2rem;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      color: var(--fg);
-      text-decoration: none;
-      font-size: 0.9rem;
-      transition: all 0.2s ease;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 7px 13px; background: var(--raised); border: 1px solid var(--line-lit);
+      border-radius: 8px; color: var(--ink-soft); text-decoration: none;
+      font-size: 12.5px; font-weight: 560; transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
-
-    .github-star-btn:hover {
-      background: var(--accent);
-      color: #000;
-      border-color: var(--accent);
-      box-shadow: 0 0 20px var(--accent-glow);
-    }
-
-    .github-star-btn svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-    }
+    .github-star-btn:hover { background: #1b1f25; border-color: #3a414b; color: var(--ink); }
+    .github-star-btn svg { width: 15px; height: 15px; fill: currentColor; }
 
     /* Footer */
     .footer {
-      margin-top: 2rem;
-      font-size: 0.75rem;
-      color: var(--fg-dim);
-      text-align: center;
+      padding: 22px 0 36px; font-family: var(--mono); font-size: 11.5px;
+      color: var(--ink-ghost); text-align: center;
     }
-
-    .footer a {
-      color: var(--fg-muted);
-      text-decoration: none;
-    }
-
-    .footer a:hover {
-      color: var(--accent);
-    }
+    .footer a { color: var(--ink-faint); text-decoration: none; }
+    .footer a:hover { color: var(--accent); }
+    .footer .dot { opacity: 0.35; margin: 0 8px; }
 
     /* Viewer Overlay */
     .overlay {
@@ -4256,18 +4117,18 @@ const APP_HTML = `<!DOCTYPE html>
       border-radius: 4px;
     }
 
-    .viewer-image {
-      max-width: 100%;
-      height: auto;
-      border-radius: 4px;
-    }
-
     .viewer-video {
       display: block;
       margin: 0 auto;
       max-width: 100%;
       max-height: 80vh;
       border-radius: 8px;
+    }
+
+    .viewer-image {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
     }
 
     .viewer-footer {
@@ -4456,17 +4317,6 @@ const APP_HTML = `<!DOCTYPE html>
       margin-bottom: 0.5rem;
       z-index: 100;
     }
-
-    /* URL Truncation */
-    .result-url-truncated {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .result-url-short {
-      color: var(--fg-muted);
-      font-size: 0.8rem;
-    }
     .result-url-full {
       font-size: 0.65rem;
       color: var(--fg-dim);
@@ -4475,15 +4325,6 @@ const APP_HTML = `<!DOCTYPE html>
       margin-top: 0.5rem;
     }
     .result-url-full.show { display: block; }
-    .show-full-btn {
-      background: none;
-      border: none;
-      color: var(--fg-dim);
-      cursor: pointer;
-      font-size: 0.7rem;
-      text-decoration: underline;
-    }
-    .show-full-btn:hover { color: var(--accent); }
 
     /* Expiry Badge */
     .result-expiry {
@@ -4495,30 +4336,26 @@ const APP_HTML = `<!DOCTYPE html>
       gap: 0.35rem;
     }
 
-    /* Security Badge */
-    .security-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      font-size: 0.7rem;
-      color: var(--fg-dim);
-      margin-top: 0.5rem;
-    }
-    .security-badge span { color: var(--accent); }
-
     /* Responsive */
+    /* The diagram is the one thing on the page that cannot shrink and stay
+       legible — its labels are already at 10px. Let it scroll in its own
+       container rather than squeezing the type into illegibility. */
+    .diagram-scroll { overflow-x: auto; }
+    @media (max-width: 720px) {
+      .diagram { min-width: 620px; }
+    }
+
     @media (max-width: 600px) {
-      body { padding: 1rem; }
-      .hero-title { font-size: 1.1rem; }
-      .hero-subtitle { font-size: 0.9rem; }
-      .console { border-radius: 4px; }
-      .tab { padding: 0.75rem 0.5rem; font-size: 0.65rem; }
-      .tab-panel { padding: 1.5rem; height: 380px; }
-      .dropzone { padding: 2rem 1rem; }
-      .dropzone-icon { font-size: 1rem; }
+      .band { padding: 0 16px; }
+      .hero { padding-top: 36px; }
+      .hero-subtitle { font-size: 15.5px; }
+      .nav-links { gap: 14px; font-size: 13px; }
+      .diagram-band { padding: 28px 0 32px; }
+      .doors-band { padding: 36px 0 40px; }
+      .trust { padding: 36px 0 32px; }
+      .door { padding: 18px; }
       .code-block { padding: 0.75rem; }
       .code-block code { font-size: 0.8rem; }
-      .terminal-body { font-size: 0.75rem; }
     }
   </style>
 </head>
@@ -4549,226 +4386,328 @@ const APP_HTML = `<!DOCTYPE html>
     <span id="toast-message">Copied!</span>
   </div>
 
+  <!-- Nav -->
+  <div class="band">
+    <nav class="nav">
+      <div class="wordmark">vnsh<span>_</span></div>
+      <div class="nav-links">
+        <a href="#start">Get started</a>
+        <a href="#security">Security</a>
+        <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="github-star-btn">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Star
+        </a>
+      </div>
+    </nav>
+  </div>
+
   <!-- Hero -->
-  <section class="hero">
-    <h1 class="hero-title">
-      <span class="prompt">></span> vnsh: portable workspaces for AI agents<span class="cursor"></span>
-    </h1>
-    <p class="hero-subtitle">
-      <span class="dim">One link your agents can all read and write.</span> <span class="bright">Encrypted here, gone in 24h.</span>
-    </p>
-    <div class="security-badge">
-      <span>🔒</span> Encrypted in your browser · vnsh can't read it · Gone 24h after the last edit
-    </div>
-    <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="github-star-btn">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      Star on GitHub
-    </a>
-  </section>
-
-  <div class="flow">
-    <span class="flow-node">Claude Code</span>
-    <span class="flow-arrow">&#8646;</span>
-    <span class="flow-link">one vnsh link</span>
-    <span class="flow-arrow">&#8646;</span>
-    <span class="flow-node">Cursor</span>
-    <span class="flow-arrow">&#8646;</span>
-    <span class="flow-node">a teammate</span>
-  </div>
-  <div class="flow-note">Everyone reads and writes the same document. It never changes address.</div>
-
-  <!-- Console -->
-  <div class="console">
-
-    <!-- Web Upload Panel -->
-    <div class="panel-main" id="panel-web">
-      <div class="dropzone" id="dropzone">
-        <div class="dropzone-icon">┌──────────┐
-│    ↓↓    │
-└──────────┘</div>
-        <div class="dropzone-text">Drop or paste anything here</div>
-        <div class="dropzone-hint">Encrypted in this browser &middot; you get a workspace link back</div>
-        <button class="btn" style="margin-top: 1rem;" onclick="event.stopPropagation(); document.getElementById('file-input').click();">or pick a file</button>
-      </div>
-      <input type="file" id="file-input">
-
-      <div class="progress-container" id="progress">
-        <div class="progress-text" id="progress-text">> Encrypting...</div>
-        <div class="progress-bar">
-          <div class="progress-fill" id="progress-fill"></div>
-        </div>
-      </div>
-
-      <div class="result-box" id="result">
-        <div class="result-header">✓ Workspace ready</div>
-        <div class="result-expiry">🔥 Gone 24h after the last edit &middot; every write renews it</div>
-        <div class="result-url">
-          <div class="result-url-truncated">
-            <span class="result-url-short" id="result-url-short"></span>
-            <button class="show-full-btn" onclick="toggleFullUrl()">show full</button>
-          </div>
-          <div class="result-url-full" id="result-url-full"></div>
-        </div>
-        <div class="result-actions">
-          <button class="btn btn-primary" onclick="copyUrl()">Copy URL</button>
-          <button class="btn" onclick="copyForClaude()" data-tooltip="Copy the link with a note telling the agent to read it">For agent</button>
-          <button class="btn" onclick="openViewer()">Preview</button>
-        </div>
-        <div class="result-view" id="result-view">
-          <div class="result-view-label">View-only link &mdash; they can read it, not change it</div>
-          <div class="result-view-url" id="result-view-url"></div>
-          <button class="btn" onclick="copyViewOnly()">Copy view-only link</button>
-        </div>
-      </div>
-    </div>
-
-  <!-- Asked after the demo, not before it. Installing an MCP server pays off
-       later; making a workspace pays off in two seconds. Seeing the two links
-       first is what makes this ask land. -->
-  <div class="cta-block">
-    <div class="cta-label">Want your agents doing this without you? Paste this into one.</div>
-    <div class="setup-prompt" id="setup-prompt" onclick="copySetupPrompt()">
-      <div class="setup-prompt-text" id="setup-prompt-text"></div>
-      <button class="btn btn-primary setup-prompt-btn" onclick="event.stopPropagation(); copySetupPrompt()">Copy</button>
-    </div>
-    <div class="cta-note">
-      It installs itself and starts handing work off through workspaces from then on.
-      Works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed &mdash; anything that speaks MCP.
-      If it can't open links, the per-agent commands are under
-      <em style="color: var(--fg-muted); font-style: normal;">Agent setup, in detail</em> below.
-    </div>
+  <div class="band">
+    <section class="hero rail-narrow">
+      <p class="eyebrow">Claude Code &middot; Cursor &middot; OpenHands &middot; Cline &middot; Zed</p>
+      <h1 class="hero-title">One workspace all your agents can read and write.</h1>
+      <p class="hero-subtitle">
+        <span class="pain">Right now you paste the same context into Claude&nbsp;Code, then Cursor, then Slack.</span>
+        Drop it here once instead and get a link. Everyone opens the
+        <b>same living document</b> &mdash; and can change it. Encrypted in your browser,
+        so vnsh never sees it. Gone 24&nbsp;hours after the last edit.
+      </p>
+    </section>
   </div>
 
+  <!-- What actually happens. The middle zone is the workspace, not the server:
+       hosting is drawn as containment, blindness as a struck-out eye on the cage. -->
+  <div class="band">
+    <section class="diagram-band rail">
+      <div class="diagram-scroll">
+      <svg class="diagram" viewBox="0 0 900 286" role="img"
+           aria-label="Your content is encrypted on your machine and becomes one portable workspace. vnsh hosts that workspace but holds no key and cannot open it. Any agent or person you give the link to decrypts it on their own machine, and can write back.">
+        <line class="d-divider" x1="272" y1="30" x2="272" y2="234"/>
+        <line class="d-divider" x1="628" y1="30" x2="628" y2="234"/>
 
-    <!-- Terminal Panel -->
-    <details class="more"><summary>Terminal (CLI)</summary><div class="more-body" id="panel-terminal">
-      <div class="cli-section">
-        <div class="section-label">// Install</div>
-        <div class="cli-install-row">
-          <div class="code-block" id="cli-install" onclick="copyCommand('npx vnsh', this)">
-            <code><span class="prompt">$ </span>npx vnsh</code>
-            <button class="copy-btn" title="Copy">⧉</button>
-          </div>
-          <span style="color: var(--fg-dim); font-size: 0.75rem; flex-shrink: 0;">or</span>
-          <div class="code-block" onclick="copyCommand('curl -sL vnsh.dev/i | sh', this)">
-            <code><span class="prompt">$ </span>curl -sL vnsh.dev/i | sh</code>
-            <button class="copy-btn" title="Copy">⧉</button>
-          </div>
-        </div>
-        <p style="font-size: 0.7rem; color: var(--fg-dim); margin: 0.4rem 0 1rem;">Global install: <code style="color: var(--accent); cursor: pointer;" onclick="copyCommand('npm i -g vnsh', this.parentElement)">npm i -g vnsh</code></p>
+        <text class="d-zone-label" x="18" y="22">Your machine</text>
+        <text class="d-zone-label mid" x="300" y="22">The portable workspace</text>
+        <text class="d-zone-label" x="656" y="22">Any agent, or a person</text>
 
-        <div class="section-label">// Usage</div>
-        <div class="terminal-window" style="font-size: 0.75rem;">
-          <div class="terminal-header">
-            <div class="terminal-dots"><span></span><span></span><span></span></div>
-            <span>terminal</span>
-          </div>
-          <div class="terminal-body" style="padding: 0.6rem 0.75rem;">
-            <div class="line"><span class="prompt">$ </span><span class="cmd">kubectl logs pod/app | vn</span></div>
-            <div class="line"><span class="output">https://vnsh.dev/v/a3f...#k=...</span></div>
-            <div class="line" style="height: 0.25rem;"></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">vn .env.production</span></div>
-            <div class="line"><span class="output">https://vnsh.dev/v/b7c...#k=...</span></div>
-            <div class="line" style="height: 0.25rem;"></div>
-            <div class="line"><span class="prompt">$ </span><span class="cmd">vn read "https://vnsh.dev/v/aBcD...#R_sI4..."</span></div>
-            <div class="line"><span class="output">(decrypted content)</span></div>
-          </div>
-        </div>
-        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-top: 0.5rem;">Pipe anything to <code style="color:var(--accent)">vn</code> — share the URL with Claude. Use <code>vn read "URL"</code> to decrypt.</p>
+        <rect class="d-card" x="24" y="103" width="146" height="92" rx="9"/>
+        <rect class="d-doc-line" x="42" y="124" width="96" height="4.5" rx="2.25"/>
+        <rect class="d-doc-line" x="42" y="138" width="110" height="4.5" rx="2.25"/>
+        <rect class="d-doc-line" x="42" y="152" width="74" height="4.5" rx="2.25"/>
+        <rect class="d-doc-line" x="42" y="166" width="102" height="4.5" rx="2.25"/>
+        <text class="d-cap" x="24" y="213">your diff, logs, notes</text>
+
+        <g transform="translate(212 134)">
+          <rect x="0" y="10" width="26" height="19" rx="4.5" class="d-glyph"/>
+          <path d="M5.5 10V6.5a7.5 7.5 0 0 1 15 0V10" class="d-glyph"/>
+          <circle cx="13" cy="19.5" r="1.9" fill="var(--accent)" stroke="none"/>
+        </g>
+        <text class="d-cap d-cap-lit" x="196" y="183">encrypted</text>
+        <text class="d-cap d-cap-lit" x="204" y="196">locally</text>
+
+        <rect class="d-frame" x="300" y="64" width="300" height="164" rx="14"/>
+        <g transform="translate(334 79)">
+          <path d="M0 6.5s3.6-5.5 8-5.5 8 5.5 8 5.5-3.6 5.5-8 5.5S0 6.5 0 6.5Z"
+                fill="none" stroke="var(--ink-ghost)" stroke-width="1.1"/>
+          <line x1="-1" y1="13" x2="17" y2="0" stroke="var(--ink-ghost)" stroke-width="1.1"/>
+        </g>
+        <text class="d-cap" x="360" y="92">vnsh.dev hosts it and cannot open it</text>
+
+        <rect class="d-ws" x="320" y="102" width="260" height="94" rx="10"/>
+        <text class="d-ws-id" x="336" y="122">vnsh.dev/w/k2p9xf</text>
+        <text class="d-ws-ver" x="564" y="122" text-anchor="end">v3</text>
+        <line class="d-ws-rule" x1="336" y1="132" x2="564" y2="132"/>
+        <text class="d-hex d-breathe" x="336" y="152">a7f3 91c0 4e8b 2d55 c1</text>
+        <text class="d-hex d-breathe" x="336" y="169" opacity="0.78">6b29 ff41 08ac 7e30 91</text>
+        <text class="d-hex d-breathe" x="336" y="186" opacity="0.56">d550 3c17 be92 0a6f 44</text>
+
+        <text class="d-cap" x="300" y="252">one address &middot; everyone opens the same one</text>
+        <text class="d-cap" x="300" y="268" fill="var(--ember)" opacity="0.75">deleted 24h after the last edit</text>
+
+        <g transform="translate(640 134)">
+          <rect x="0" y="10" width="26" height="19" rx="4.5" class="d-glyph"/>
+          <path d="M5.5 10V6.5a7.5 7.5 0 0 1 15 0" class="d-glyph"/>
+          <circle cx="13" cy="19.5" r="1.9" fill="var(--accent)" stroke="none"/>
+        </g>
+        <text class="d-cap d-cap-lit" x="628" y="183">decrypted</text>
+        <text class="d-cap d-cap-lit" x="644" y="196">there</text>
+
+        <rect class="d-chip" x="700" y="91" width="176" height="34" rx="8"/>
+        <text class="d-name" x="718" y="113">Claude Code</text>
+        <rect class="d-chip" x="700" y="133" width="176" height="34" rx="8"/>
+        <text class="d-name" x="718" y="155">Cursor</text>
+        <rect class="d-chip" x="700" y="175" width="176" height="34" rx="8"/>
+        <text class="d-name" x="718" y="197">a teammate</text>
+        <text class="d-cap" x="700" y="228">read and write, both ways</text>
+
+        <path id="wA" class="d-wire" d="M170 149 H206"/>
+        <path id="wB" class="d-wire" d="M244 149 H320"/>
+        <path id="wC" class="d-wire" d="M580 149 H634"/>
+        <path id="wD" class="d-wire" d="M672 149 C 686 149, 686 108, 700 108"/>
+        <path id="wE" class="d-wire" d="M672 149 H700"/>
+        <path id="wF" class="d-wire" d="M672 149 C 686 149, 686 192, 700 192"/>
+
+        <use href="#wB" class="d-pulse p1"/>
+        <use href="#wD" class="d-pulse p2"/>
+        <use href="#wE" class="d-pulse p3"/>
+        <use href="#wF" class="d-pulse p4"/>
+
+        <g fill="var(--line-lit)">
+          <path d="M700 108 l-7 -3.4 v6.8 z"/>
+          <path d="M700 149 l-7 -3.4 v6.8 z"/>
+          <path d="M700 192 l-7 -3.4 v6.8 z"/>
+          <path d="M634 149 l-7 -3.4 v6.8 z"/>
+          <path d="M580 149 l7 -3.4 v6.8 z"/>
+          <path d="M320 149 l-7 -3.4 v6.8 z"/>
+          <path d="M170 149 l7 -3.4 v6.8 z"/>
+        </g>
+      </svg>
       </div>
-    </div></details>
 
-    <!-- Agent Panel -->
-    <details class="more"><summary>Agent setup, in detail</summary><div class="more-body" id="panel-agent">
-      <div class="mcp-section">
-        <p style="font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.55;">
-          The prompt at the top of this page does all of this for you. What follows is what it
-          actually sets up, and how to do it by hand.
-        </p>
-        <div class="section-label" style="margin-bottom: 0.5rem;">// What it gets you</div>
-        <div style="font-size: 0.74rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.9;">
-          <div><code style="color: var(--accent);">vnsh_workspace_create</code> &nbsp;open one, get an edit link and a view-only link</div>
-          <div><code style="color: var(--accent);">vnsh_workspace_read</code> &nbsp;&nbsp;&nbsp;pick up what the last agent left</div>
-          <div><code style="color: var(--accent);">vnsh_workspace_update</code> &nbsp;write a new version; conflicts hand back the current text to merge</div>
-          <div><code style="color: var(--accent);">vnsh_workspace_open</code> &nbsp;&nbsp;&nbsp;render it locally, sandboxed</div>
-        </div>
-
-        <div class="section-label" style="margin: 1.2rem 0 0.5rem;">// Or install it yourself</div>
-        <div class="code-block" id="mcp-cmd" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp', this)" style="margin-bottom: 0.4rem;">
-          <code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp</code>
-          <button class="copy-btn" title="Copy">&#10696;</button>
-        </div>
-        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-bottom: 0.8rem;">
-          Cursor, OpenHands, Cline, Windsurf and Zed take the same server in their own MCP config &mdash;
-          command <code style="color: var(--accent);">npx</code>, args <code style="color: var(--accent);">["-y","vnsh-mcp"]</code>.
-        </p>
-        <div class="code-block" id="mcp-box" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)" style="margin-bottom: 0.4rem;">
-          <code><span class="prompt">$ </span>curl -sL vnsh.dev/claude | sh</code>
-          <button class="copy-btn" title="Copy">⧉</button>
-        </div>
-        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-bottom: 1rem;">Auto-detects Claude Code, adds vnsh to MCP config. Type <code style="color: var(--accent);">/mcp</code> to reload.</p>
-
-        <details class="mcp-manual">
-          <summary style="cursor: pointer; font-size: 0.75rem; color: var(--fg-dim); display: flex; justify-content: space-between; align-items: center;">
-            <span>// Manual Setup (Claude Desktop / other)</span>
-            <button class="copy-btn" style="font-size: 0.7rem; cursor: pointer; background: none; border: none; color: var(--fg-dim);" onclick="event.stopPropagation(); copyMcpConfig()" id="mcp-config-copy">⧉ Copy JSON</button>
-          </summary>
-          <div class="mcp-config" style="margin-top: 0.5rem;">
-            <div class="comment">// .mcp.json (Claude Code) or claude_desktop_config.json (Desktop)</div>
-            <div class="line">{ <span class="key">"mcpServers"</span>: { <span class="key">"vnsh"</span>: { <span class="key">"command"</span>: <span class="str">"npx"</span>, <span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>] } } }</div>
-          </div>
-        </details>
-      </div>
-    </div></details>
-
-    <!-- Extension Panel -->
-    <details class="more"><summary>Browser extension</summary><div class="more-body" id="panel-extension">
-      <div class="ext-section">
-        <div class="ext-top">
-          <div class="ext-top-text">
-            <div class="section-label" style="margin-bottom: 0.5rem;">// Chrome Extension</div>
-            <p style="font-size: 0.8rem; color: var(--fg-muted); line-height: 1.5; margin: 0;">
-              Encrypted sharing from any page. <strong style="color: var(--fg);">AI Debug Bundles</strong>, hover previews, context menu.
-            </p>
-            <p style="font-size: 0.65rem; color: var(--fg-dim); margin: 0.35rem 0 0;">Free &middot; Open source &middot; Manifest V3 &middot; No analytics</p>
-          </div>
-          <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener" class="ext-install-btn">
-            Install Extension
-          </a>
-        </div>
-        <div class="ext-features">
-          <div class="ext-feature">
-            <strong>⌘D AI Debug Bundle</strong>
-            <span>Screenshot + console errors + selected text + URL in one encrypted link</span>
-          </div>
-          <div class="ext-feature">
-            <strong>🔗 Inline Decryption</strong>
-            <span>Hover vnsh links on GitHub, Slack, Discord for decrypted preview</span>
-          </div>
-          <div class="ext-feature">
-            <strong>📋 Right-Click Share</strong>
-            <span>Select text or right-click images — encrypt via context menu</span>
-          </div>
-        </div>
-      </div>
-    </div></details>
+      <p class="diagram-note">
+        The key rides in the URL fragment, which is <b>never sent to a server</b> &mdash;
+        so the workspace is hosted by a party that can never read it.
+      </p>
+    </section>
   </div>
 
-  <!-- Architecture Section -->
-  <details class="architecture" style="margin-top: 2rem; max-width: 700px; width: 100%;">
-    <summary style="cursor: pointer; color: var(--fg-dim); font-size: 0.75rem; margin-bottom: 1rem;">// Architecture & Security</summary>
-    <div style="color: var(--fg-muted); font-size: 0.8rem; line-height: 1.7; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;">
-      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Host-Blind Architecture:</strong> vnsh implements true client-side encryption using AES-256-CBC with OpenSSL compatibility. Your data is encrypted entirely on your device before upload.</p>
-      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Host-Blind Storage:</strong> The server stores only opaque binary blobs. Decryption keys travel exclusively in the URL fragment (#k=...) which is never sent to servers per HTTP specification.</p>
-      <p style="margin-bottom: 1rem;"><strong style="color: var(--accent);">Ephemeral by Design:</strong> Unlike pastebins, vnsh cannot read your content even if subpoenaed. Data vaporizes after 24 hours. The server operator has no access to plaintext - mathematically impossible without the URL fragment.</p>
-      <p><strong style="color: var(--accent);">Auto-Vaporization:</strong> All data auto-destructs after 24 hours (configurable 1-168h). No history, no backups, no leaks. Perfect for ephemeral AI context sharing.</p>
-    </div>
-  </details>
+  <!-- Two doors. The right one is louder on purpose: making a workspace by hand
+       is a demo that happens once; the prompt is the only thing that produces a
+       second use. -->
+  <div class="band band-surface" id="start">
+    <section class="doors-band rail">
+      <div class="doors">
+
+        <div class="door">
+          <div class="door-tag">Try it</div>
+          <div class="door-title">Make one right now</div>
+          <p class="door-lede">No account, no install. It encrypts before anything leaves this tab.</p>
+
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/>
+              </svg>
+            </div>
+            <div class="dropzone-text" id="dropzone-text">Drop a file or paste text</div>
+            <div class="dropzone-hint">try <kbd>&#8984;V</kbd> right now</div>
+          </div>
+          <input type="file" id="file-input">
+
+          <ul class="then" id="what-you-get">
+            <li><span class="n">1</span><span>You get back an <b>edit link</b> and a <b>view-only link</b>.</span></li>
+            <li><span class="n">2</span><span>Anyone holding the edit link can <b>change the document</b> &mdash; agents included.</span></li>
+            <li><span class="n">3</span><span>It <b>deletes itself</b> 24 hours after the last edit.</span></li>
+          </ul>
+
+          <div class="progress-container" id="progress">
+            <div class="progress-text" id="progress-text">&gt; Encrypting...</div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="result-box" id="result">
+            <div class="result-head">
+              <div class="result-header"><span class="tick">&#10003;</span> Workspace created</div>
+              <div class="result-expiry">&#9711; 24h after last edit</div>
+            </div>
+
+            <div class="link-card primary">
+              <div class="link-top">
+                <div class="link-name">Edit link</div>
+                <div class="link-role">read + change</div>
+              </div>
+              <div class="link-row">
+                <div class="result-url" id="result-url-short"></div>
+                <button class="btn btn-primary" onclick="copyUrl()">Copy</button>
+              </div>
+              <div class="result-url-full" id="result-url-full"></div>
+            </div>
+
+            <div class="link-card result-view" id="result-view">
+              <div class="link-top">
+                <div class="link-name">View-only link</div>
+                <div class="link-role">read, never write</div>
+              </div>
+              <div class="link-row">
+                <div class="result-view-url" id="result-view-url"></div>
+                <button class="btn" onclick="copyViewOnly()">Copy</button>
+              </div>
+            </div>
+
+            <div class="handoff">
+              <b>Now hand it to an agent.</b> Paste the edit link into Claude&nbsp;Code or Cursor
+              and ask it to add to the document &mdash; or
+              <button class="btn" style="padding:2px 8px;font-size:12px;" onclick="copyForClaude()">copy it with a note for the agent</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="door door-promote">
+          <div class="door-tag">The whole point</div>
+          <div class="door-title">Or never do it by hand again</div>
+          <p class="door-lede">Paste this one line into any agent. That&rsquo;s the entire setup.</p>
+
+          <div class="setup-prompt" onclick="copySetupPrompt()">
+            <div class="setup-prompt-text" id="setup-prompt-text"></div>
+          </div>
+          <button class="btn btn-primary btn-wide setup-prompt-btn" onclick="copySetupPrompt()">Copy the prompt</button>
+
+          <ul class="then">
+            <li><span class="n">1</span><span>It reads <b>llms.txt</b> and installs the vnsh MCP server itself.</span></li>
+            <li><span class="n">2</span><span>It writes a standing rule into its own instruction file &mdash; <b>CLAUDE.md</b>, <b>.cursorrules</b>, whichever it uses.</span></li>
+            <li><span class="n">3</span><span>From then on it <b>hands work off through workspaces</b> without being asked, and opens any vnsh link you paste.</span></li>
+          </ul>
+
+          <div class="door-foot">
+            <b>Claude Code &middot; Cursor &middot; OpenHands &middot; Cline &middot; Windsurf &middot; Zed</b> &mdash; anything that speaks MCP.
+            <details class="fold">
+              <summary>Rather do it by hand</summary>
+              <div class="fold-body">
+                <p>Claude Code &mdash; installs the server <em>and</em> writes the standing rule:</p>
+                <div class="code-block" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)">
+                  <code><span class="prompt">$ </span>curl -sL vnsh.dev/claude | sh</code>
+                  <button class="copy-btn" title="Copy">&#8681;</button>
+                </div>
+                <p>Or register the server only:</p>
+                <div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp', this)">
+                  <code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp</code>
+                  <button class="copy-btn" title="Copy">&#8681;</button>
+                </div>
+                <p>Anything else takes the standard MCP JSON:</p>
+                <div class="mcp-config">
+                  <div class="line"><span class="key">"vnsh"</span>: { <span class="key">"command"</span>: <span class="str">"npx"</span>, <span class="key">"args"</span>: [<span class="str">"-y"</span>, <span class="str">"vnsh-mcp"</span>] }</div>
+                </div>
+                <button class="btn" style="margin-top:8px;" onclick="copyMcpConfig()" id="mcp-config-copy">Copy JSON</button>
+              </div>
+            </details>
+            <details class="fold">
+              <summary>Use it from the terminal</summary>
+              <div class="fold-body">
+                <div class="code-block" id="cli-install" onclick="copyCommand('npx vnsh', this)">
+                  <code><span class="prompt">$ </span>npx vnsh</code>
+                  <button class="copy-btn" title="Copy">&#8681;</button>
+                </div>
+                <div class="code-block" onclick="copyCommand('kubectl logs pod/app | vn', this)">
+                  <code><span class="prompt">$ </span>kubectl logs pod/app | vn</code>
+                  <button class="copy-btn" title="Copy">&#8681;</button>
+                </div>
+                <p>Pipe anything to <code style="color:var(--accent)">vn</code>; read one back with <code>vn read "URL"</code>.</p>
+              </div>
+            </details>
+            <details class="fold">
+              <summary>Chrome extension</summary>
+              <div class="fold-body">
+                <p>Encrypted sharing from any page: &#8984;D bundles a screenshot, console errors and the URL into one link. Hover any vnsh link for an inline preview.</p>
+                <a class="btn" style="display:inline-block;margin-top:8px;text-decoration:none;" href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl" target="_blank" rel="noopener">Install extension</a>
+              </div>
+            </details>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <!-- Trust -->
+  <div class="band" id="security">
+    <section class="trust rail">
+      <h2 class="trust-title">Why you can hand it a private log</h2>
+
+      <div class="cards">
+        <div class="card">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+            </svg>
+          </span>
+          <h3>vnsh can&rsquo;t read it</h3>
+          <p>Encrypted in your browser before upload. The key lives in the URL fragment, which is never transmitted. The server only ever holds opaque bytes.</p>
+          <div class="spec">AES-256-GCM &middot; HKDF-SHA256</div>
+        </div>
+
+        <div class="card">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+            </svg>
+          </span>
+          <h3>It deletes itself</h3>
+          <p>24 hours after the last edit, the ciphertext is gone. No history to subpoena, no dashboard to forget about, no account that outlives the task.</p>
+          <div class="spec">24H TTL &middot; RENEWED ON WRITE</div>
+        </div>
+
+        <div class="card">
+          <span class="card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18c-4.5 1.5-4.5-2.5-6-3"/><path d="M15 21v-3.5c0-1 .3-1.6.8-2 -3.3-.4-6.3-1.6-6.3-6.4 0-1.4.5-2.5 1.3-3.4 -.2-.4-.6-1.7.1-3.4 0 0 1.1-.3 3.6 1.3a12 12 0 0 1 6.4 0c2.5-1.6 3.6-1.3 3.6-1.3 .7 1.7.3 3 .1 3.4 .8.9 1.3 2 1.3 3.4 0 4.8-3 6-6.3 6.4 .5.4.9 1.3.9 2.6V21"/>
+            </svg>
+          </span>
+          <h3>You can check all of this</h3>
+          <p>The worker, the CLI and the MCP server are MIT-licensed and readable. The crypto is 200 lines; the server is a dumb pipe by design.</p>
+          <div class="spec">MIT &middot; GITHUB.COM/RAULLENCHAI/VNSH</div>
+        </div>
+      </div>
+
+      <p class="honest">
+        <b>One thing we won&rsquo;t oversell.</b> Handing someone a link hands the key to
+        whatever reads it &mdash; including that agent&rsquo;s model provider. vnsh can&rsquo;t read
+        your content and it expires on a timer; that is the whole guarantee, and the
+        timer is what keeps the blast radius small.
+      </p>
+    </section>
+  </div>
 
   <!-- Footer -->
-  <div class="footer">
-    // AES-256-CBC · Keys stay in URL fragment · <a href="https://github.com/raullenchai/vnsh">Source</a>
+  <div class="band">
+    <div class="footer">
+      AES-256-GCM &middot; keys stay in the URL fragment
+      <span class="dot">&middot;</span><a href="https://github.com/raullenchai/vnsh">Source</a>
+      <span class="dot">&middot;</span><a href="/llms.txt">llms.txt</a>
+      <span class="dot">&middot;</span>MIT
+    </div>
   </div>
+
 
   <!-- Viewer Overlay -->
   <div class="overlay" id="overlay">
@@ -5032,6 +4971,7 @@ const APP_HTML = `<!DOCTYPE html>
         headers: {
           'Content-Type': 'application/octet-stream',
           'X-Vnsh-Client': 'web/1.0',
+          'X-Vnsh-Ref': VNSH_REF,
           'X-Vnsh-Write-Hash': H,
         },
         body: payload,
@@ -5057,7 +4997,12 @@ const APP_HTML = `<!DOCTYPE html>
         await sleep(300);
         progressEl.classList.remove('show');
         resultEl.classList.add('show');
-        resultUrlShort.textContent = truncateUrl(generatedUrl);
+        dropzone.classList.add('compact');
+        var whatYouGet = document.getElementById('what-you-get');
+        if (whatYouGet) whatYouGet.style.display = 'none';
+        var dzText = document.getElementById('dropzone-text');
+        if (dzText) dzText.textContent = 'Drop another file to make a new one';
+        resultUrlShort.textContent = generatedUrl;
         resultUrlFull.textContent = generatedUrl;
         document.getElementById('result-view-url').textContent = viewOnlyUrl;
         document.getElementById('result-view').classList.add('show');
@@ -5081,16 +5026,38 @@ const APP_HTML = `<!DOCTYPE html>
       }
     }
 
+    // 'w' means they got here from someone else's workspace page — the growth
+    // loop, and the only cohort whose conversion is worth measuring separately.
+    const VNSH_REF = (function () {
+      try {
+        var r = new URLSearchParams(location.search).get('ref');
+        return r === 'w' ? 'w' : 'direct';
+      } catch (e) { return 'direct'; }
+    })();
+
+    function report(event) {
+      try {
+        fetch('/api/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Vnsh-Client': 'web' },
+          body: JSON.stringify({ event: event, ref: VNSH_REF }),
+          keepalive: true,
+        }).catch(function () {});
+      } catch (e) {}
+    }
+    report('page_view');
+
     const SETUP_PROMPT = ${JSON.stringify(AGENT_SETUP_PROMPT)};
     (function () {
       var el = document.getElementById('setup-prompt-text');
       if (el) el.textContent = SETUP_PROMPT;
     })();
     function copySetupPrompt() {
+      report('prompt_copy');
       navigator.clipboard.writeText(SETUP_PROMPT).then(function () {
         showToast('Prompt copied \u2014 paste it into your agent');
         var b = document.querySelector('.setup-prompt-btn');
-        if (b) { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy prompt'; }, 2000); }
+        if (b) { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy the prompt'; }, 2000); }
       });
     }
     function copyViewOnly() {
