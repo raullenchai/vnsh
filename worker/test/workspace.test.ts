@@ -487,36 +487,96 @@ describe('homepage information architecture', () => {
     // which of the two links you send.
     expect(html).not.toContain('data-mode=');
 
-    // Secondary surfaces are still reachable, just not in the way.
-    expect(html).toContain('details class="more"');
+    // Secondary surfaces are still reachable, just folded away.
+    expect(html).toContain('<details class="fold">');
+  });
+
+  it('names the product concept where a first-time visitor looks', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // The headline has to carry the object, not just the mechanism: "one link
+    // you can read and write" leaves "read and write what?" unanswered.
+    expect(html).toContain('One workspace all your agents can read and write.');
+
+    // And the diagram names the same concept, so the two reinforce rather than
+    // repeat: the eyebrow lists the agents instead of echoing the headline.
+    expect(html).toContain('The portable workspace');
+  });
+
+  it('describes the workspace crypto as GCM, not the v1 blob CBC', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // Mutable content needs integrity — without an authentication tag anyone
+    // able to rewrite storage, the host included, could flip ciphertext bits
+    // undetectably. So workspaces are GCM, and the page said CBC in its trust
+    // copy and its footer long after that stopped being true.
+    // Bound the slice at the viewer overlay, which comes later in the DOM and
+    // legitimately says CBC — an unbounded slice would fail on correct markup.
+    const start = html.indexOf('Why you can hand it a private log');
+    const end = html.indexOf('<!-- Viewer Overlay -->');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const claims = html.slice(start, end);
+    expect(claims).not.toContain('AES-256-CBC');
+    expect(claims).toContain('AES-256-GCM');
+
+    // The v1 blob viewer genuinely is CBC and must keep saying so; this test
+    // must not push anyone into mislabelling it.
+    expect(html).toContain('Decrypting (AES-256-CBC)');
   });
 });
 
 describe('homepage onboarding order', () => {
-  it('puts the demo before the commitment', async () => {
+  it('explains the product before asking for anything', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
+
+    // Match elements, not bare class names: the class names also appear in the
+    // stylesheet far above the markup, which silently inverts a naive indexOf.
+    const at = (sel: string) => {
+      const i = html.indexOf(sel);
+      expect(i, 'missing from the page: ' + sel).toBeGreaterThan(-1);
+      return i;
+    };
+
+    // The diagram carries the one idea prose cannot: a workspace hosted by a
+    // party that cannot open it. It comes before either call to action.
+    expect(at('<svg class="diagram"')).toBeLessThan(at('id="dropzone"'));
 
     // Installing an MCP server pays off later and shows nothing on screen;
     // making a workspace pays off in two seconds and explains the product by
-    // producing it. Asking for the install first was asking for a commitment
-    // before the payoff.
-    // Match the elements, not the strings: the class names also appear in the
-    // stylesheet far above the markup, which silently inverts a naive indexOf.
-    const at = (sel: string) => html.indexOf(sel);
-    expect(at('<div class="flow">')).toBeLessThan(at('id="dropzone"'));
-    expect(at('id="dropzone"')).toBeLessThan(at('<div class="cta-block">'));
-    expect(html).toContain('one vnsh link');
+    // producing it. The demo therefore reads first.
+    expect(at('id="dropzone"')).toBeLessThan(at('id="setup-prompt-text"'));
   });
 
-  it('makes the dropzone read as the primary action', async () => {
+  it('gives the setup prompt more weight than the demo', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
-    // A dashed grey box reads as disabled or as a placeholder. This is the one
-    // thing a first-time visitor should touch.
-    expect(html).toContain('.dropzone {\n      border: 2px dashed var(--accent);');
+    // Making a workspace by hand happens once. Pasting the prompt is the only
+    // thing on the page that produces a second use, so it is the promoted half
+    // of the pair, not an equal peer.
+    expect(html).toContain('class="door door-promote"');
+    expect(html).toContain('btn-primary btn-wide setup-prompt-btn');
+  });
+
+  it('keeps the dropzone available after a workspace is made', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // Dropping a file is what that box is; if it vanishes on success, making a
+    // second one means hunting for a reset.
+    expect(html).toContain("dropzone.classList.add('compact')");
+    expect(html).toContain('.dropzone.compact {');
+  });
+
+  it('reads as a container rather than a placeholder', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // A flat dashed grey box reads as disabled. Assert the treatment exists
+    // without pinning the exact declaration, which is pure churn.
+    expect(html).toMatch(/\.dropzone \{[^}]*dashed/);
+    expect(html).toMatch(/\.dropzone:hover[^{]*\{[^}]*accent-edge/);
 
     // And it creates a workspace, not "a file upload" — the wording carries the
     // concept rather than reverting to the v1 story.
-    expect(html).toContain('you get a workspace link back');
+    expect(html).toContain('Workspace created');
   });
 });
