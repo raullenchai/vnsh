@@ -491,3 +491,32 @@ describe('homepage information architecture', () => {
     expect(html).toContain('details class="more"');
   });
 });
+
+describe('homepage onboarding order', () => {
+  it('puts the demo before the commitment', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // Installing an MCP server pays off later and shows nothing on screen;
+    // making a workspace pays off in two seconds and explains the product by
+    // producing it. Asking for the install first was asking for a commitment
+    // before the payoff.
+    // Match the elements, not the strings: the class names also appear in the
+    // stylesheet far above the markup, which silently inverts a naive indexOf.
+    const at = (sel: string) => html.indexOf(sel);
+    expect(at('<div class="flow">')).toBeLessThan(at('id="dropzone"'));
+    expect(at('id="dropzone"')).toBeLessThan(at('<div class="cta-block">'));
+    expect(html).toContain('one vnsh link');
+  });
+
+  it('makes the dropzone read as the primary action', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // A dashed grey box reads as disabled or as a placeholder. This is the one
+    // thing a first-time visitor should touch.
+    expect(html).toContain('.dropzone {\n      border: 2px dashed var(--accent);');
+
+    // And it creates a workspace, not "a file upload" — the wording carries the
+    // concept rather than reverting to the v1 story.
+    expect(html).toContain('you get a workspace link back');
+  });
+});

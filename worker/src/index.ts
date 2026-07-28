@@ -3630,6 +3630,16 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     /* Upload Panel (Web) */
+    .flow { display: flex; align-items: center; justify-content: center; gap: 10px;
+      flex-wrap: wrap; max-width: 760px; margin: 0 auto 0.5rem; font-size: 0.78rem; }
+    .flow-node { color: var(--fg-muted); border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 11px; white-space: nowrap; }
+    .flow-link { color: var(--accent); border: 1px solid var(--accent); border-radius: 6px;
+      padding: 5px 12px; font-weight: 600; white-space: nowrap; background: rgba(34,197,94,0.07); }
+    .flow-arrow { color: var(--fg-dim); font-size: 0.9rem; }
+    .flow-note { text-align: center; font-size: 0.74rem; color: var(--fg-dim); margin-bottom: 1.4rem; }
+    @media (max-width: 560px) { .flow-arrow { display: none; } .flow { gap: 6px; } }
+
     .cta-block { max-width: 720px; margin: 0 auto 1.1rem; }
     .cta-label { font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.5rem; text-align: center; }
     .cta-note { font-size: 0.72rem; color: var(--fg-dim); line-height: 1.55; text-align: center; margin-top: 0.55rem; }
@@ -3638,13 +3648,14 @@ const APP_HTML = `<!DOCTYPE html>
     .or-rule::before, .or-rule::after { content: ''; flex: 1; height: 1px; background: var(--border); }
     .panel-main { padding: 1.5rem; }
     .more { border-top: 1px solid var(--border); }
-    .more > summary { cursor: pointer; padding: 0.85rem 1.5rem; font-size: 0.78rem; color: var(--fg-muted);
-      list-style: none; }
+    .more > summary { cursor: pointer; padding: 1rem 1.5rem; font-size: 0.8rem; color: var(--fg-muted);
+      list-style: none; transition: background .12s, color .12s; }
+    .more > summary:hover { background: rgba(255,255,255,0.03); }
     .more > summary::-webkit-details-marker { display: none; }
     .more > summary::before { content: '+ '; color: var(--accent); }
     .more[open] > summary::before { content: '\\2212 '; }
     .more > summary:hover { color: var(--fg); }
-    .more-body { padding: 0 1.5rem 1.5rem; }
+    .more-body { padding: 0.25rem 1.5rem 1.75rem; line-height: 1.7; }
     .setup-prompt { position: relative; background: rgba(34,197,94,0.05); border: 1px solid var(--accent);
       border-radius: 8px; padding: 14px 16px; cursor: pointer; margin-bottom: 0.5rem;
       transition: background .15s; }
@@ -3668,20 +3679,16 @@ const APP_HTML = `<!DOCTYPE html>
     .result-view-url { font-family: monospace; font-size: 0.72rem; color: var(--fg-muted);
       word-break: break-all; margin-bottom: 8px; }
     .dropzone {
-      border: 2px dashed var(--border);
-      border-radius: 6px;
+      border: 2px dashed var(--accent);
+      border-radius: 12px;
+      background: rgba(34,197,94,0.04);
       padding: 3rem 2rem;
       text-align: center;
       cursor: pointer;
-      transition: all 0.2s ease;
-      background: var(--bg);
+      transition: background .15s, border-color .15s, transform .1s;
     }
-
-    .dropzone:hover {
-      border-color: var(--accent);
-      background: var(--accent-dim);
-    }
-
+    .dropzone:hover { background: rgba(34,197,94,0.09); }
+    .dropzone:active { transform: scale(0.995); }
     .dropzone.dragover {
       border-color: var(--accent);
       background: var(--accent-dim);
@@ -4476,22 +4483,16 @@ const APP_HTML = `<!DOCTYPE html>
     </a>
   </section>
 
-  <!-- The one action that matters. Everything else is below it. -->
-  <div class="cta-block">
-    <div class="cta-label">Paste this into the agent you already have open</div>
-    <div class="setup-prompt" id="setup-prompt" onclick="copySetupPrompt()">
-      <div class="setup-prompt-text" id="setup-prompt-text"></div>
-      <button class="btn btn-primary setup-prompt-btn" onclick="event.stopPropagation(); copySetupPrompt()">Copy</button>
-    </div>
-    <div class="cta-note">
-      It installs itself and starts handing work off through workspaces from then on.
-      Works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed &mdash; anything that speaks MCP.
-      If it can't open links, the per-agent commands are under
-      <em style="color: var(--fg-muted); font-style: normal;">Agent setup, in detail</em> below.
-    </div>
+  <div class="flow">
+    <span class="flow-node">Claude Code</span>
+    <span class="flow-arrow">&#8646;</span>
+    <span class="flow-link">one vnsh link</span>
+    <span class="flow-arrow">&#8646;</span>
+    <span class="flow-node">Cursor</span>
+    <span class="flow-arrow">&#8646;</span>
+    <span class="flow-node">a teammate</span>
   </div>
-
-  <div class="or-rule"><span>or try it right here</span></div>
+  <div class="flow-note">Everyone reads and writes the same document. It never changes address.</div>
 
   <!-- Console -->
   <div class="console">
@@ -4502,9 +4503,9 @@ const APP_HTML = `<!DOCTYPE html>
         <div class="dropzone-icon">┌──────────┐
 │    ↓↓    │
 └──────────┘</div>
-        <div class="dropzone-text">Drop files here to encrypt & share</div>
-        <div class="dropzone-hint">⌘V / Ctrl+V to paste</div>
-        <button class="btn" style="margin-top: 1rem;" onclick="event.stopPropagation(); document.getElementById('file-input').click();">or click to select file</button>
+        <div class="dropzone-text">Drop or paste anything here</div>
+        <div class="dropzone-hint">Encrypted in this browser &middot; you get a workspace link back</div>
+        <button class="btn" style="margin-top: 1rem;" onclick="event.stopPropagation(); document.getElementById('file-input').click();">or pick a file</button>
       </div>
       <input type="file" id="file-input">
 
@@ -4537,6 +4538,24 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
       </div>
     </div>
+
+  <!-- Asked after the demo, not before it. Installing an MCP server pays off
+       later; making a workspace pays off in two seconds. Seeing the two links
+       first is what makes this ask land. -->
+  <div class="cta-block">
+    <div class="cta-label">Want your agents doing this without you? Paste this into one.</div>
+    <div class="setup-prompt" id="setup-prompt" onclick="copySetupPrompt()">
+      <div class="setup-prompt-text" id="setup-prompt-text"></div>
+      <button class="btn btn-primary setup-prompt-btn" onclick="event.stopPropagation(); copySetupPrompt()">Copy</button>
+    </div>
+    <div class="cta-note">
+      It installs itself and starts handing work off through workspaces from then on.
+      Works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed &mdash; anything that speaks MCP.
+      If it can't open links, the per-agent commands are under
+      <em style="color: var(--fg-muted); font-style: normal;">Agent setup, in detail</em> below.
+    </div>
+  </div>
+
 
     <!-- Terminal Panel -->
     <details class="more"><summary>Terminal (CLI)</summary><div class="more-body" id="panel-terminal">
