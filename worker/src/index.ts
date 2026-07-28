@@ -1182,13 +1182,17 @@ export default {
       return errorResponse('METHOD_NOT_ALLOWED', 'Use GET or PUT', 405);
     }
 
-    // Route: GET /w/:id - workspace landing page.
-    // Phase 0 deliberately does NOT render workspace content here: doing so would
-    // run user-supplied HTML on the vnsh.dev origin, where it could read the key
-    // out of location.hash. Agents open workspaces locally from file:// instead.
+    // Route: GET/HEAD /w/:id - the workspace viewer.
+    // This page ships no workspace content: it fetches and decrypts client-side,
+    // then renders into a sandboxed frame (see WORKSPACE_PAGE). Content never runs
+    // on the vnsh.dev origin, so it cannot read the key out of location.hash.
     const workspacePageMatch = path.match(/^\/w\/([a-zA-Z0-9]+)$/);
-    if (request.method === 'GET' && workspacePageMatch && isValidWorkspaceId(workspacePageMatch[1])) {
-      return new Response(WORKSPACE_PAGE, {
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      workspacePageMatch &&
+      isValidWorkspaceId(workspacePageMatch[1])
+    ) {
+      return new Response(request.method === 'HEAD' ? null : WORKSPACE_PAGE, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
