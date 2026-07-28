@@ -2540,46 +2540,55 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://vnsh.dev/</loc>
+    <lastmod>2026-07-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/pipe</loc>
+    <lastmod>2026-07-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/llms.txt</loc>
+    <lastmod>2026-07-28</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog</loc>
+    <lastmod>2026-07-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog/host-blind-sharing-for-ai-coding</loc>
+    <lastmod>2026-02-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog/debug-ci-failures-with-claude-code</loc>
+    <lastmod>2026-02-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog/host-blind-encryption-in-chrome-extension</loc>
+    <lastmod>2026-02-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog/ai-debug-bundles-packaging-browser-context</loc>
+    <lastmod>2026-02-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/blog/url-fragments-encryption-keys</loc>
+    <lastmod>2026-02-18</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -2587,6 +2596,17 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 // Blog layout helper
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** '2026-02-18' -> 'February 18, 2026', without going through Date(). */
+function humanDate(iso: string): string {
+  const [year, month, day] = iso.split('-').map(Number);
+  return `${MONTH_NAMES[month - 1]} ${day}, ${year}`;
+}
+
 function blogPage(title: string, description: string, slug: string, date: string, content: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -2602,9 +2622,30 @@ function blogPage(title: string, description: string, slug: string, date: string
   <meta property="og:url" content="https://vnsh.dev/blog/${slug}">
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="vnsh">
+  <meta property="og:image" content="https://vnsh.dev/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="article:published_time" content="${date}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${title}">
   <meta name="twitter:description" content="${description}">
+  <meta name="twitter:image" content="https://vnsh.dev/og-image.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": ${JSON.stringify(title)},
+    "description": ${JSON.stringify(description)},
+    "datePublished": "${date}",
+    "dateModified": "${date}",
+    "image": "https://vnsh.dev/og-image.png",
+    "url": "https://vnsh.dev/blog/${slug}",
+    "mainEntityOfPage": { "@type": "WebPage", "@id": "https://vnsh.dev/blog/${slug}" },
+    "author": { "@type": "Organization", "name": "vnsh", "url": "https://vnsh.dev" },
+    "publisher": { "@type": "Organization", "name": "vnsh", "url": "https://vnsh.dev" },
+    "isPartOf": { "@type": "Blog", "name": "vnsh Blog", "@id": "https://vnsh.dev/blog" }
+  }
+  </script>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
@@ -2698,7 +2739,7 @@ function blogPage(title: string, description: string, slug: string, date: string
     <nav class="blog-nav">
       <a href="/">vnsh</a> <span class="sep">/</span> <a href="/blog">blog</a> <span class="sep">/</span> <span style="color:#525252">${slug}</span>
     </nav>
-    <div class="blog-date">${date}</div>
+    <time class="blog-date" datetime="${date}">${humanDate(date)}</time>
     <h1 class="blog-title">${title}</h1>
     <p class="blog-subtitle">${description}</p>
     <article>${content}</article>
@@ -2708,7 +2749,7 @@ function blogPage(title: string, description: string, slug: string, date: string
       <a href="https://chromewebstore.google.com/detail/vnsh-%E2%80%94-encrypted-sharing/ipilmdgcajaoggfmmblockgofednkbbl">Chrome Extension</a>
     </div>
     <div class="blog-footer">
-      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a> &middot; AES-256-CBC &middot; Host-blind
+      <a href="/">vnsh.dev</a> &middot; <a href="https://github.com/raullenchai/vnsh">GitHub</a> &middot; Host-blind &middot; MIT
     </div>
   </div>
 </body>
@@ -2814,7 +2855,7 @@ const BLOG_POSTS: Record<string, string> = {
     "Why Your AI Coding Assistant Shouldn't See Your Secrets in Plaintext",
     'How host-blind encryption protects your code, logs, and configs when sharing with AI coding tools like Claude Code and Cursor.',
     'host-blind-sharing-for-ai-coding',
-    'February 18, 2026',
+    '2026-02-18',
     `
 <h2>The Problem: Pasting Secrets Into AI</h2>
 
@@ -2948,7 +2989,7 @@ cat docker-compose.yml | vn</code></pre>
     "Debug CI Failures Faster with vnsh + Claude Code",
     "A step-by-step tutorial on using the upload-to-vnsh GitHub Action and Claude Code MCP to debug CI failures in seconds.",
     'debug-ci-failures-with-claude-code',
-    'February 18, 2026',
+    '2026-02-18',
     `
 <h2>The Problem: CI Fails, Now What?</h2>
 
@@ -3094,7 +3135,7 @@ Paste link to Claude for instant analysis</code></pre>
     "How We Implemented Host-Blind Encryption in a Chrome Extension",
     "A technical deep-dive into building AES-256-CBC client-side encryption in a Manifest V3 Chrome Extension using the WebCrypto API, with cross-platform byte-identical output.",
     'host-blind-encryption-in-chrome-extension',
-    'February 18, 2026',
+    '2026-02-18',
     `
 <h2>The Constraint: Three Platforms, One Ciphertext</h2>
 
@@ -3227,7 +3268,7 @@ function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
     "One-Click AI Debug Bundles: Packaging Browser Context for LLMs",
     "How vnsh's AI Debug Bundle captures screenshots, console errors, selected text, and page URLs into a single encrypted link for AI-assisted debugging.",
     'ai-debug-bundles-packaging-browser-context',
-    'February 18, 2026',
+    '2026-02-18',
     `
 <h2>The Debugging Tax</h2>
 
@@ -3357,7 +3398,7 @@ function decodeSecret(secret: string): { key: ArrayBuffer; iv: ArrayBuffer } {
     "Why URL Fragments Are the Best Place to Hide Encryption Keys",
     "A security deep-dive into RFC 3986, the HTTP specification, and why the URL fragment (#) is the ideal transport for client-side encryption keys.",
     'url-fragments-encryption-keys',
-    'February 18, 2026',
+    '2026-02-18',
     `
 <h2>The Fragment Guarantee</h2>
 
@@ -3518,13 +3559,15 @@ const APP_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>vnsh | Portable Workspaces for AI Agents</title>
+  <title>Share context between Claude Code, Cursor &amp; any agent | vnsh</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
   <meta name="description" content="A shared workspace that any AI agent can read and write through one link — Claude Code, Cursor, OpenHands. Encrypted in your browser, so vnsh cannot read it. Like Claude Code Artifacts, but not locked to one vendor. Free.">
   <meta name="keywords" content="vnsh, portable workspace, multi agent workspace, claude code artifacts alternative, share context between ai agents, model agnostic, mcp server, claude code, cursor, openhands, encrypted sharing, host-blind, ephemeral, ai context sharing, npx vnsh">
   <meta property="og:title" content="vnsh — Portable Workspaces for AI Agents">
   <meta property="og:description" content="One link. Any agent can read and write it. Encrypted in your browser — vnsh cannot read it. Gone 24h after the last edit.">
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="vnsh">
+  <meta property="og:locale" content="en_US">
   <meta property="og:url" content="https://vnsh.dev">
   <meta property="og:image" content="https://vnsh.dev/og-image.png">
   <meta property="og:image:width" content="1200">
@@ -3543,7 +3586,7 @@ const APP_HTML = `<!DOCTYPE html>
     "@type": "SoftwareApplication",
     "name": "vnsh",
     "alternateName": "Portable Workspaces for AI Agents",
-    "description": "A host-blind, client-side encrypted file sharing CLI tool for AI agents like Claude. Pipe logs, diffs, and images from terminal. Pastebin alternative with AES-256 encryption.",
+    "description": "A shared, encrypted workspace that any AI agent can read and write through one link \u2014 Claude Code, Cursor, OpenHands, Cline. Encrypted in your browser, so vnsh cannot read it. Deleted 24 hours after the last edit.",
     "url": "https://vnsh.dev",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Cross-platform (macOS, Linux, Windows)",
@@ -3560,16 +3603,17 @@ const APP_HTML = `<!DOCTYPE html>
       "priceCurrency": "USD"
     },
     "featureList": [
+      "One link every agent can both read and write",
+      "Model-agnostic: works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed",
+      "Host-blind architecture - the server never sees your data",
       "End-to-end encryption (AES-256-GCM for workspaces, AES-256-CBC for one-shot blobs)",
-      "Host-blind architecture - server never sees your data",
-      "24-hour auto-vaporization",
-      "Native MCP integration for Claude Code",
+      "Optimistic concurrency so two agents cannot silently overwrite each other",
+      "Deleted 24 hours after the last edit",
+      "Native MCP integration",
       "CLI tool for terminal workflows",
-      "Supports screenshots, logs, git diffs, PDFs, binaries",
-      "OpenSSL compatible encryption",
-      "Host-blind encrypted sharing for sensitive files"
+      "Supports screenshots, logs, git diffs, PDFs, binaries"
     ],
-    "keywords": "cli, security, encryption, claude, mcp, file-sharing, pastebin alternative"
+    "keywords": "share context between ai agents, claude code, cursor, openhands, mcp server, portable workspace, encrypted sharing, host-blind, ephemeral, claude artifacts alternative"
   }
   </script>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' http://localhost:* https://*.vnsh.dev https://vnsh.dev; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' blob:">
@@ -4702,6 +4746,7 @@ const APP_HTML = `<!DOCTYPE html>
   <div class="band">
     <div class="footer">
       AES-256-GCM &middot; keys stay in the URL fragment
+      <span class="dot">&middot;</span><a href="/blog">Writing</a>
       <span class="dot">&middot;</span><a href="https://github.com/raullenchai/vnsh">Source</a>
       <span class="dot">&middot;</span><a href="/llms.txt">llms.txt</a>
       <span class="dot">&middot;</span>MIT
