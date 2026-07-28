@@ -221,7 +221,11 @@ describe('GET /w/:id viewer', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toContain('text/html');
     const html = await response.text();
-    expect(html).toContain('vnsh workspace');
+    expect(html).toContain('Shared workspace');
+    // A shared link is opened by people who do not know vnsh yet, so the tab and
+    // the social preview are brand surfaces, not afterthoughts.
+    expect(html).toContain('og:image');
+    expect(html).toContain('rel="icon"');
   });
 
   it('renders workspace content only inside a sandboxed frame', async () => {
