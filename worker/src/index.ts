@@ -34,6 +34,20 @@ const MAX_BLOB_SIZE = 25 * 1024 * 1024; // 25MB
 const DEFAULT_TTL_HOURS = 24;
 const MAX_TTL_HOURS = 168; // 7 days
 
+// The single line the whole distribution strategy rests on. It has to do two
+// things, because installing a tool does not make an agent reach for it: put the
+// MCP server in place, AND write a standing rule into whatever instructions file
+// that agent reads every session. Agents are single-session and will not infer
+// on their own that work should be handed off somewhere.
+//
+// It stays this short only because /llms.txt does the teaching. Keep them in sync.
+const AGENT_SETUP_PROMPT =
+  'Set up vnsh as our shared workspace. Install the MCP server `npx -y vnsh-mcp` ' +
+  'into your config, then add a standing rule to my agent instructions file ' +
+  '(CLAUDE.md, .cursorrules, AGENTS.md \u2014 whichever you use): when work should ' +
+  'carry over to another agent, session, or person, put it in a vnsh workspace and ' +
+  'give me the link instead of pasting it. Docs: https://vnsh.dev/llms.txt';
+
 // Base62 characters for short IDs (0-9, A-Z, a-z)
 const BASE62_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
@@ -795,7 +809,9 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   .spacer{flex:1 1 auto}
   .lock{color:var(--ok)}
   .note{color:var(--ink-3)}
-  .cta{margin-left:auto;color:var(--accent);text-decoration:none;font-weight:600;white-space:nowrap}
+  .cta{margin-left:auto;color:var(--accent);font-weight:600;white-space:nowrap;
+    background:none;border:0;font:inherit;font-size:.76rem;cursor:pointer;padding:0}
+  .cta:hover{text-decoration:underline}
   .cta:hover{text-decoration:underline}
   button{font:inherit;font-size:.78rem;background:#21262d;color:var(--ink);border:1px solid #30363d;
     border-radius:5px;padding:.32em .7em;cursor:pointer;white-space:nowrap}
@@ -852,7 +868,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   <span class="lock">&#128274;</span>
   <span id="trust">Encrypted end-to-end &mdash; vnsh cannot read this page.</span>
   <span class="note" id="share-note" hidden></span>
-  <a class="cta" href="https://vnsh.dev">Share your own work like this &rarr;</a>
+  <button class="cta" id="get-vnsh">Get this in your own agent &rarr;</button>
 </footer>
 
 <script>
@@ -1134,6 +1150,27 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     }
 
     render();
+  }
+
+  // Someone reading a workspace is the warmest possible lead: they are looking at
+  // the thing working, sent by someone they trust. Hand them the same one-liner
+  // rather than sending them to the homepage to start over.
+  var SETUP_PROMPT = ${JSON.stringify(AGENT_SETUP_PROMPT)};
+  var cta = document.getElementById('get-vnsh');
+  if (cta) {
+    cta.onclick = function () {
+      var done = function () {
+        cta.textContent = 'Prompt copied \u2014 paste it into your agent';
+        setTimeout(function () { cta.textContent = 'Get this in your own agent \u2192'; }, 3000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(SETUP_PROMPT).then(done, function () {
+          window.prompt('Paste this into your agent:', SETUP_PROMPT);
+        });
+      } else {
+        window.prompt('Paste this into your agent:', SETUP_PROMPT);
+      }
+    };
   }
 
   function run() {
@@ -2309,78 +2346,83 @@ curl "https://vnsh.dev/api/blob/{id}"
 const LLMS_TXT = `# vnsh — Portable Workspaces for AI Agents
 # https://vnsh.dev
 
-> vnsh is a host-blind encrypted sharing tool. The server stores encrypted
-> blobs but NEVER sees the decryption keys. Keys travel exclusively in the
-> URL fragment (#), which per HTTP spec is never sent to the server.
+> One encrypted link that several AI agents can each read AND write. Hand work
+> from Claude Code to Cursor to OpenHands without copy-pasting context between
+> windows. Like Claude Code Artifacts, but not locked to one vendor — and free.
+>
+> Content is encrypted in the client. The key travels only in the URL fragment,
+> which per HTTP spec is never sent to a server, so vnsh stores ciphertext it
+> cannot read.
 
-## How to read a vnsh URL
+## Install (any MCP client)
 
-When a user shares a URL like:
-  https://vnsh.dev/v/XytNB3FjX0iO#t5LQttIGBRKq0Ww9...
+The user can paste this at their agent and it sets itself up:
 
-The decryption key is in the fragment after #. You already have it — the user
-pasted the full URL into your conversation.
+  Set up vnsh as our shared workspace. Install the MCP server \`npx -y vnsh-mcp\`
+  into your config, then add a standing rule to my agent instructions file
+  (CLAUDE.md, .cursorrules, AGENTS.md — whichever you use): when work should
+  carry over to another agent, session, or person, put it in a vnsh workspace and
+  give me the link instead of pasting it. Docs: https://vnsh.dev/llms.txt
 
-### Method 1: npx (recommended, zero-install)
+Direct commands:
 
-Run this command in your shell/terminal:
+  Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp
+  Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp"]}}
+  OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp
+  Cline          same server object in cline_mcp_settings.json
+  Windsurf       same server object in mcp_config.json
+  Zed            same server object under context_servers
 
-  npx vnsh read "PASTE_THE_FULL_URL_HERE"
+Tools: vnsh_workspace_create, vnsh_workspace_read, vnsh_workspace_update,
+vnsh_workspace_open, plus vnsh_read / vnsh_share / vnsh_share_file for one-shot blobs.
 
-This handles both v1 and v2 URL formats automatically. It fetches the
-encrypted blob, extracts key+IV from the fragment, decrypts locally with
-AES-256-CBC, and prints the plaintext to stdout.
+## When to reach for a workspace
 
-### Method 2: curl + openssl (no Node.js required)
+Use one whenever work will continue somewhere else: another agent, another
+session, or a person. A workspace keeps the same URL as its contents change, so
+the link handed over yesterday shows today's version. Prefer this over pasting
+long context into a reply.
 
-For v1 URLs (format: #k=HEX_KEY&iv=HEX_IV):
+## Workspace URLs
 
-  URL="THE_FULL_URL"
-  ID=\$(echo "\$URL" | sed 's|.*/v/||;s|#.*||')
-  KEY=\$(echo "\$URL" | sed 's|.*#k=||;s|&.*||')
-  IV=\$(echo "\$URL" | sed 's|.*&iv=||')
-  curl -s "https://vnsh.dev/api/blob/\$ID" | openssl enc -d -aes-256-cbc -K "\$KEY" -iv "\$IV"
+  https://vnsh.dev/w/{id}#w=<secret>   read + write
+  https://vnsh.dev/w/{id}#r=<key>      read only
 
-For v2 URLs (format: #BASE64URL_64CHARS):
-  The fragment is 64 characters of base64url encoding 48 bytes (32-byte key +
-  16-byte IV concatenated). Decode with base64url, split at byte 32, hex-encode
-  each part, then use the same openssl command. Easier to just use npx vnsh read.
+Both decrypt every version. #r= cannot write and cannot be turned back into an
+edit link — the read key is a one-way derivation of the root secret.
 
-## Why WebFetch alone won't work
+Workspaces are deleted 24 hours after their last write. Each write renews that.
 
-When you fetch https://vnsh.dev/v/ID#secret, the HTTP request only sends
-GET /v/ID — the #secret part is stripped by the HTTP client per RFC 3986.
-The server returns the viewer HTML page, not the decrypted content.
-You must parse the fragment from the URL string yourself and decrypt locally.
+## Reading a workspace without vnsh tooling
 
-## URL formats
+The key is in the fragment, so an HTTP fetch alone never returns anything
+readable. In any language with a crypto library:
 
-v1: https://vnsh.dev/v/{ID}#k={HEX_KEY}&iv={HEX_IV}
-v2: https://vnsh.dev/v/{ID}#{BASE64URL_SECRET}
+  S    = base64url-decode(fragment after #w=)                  # 32 bytes
+  K    = HKDF-SHA256(ikm=S, salt="", info="vnsh/enc/v2", 32)   # for #r=, the fragment IS K
+  body = GET https://vnsh.dev/api/workspace/{id}               # nonce(12) || ciphertext || tag(16)
+  text = AES-256-GCM-decrypt(key=K, nonce=body[0:12], ct=body[12:])
 
-v2 is the current default. The 64-char base64url secret encodes key(32B)+iv(16B).
+To write, you also need the write token:
 
-## API endpoints
+  W = HKDF-SHA256(ikm=S, salt="", info="vnsh/write/v2", 32), hex-encoded
+  PUT https://vnsh.dev/api/workspace/{id}
+    X-Vnsh-Write: <W>        If-Match: "<current version, from the ETag>"
 
-POST /api/drop          Upload an encrypted blob (returns JSON with "id")
-GET  /api/blob/{id}     Download the raw encrypted blob
-GET  /llms.txt          This file
-GET  /skill.md          OpenClaw skill definition
+A PUT without If-Match is refused, so one agent cannot silently overwrite
+another's work. On 412, re-read, merge, and retry.
 
-## Encryption details
+## Why WebFetch alone will not work
 
-Algorithm: AES-256-CBC
-Key: 32 bytes (256 bits)
-IV: 16 bytes (128 bits)
-Padding: PKCS#7 (OpenSSL default)
-The encrypted blob is the raw ciphertext — no headers, no metadata.
+Fetching https://vnsh.dev/w/ID#secret sends only GET /w/ID — the fragment is
+stripped by the client per RFC 3986. The server returns the viewer page, not the
+content. Parse the fragment yourself and decrypt locally.
 
-## Content lifecycle
+## One-shot sharing (v1, still supported)
 
-- Default TTL: 24 hours
-- Maximum TTL: 168 hours (7 days)
-- After expiry, blobs are permanently deleted from storage
-- The server cannot decrypt expired or active blobs (it never has the keys)
+For content that will not change, https://vnsh.dev/v/{ID}#... blobs are
+immutable and use AES-256-CBC. Details below.
+
 `;
 
 // robots.txt - Allow all crawlers
@@ -3570,6 +3612,13 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     /* Upload Panel (Web) */
+    .setup-prompt { position: relative; background: rgba(34,197,94,0.05); border: 1px solid var(--accent);
+      border-radius: 8px; padding: 14px 16px; cursor: pointer; margin-bottom: 0.5rem;
+      transition: background .15s; }
+    .setup-prompt:hover { background: rgba(34,197,94,0.09); }
+    .setup-prompt-text { font-family: monospace; font-size: 0.76rem; line-height: 1.65; color: var(--fg);
+      white-space: pre-wrap; word-break: break-word; margin-bottom: 10px; }
+    .setup-prompt-btn { font-size: 0.78rem; }
     .mode-switch { display: grid; gap: 8px; margin-bottom: 1rem; }
     @media (min-width: 640px) { .mode-switch { grid-template-columns: 1fr 1fr; } }
     .mode { text-align: left; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
@@ -4497,10 +4546,19 @@ const APP_HTML = `<!DOCTYPE html>
     <div class="tab-panel" id="panel-agent">
       <div class="mcp-section">
         <div class="section-label" style="margin-bottom: 0.5rem;">// Agent (MCP) — one workspace, every agent</div>
-        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.8rem; line-height: 1.5;">
-          <strong style="color: var(--fg);">Model Context Protocol</strong> is spoken by Claude Code, Cursor, OpenHands and others.
-          Install once and any of them can read <em style="color: var(--fg);">and write</em> the same workspace &mdash; the link never changes as the document does.
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.9rem; line-height: 1.5;">
+          You already have an agent open. Paste this into it &mdash; it installs vnsh and starts
+          handing work off through workspaces from then on.
         </p>
+        <div class="setup-prompt" id="setup-prompt" onclick="copySetupPrompt()">
+          <div class="setup-prompt-text" id="setup-prompt-text"></div>
+          <button class="btn btn-primary setup-prompt-btn" onclick="event.stopPropagation(); copySetupPrompt()">Copy prompt</button>
+        </div>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-bottom: 1.4rem;">
+          Works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed &mdash; anything that speaks MCP.
+          The agent knows where its own config lives, so you don't have to.
+        </p>
+        <div class="section-label" style="margin-bottom: 0.5rem;">// What it gets you</div>
         <div style="font-size: 0.74rem; color: var(--fg-muted); margin-bottom: 1rem; line-height: 1.9;">
           <div><code style="color: var(--accent);">vnsh_workspace_create</code> &nbsp;open one, get an edit link and a view-only link</div>
           <div><code style="color: var(--accent);">vnsh_workspace_read</code> &nbsp;&nbsp;&nbsp;pick up what the last agent left</div>
@@ -4508,6 +4566,15 @@ const APP_HTML = `<!DOCTYPE html>
           <div><code style="color: var(--accent);">vnsh_workspace_open</code> &nbsp;&nbsp;&nbsp;render it locally, sandboxed</div>
         </div>
 
+        <div class="section-label" style="margin: 1.2rem 0 0.5rem;">// Or install it yourself</div>
+        <div class="code-block" id="mcp-cmd" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp', this)" style="margin-bottom: 0.4rem;">
+          <code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp</code>
+          <button class="copy-btn" title="Copy">&#10696;</button>
+        </div>
+        <p style="font-size: 0.7rem; color: var(--fg-dim); margin-bottom: 0.8rem;">
+          Cursor, OpenHands, Cline, Windsurf and Zed take the same server in their own MCP config &mdash;
+          command <code style="color: var(--accent);">npx</code>, args <code style="color: var(--accent);">["-y","vnsh-mcp"]</code>.
+        </p>
         <div class="code-block" id="mcp-box" onclick="copyCommand('curl -sL vnsh.dev/claude | sh', this)" style="margin-bottom: 0.4rem;">
           <code><span class="prompt">$ </span>curl -sL vnsh.dev/claude | sh</code>
           <button class="copy-btn" title="Copy">⧉</button>
@@ -4960,6 +5027,18 @@ const APP_HTML = `<!DOCTYPE html>
       }
     }
 
+    const SETUP_PROMPT = ${JSON.stringify(AGENT_SETUP_PROMPT)};
+    (function () {
+      var el = document.getElementById('setup-prompt-text');
+      if (el) el.textContent = SETUP_PROMPT;
+    })();
+    function copySetupPrompt() {
+      navigator.clipboard.writeText(SETUP_PROMPT).then(function () {
+        showToast('Prompt copied \u2014 paste it into your agent');
+        var b = document.querySelector('.setup-prompt-btn');
+        if (b) { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy prompt'; }, 2000); }
+      });
+    }
     function copyViewOnly() {
       navigator.clipboard.writeText(viewOnlyUrl).then(function () { showToast('View-only link copied'); });
     }

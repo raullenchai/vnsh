@@ -270,8 +270,9 @@ describe('GET /w/:id viewer', () => {
     expect(html).not.toContain('untrusted content');
     expect(html).toContain('vnsh cannot read this page');
 
-    // Every shared workspace is seen by someone who may not know vnsh.
-    expect(html).toContain('Share your own work like this');
+    // Every shared workspace is opened by someone who may not know vnsh — and who
+    // is looking at it working. That makes this the warmest install surface there is.
+    expect(html).toContain('Get this in your own agent');
 
     // What each tier grants has to be stated at the point of sharing, not left
     // for the sender to discover after the fact.
@@ -412,5 +413,43 @@ describe('homepage', () => {
     expect(html).toContain("data-mode=\"drop\"");
     expect(html).toContain('/api/drop');
     expect(html).toContain('id="dropzone"');
+  });
+});
+
+describe('agent setup prompt', () => {
+  // Installing a tool does not make an agent reach for it. Agents are
+  // single-session and cannot infer that work should be handed off elsewhere, so
+  // the prompt has to write a standing rule into whatever instructions file that
+  // agent reads — otherwise vnsh is available but never used.
+  it('installs the server and establishes default behaviour', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    expect(html).toContain('npx -y vnsh-mcp');
+    expect(html).toContain('standing rule');
+    expect(html).toContain('CLAUDE.md, .cursorrules, AGENTS.md');
+  });
+
+  it('is offered on the viewer too, where recipients land', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    expect(html).toContain('Get this in your own agent');
+    expect(html).toContain('npx -y vnsh-mcp');
+  });
+
+  it('names more than one agent, since model-agnostic is the claim', async () => {
+    const home = await (await call(new Request('http://localhost/'))).text();
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    for (const agent of ['Cursor', 'OpenHands', 'Cline', 'Windsurf', 'Zed']) {
+      expect(llms).toContain(agent);
+    }
+    expect(home).toContain('claude mcp add vnsh -- npx -y vnsh-mcp');
+  });
+
+  it('llms.txt teaches workspaces, so the prompt can stay short', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+    expect(llms).toContain('vnsh/enc/v2');
+    expect(llms).toContain('If-Match');
+    expect(llms).toContain('#r=');
+    expect(llms).toContain('Claude Code Artifacts');
   });
 });
