@@ -426,8 +426,13 @@ describe('agent setup prompt', () => {
     expect(m).not.toBeNull();
     // A call to action nobody reads is not one. The instructions it used to carry
     // moved into /llms.txt, which is where an agent will look anyway.
-    expect(m![1].length).toBeLessThan(140);
-    expect(m![1]).toContain('npx -y vnsh-mcp');
+    expect(m![1].length).toBeLessThan(120);
+    // Names the concept and the scope; everything operational lives behind the URL.
+    // An inline install command was tried and dropped: `npx -y vnsh-mcp` only starts
+    // the server in the foreground, registering nothing, so it did not rescue the
+    // case it was added for.
+    expect(m![1]).toContain('workspaces');
+    expect(m![1]).toContain('people and agents');
     expect(m![1]).toContain('vnsh.dev/llms.txt');
   });
 
