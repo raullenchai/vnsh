@@ -752,19 +752,24 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
     font:14px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',system-ui,sans-serif}
-  header{flex:0 0 auto;border-bottom:1px solid var(--line);background:var(--panel);
-    padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .brand{font-weight:700;letter-spacing:-.01em;color:var(--ink)}
-  .brand a{color:inherit;text-decoration:none}
+  header,footer{flex:0 0 auto;background:var(--panel);border-color:var(--line);
+    padding:9px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  header{border-bottom:1px solid var(--line)}
+  footer{border-top:1px solid var(--line);font-size:.76rem;color:var(--ink-3);gap:6px 14px}
+  .brand{font-weight:700;letter-spacing:-.01em}
+  .brand a{color:var(--ink);text-decoration:none}
   .meta{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.72rem;color:var(--ink-3)}
   .spacer{flex:1 1 auto}
-  .warn{display:flex;align-items:center;gap:.5em;font-size:.74rem;color:var(--accent);
-    background:var(--accent-soft);border:1px solid #3d2f16;border-radius:5px;padding:.25em .6em;
-    font-family:ui-monospace,'SF Mono',Menlo,monospace}
+  .lock{color:var(--ok)}
+  .note{color:var(--ink-3)}
+  .cta{margin-left:auto;color:var(--accent);text-decoration:none;font-weight:600;white-space:nowrap}
+  .cta:hover{text-decoration:underline}
   button{font:inherit;font-size:.78rem;background:#21262d;color:var(--ink);border:1px solid #30363d;
-    border-radius:5px;padding:.32em .7em;cursor:pointer}
+    border-radius:5px;padding:.32em .7em;cursor:pointer;white-space:nowrap}
   button:hover{background:#30363d}
-  button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  button.primary{background:#1f6feb;border-color:#2b7cf0;color:#fff}
+  button.primary:hover{background:#2b7cf0}
   main{flex:1 1 auto;position:relative;min-height:0}
   iframe{width:100%;height:100%;border:0;background:#fff;display:block}
   #status{padding:40px 20px;text-align:center;color:var(--ink-2);font-size:.9rem}
@@ -781,13 +786,19 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   <span class="brand"><a href="https://vnsh.dev">vnsh</a></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
-  <span class="warn" title="This content was written by whoever created the link, not by vnsh.">untrusted content</span>
+  <button class="primary" id="share" hidden>Copy link</button>
   <button id="dl" hidden>Download</button>
   <button id="raw" hidden>View source</button>
 </header>
 <main>
   <div id="status"><b>Decrypting…</b>The key never leaves your browser.</div>
 </main>
+<footer>
+  <span class="lock">&#128274;</span>
+  <span id="trust">Encrypted end-to-end &mdash; vnsh cannot read this page.</span>
+  <span class="note" id="share-note" hidden>Anyone with the link can read and edit it.</span>
+  <a class="cta" href="https://vnsh.dev">Share your own work like this &rarr;</a>
+</footer>
 
 <script>
 (function () {
@@ -932,12 +943,40 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     }
 
     fileName = 'vnsh-' + id + '-v' + version + (looksLikeHtml(plaintext) ? '.html' : '.txt');
-    var when = expires ? new Date(expires) : null;
-    metaEl.textContent = id + ' · v' + version +
-      (when ? ' · expires ' + when.toLocaleString() : '');
+
+    function humanLeft(iso) {
+      if (!iso) return '';
+      var ms = new Date(iso).getTime() - Date.now();
+      if (isNaN(ms) || ms <= 0) return ' \u00b7 expired';
+      var h = Math.floor(ms / 3600000);
+      if (h >= 1) return ' \u00b7 expires in ' + h + 'h';
+      return ' \u00b7 expires in ' + Math.max(1, Math.floor(ms / 60000)) + 'm';
+    }
+    metaEl.textContent = id + ' \u00b7 v' + version + humanLeft(expires);
     document.title = 'vnsh workspace ' + id;
 
-    var dl = document.getElementById('dl'), raw = document.getElementById('raw');
+    var dl = document.getElementById('dl');
+    var raw = document.getElementById('raw');
+    var share = document.getElementById('share');
+
+    // Sharing is just handing over the URL — possession of the link is the whole
+    // access model. The footer has to say so, because in this phase the only link
+    // that exists also grants write access.
+    share.hidden = false;
+    document.getElementById('share-note').hidden = false;
+    share.onclick = function () {
+      var full = location.href;
+      var done = function () {
+        share.textContent = 'Link copied';
+        setTimeout(function () { share.textContent = 'Copy link'; }, 2000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(full).then(done, function () { window.prompt('Copy this link:', full); });
+      } else {
+        window.prompt('Copy this link:', full);
+      }
+    };
+
     dl.hidden = false;
     dl.onclick = function () {
       var a = document.createElement('a');
@@ -946,6 +985,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       a.click();
       URL.revokeObjectURL(a.href);
     };
+
     if (looksLikeHtml(plaintext)) {
       raw.hidden = false;
       raw.onclick = function () {
@@ -972,6 +1012,8 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     plaintext = null; showingSource = false;
     document.getElementById('dl').hidden = true;
     document.getElementById('raw').hidden = true;
+    document.getElementById('share').hidden = true;
+    document.getElementById('share-note').hidden = true;
     metaEl.textContent = '';
     mainEl.innerHTML = '<div id="status"><b>Decrypting\u2026</b>The key never leaves your browser.</div>';
     statusEl = document.getElementById('status');

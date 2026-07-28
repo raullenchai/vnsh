@@ -257,6 +257,24 @@ describe('GET /w/:id viewer', () => {
     expect(html).not.toContain('html.match(/<head');
   });
 
+  it('surfaces sharing and vnsh itself instead of a bare warning', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    // "untrusted content" read as an alarm to someone opening their own report,
+    // while the real anti-phishing controls (form-action 'none', no network) do
+    // the actual work. State the guarantee instead.
+    expect(html).not.toContain('untrusted content');
+    expect(html).toContain('vnsh cannot read this page');
+
+    // Every shared workspace is seen by someone who may not know vnsh.
+    expect(html).toContain('Share your own work like this');
+
+    // Phase 0 has a single tier, so the only link that exists also grants writes.
+    // Saying so is required, not optional.
+    expect(html).toContain('read and edit it');
+    expect(html).toContain('Copy link');
+  });
+
   it('does not advertise commands that do not exist', async () => {
     const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
     // An earlier draft told recipients to run `npx vnsh workspace read`, which the
