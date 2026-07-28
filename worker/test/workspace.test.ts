@@ -368,3 +368,29 @@ describe('body size limits', () => {
     expect(await read.text()).toBe('original');
   });
 });
+
+describe('agent attribution', () => {
+  // Claude Code, Cursor and OpenHands all reach vnsh through the same MCP server,
+  // so X-Vnsh-Client reports "mcp" for every one of them. Without a separate agent
+  // label, two agents collaborating on a workspace is indistinguishable from one
+  // agent writing twice — a false negative on the only question this phase asks.
+  it('accepts and does not reject an agent label', async () => {
+    const { id } = await createWorkspace();
+
+    const response = await call(
+      new Request(`http://localhost/api/workspace/${id}`, {
+        headers: { 'X-Vnsh-Client': 'mcp/1.3.0', 'X-Vnsh-Agent': 'Claude Code' },
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.arrayBuffer();
+  });
+
+  it('allows the agent header through CORS so browser clients can send it', async () => {
+    const response = await call(
+      new Request('http://localhost/api/workspace/aaaaaaaaaaaa', { method: 'OPTIONS' }),
+    );
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('X-Vnsh-Agent');
+    await response.arrayBuffer();
+  });
+});

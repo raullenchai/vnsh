@@ -68,7 +68,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Write, X-Vnsh-Write-Hash',
+    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Write, X-Vnsh-Write-Hash',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
   'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires',
@@ -211,6 +211,17 @@ function getClientIp(request: Request): string {
   return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
+// Which agent is behind the client. All MCP clients share one server and would
+// otherwise be indistinguishable as "mcp", which would make "how many agents
+// touched this workspace" unanswerable — the question Phase 0 exists to answer.
+// Client-supplied, so it is constrained on the way in and only ever used as a
+// grouping label.
+function getClientAgent(request: Request): string {
+  const raw = request.headers.get('X-Vnsh-Agent') || '';
+  const clean = raw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return clean ? clean.slice(0, 32) : 'unknown';
+}
+
 // Parse X-Vnsh-Client header for source attribution
 function getClientSource(request: Request): string {
   const header = request.headers.get('X-Vnsh-Client') || '';
@@ -236,11 +247,17 @@ type TrackedEvent =
   | 'workspace_read'
   | 'workspace_update';
 
-function trackEvent(env: Env, event: TrackedEvent, source: string, workspaceId?: string): void {
+function trackEvent(
+  env: Env,
+  event: TrackedEvent,
+  source: string,
+  workspaceId?: string,
+  agent?: string,
+): void {
   if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
   try {
     env.VNSH_ANALYTICS.writeDataPoint({
-      blobs: workspaceId ? [event, source, workspaceId] : [event, source],
+      blobs: workspaceId ? [event, source, workspaceId, agent || 'unknown'] : [event, source],
       doubles: [1],
       indexes: [event],
     });
@@ -578,7 +595,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     return errorResponse('STORAGE_ERROR', 'Failed to create workspace', 500);
   }
 
-  trackEvent(env, 'workspace_create', getClientSource(request), id);
+  trackEvent(env, 'workspace_create', getClientSource(request), id, getClientAgent(request));
 
   return new Response(JSON.stringify({ id, version: 1, expires: iso }), {
     status: 201,
@@ -607,7 +624,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
   }
 
-  trackEvent(env, 'workspace_read', getClientSource(request), id);
+  trackEvent(env, 'workspace_read', getClientSource(request), id, getClientAgent(request));
 
   return new Response(object.body, {
     status: 200,
@@ -720,7 +737,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     return errorResponse('STORAGE_ERROR', 'Failed to update workspace', 500);
   }
 
-  trackEvent(env, 'workspace_update', getClientSource(request), id);
+  trackEvent(env, 'workspace_update', getClientSource(request), id, getClientAgent(request));
 
   return new Response(
     JSON.stringify({ id, version: parseInt(nextVersion, 10), expires: iso }),

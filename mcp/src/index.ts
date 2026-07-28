@@ -44,7 +44,33 @@ import {
 // Configuration
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_CONTENT_SIZE = 50 * 1024 * 1024; // 50MB limit to prevent OOM
-const CLIENT_HEADER = { 'X-Vnsh-Client': 'mcp/1.2.0' };
+const CLIENT_VERSION = 'mcp/1.3.0';
+
+// Every MCP client — Claude Code, Cursor, OpenHands — speaks through this same
+// server, so a fixed header reports them all as "mcp". That makes the one metric
+// this phase exists to produce ("did more than one agent touch this workspace?")
+// structurally unable to answer its own question: two agents collaborating would
+// look identical to one agent writing twice.
+//
+// The initialize handshake carries the real client identity, so use it.
+function agentName(): string | null {
+  try {
+    const info = server.getClientVersion();
+    if (!info || !info.name) return null;
+    // Client-controlled, so constrain it rather than forwarding it verbatim.
+    const clean = info.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+    return clean ? clean.slice(0, 32) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clientHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'X-Vnsh-Client': CLIENT_VERSION };
+  const agent = agentName();
+  if (agent) headers['X-Vnsh-Agent'] = agent;
+  return headers;
+}
 
 // Tool input schemas
 const ReadInputSchema = z.object({
@@ -291,7 +317,7 @@ export async function handleRead(args: unknown) {
   const response = await fetch(apiUrl, {
     headers: {
       Accept: 'application/octet-stream',
-      ...CLIENT_HEADER,
+      ...clientHeaders(),
     },
   });
 
@@ -529,7 +555,7 @@ export async function handleShare(args: unknown) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
-      ...CLIENT_HEADER,
+      ...clientHeaders(),
     },
     body: new Uint8Array(encrypted),
   });
@@ -609,7 +635,7 @@ export async function handleShareFile(args: unknown) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
-      ...CLIENT_HEADER,
+      ...clientHeaders(),
     },
     body: new Uint8Array(encrypted),
   });
@@ -664,7 +690,7 @@ export async function handleWorkspaceCreate(args: unknown) {
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write-Hash': writeHash,
-      ...CLIENT_HEADER,
+      ...clientHeaders(),
     },
     body: new Uint8Array(encrypted),
   });
@@ -701,7 +727,7 @@ async function fetchWorkspace(url: string) {
   const { host, id, key, secret, writeToken, canWrite } = link;
 
   const response = await fetch(`${host}/api/workspace/${id}`, {
-    headers: { Accept: 'application/octet-stream', ...CLIENT_HEADER },
+    headers: { Accept: 'application/octet-stream', ...clientHeaders() },
   });
 
   if (response.status === 404) {
@@ -785,7 +811,7 @@ export async function handleWorkspaceUpdate(args: unknown) {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write': writeToken,
       'If-Match': `"${version}"`,
-      ...CLIENT_HEADER,
+      ...clientHeaders(),
     },
     body: new Uint8Array(encrypted),
   });
