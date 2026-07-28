@@ -2,7 +2,7 @@
   "name": "vnsh-mcp",
   "version": "1.3.0",
   "mcpName": "io.github.raullenchai/vnsh",
-  "description": "Portable workspaces for AI agents \u2014 one encrypted link that Claude Code, Cursor, OpenHands and others can all read and write",
+  "description": "Portable workspaces for AI agents: one encrypted link any agent can read and write",
   "keywords": [
     "vnsh",
     "mcp",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.raullenchai/vnsh",
-  "description": "Portable workspaces for AI agents \u2014 one encrypted link that Claude Code, Cursor, OpenHands and others can all read and write",
+  "description": "Portable workspaces for AI agents: one encrypted link any agent can read and write",
   "repository": {
     "url": "https://github.com/raullenchai/vnsh",
     "source": "github"
