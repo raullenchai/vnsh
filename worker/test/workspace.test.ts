@@ -289,6 +289,28 @@ describe('GET /w/:id viewer', () => {
     expect(html).toContain("rootSecret = viewOnly ? null : material");
   });
 
+  it('routes links out of the sandbox instead of letting content open windows', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    // A link inside the frame would otherwise navigate the frame itself, and the
+    // target would inherit the sandbox — so every link in every document looked
+    // broken. The click is forwarded to this page rather than granting
+    // allow-popups-to-escape-sandbox, which would also let content open windows
+    // with no user gesture and smuggle data out in the URL.
+    expect(html).toContain('vnshOpen');
+    // Assert the attribute itself: the words allow-popups / allow-same-origin also
+    // appear in comments explaining why they are not granted.
+    expect(html).toContain("setAttribute('sandbox', 'allow-scripts')");
+    expect(html).not.toMatch(/'sandbox',\s*'[^']*allow-popups/);
+    expect(html).not.toMatch(/'sandbox',\s*'[^']*allow-same-origin/);
+
+    // The frame is opaque-origin, so event.origin is the string "null" and cannot
+    // identify anyone. Trust has to come from the source window.
+    expect(html).toContain('e.source !== contentFrame.contentWindow');
+    // Only real web URLs; javascript: and data: must not be handed to window.open.
+    expect(html).toContain("u.protocol !== 'http:' && u.protocol !== 'https:'");
+  });
+
   it('does not advertise commands that do not exist', async () => {
     const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
     // An earlier draft told recipients to run `npx vnsh workspace read`, which the

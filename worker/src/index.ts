@@ -898,8 +898,33 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     // multiple policies are enforced as an intersection.
     doc.head.insertBefore(meta, doc.head.firstChild);
 
+    // Links in a sandboxed frame would otherwise navigate the frame itself, and
+    // the target would inherit the sandbox — which is what makes them look dead.
+    // Hand the URL to the opener instead of granting allow-popups-to-escape-sandbox,
+    // which would also let content open windows without a click and use the URL as
+    // an exfiltration channel.
+    var hook = doc.createElement('script');
+    hook.textContent = LINK_HOOK;
+    doc.body ? doc.body.appendChild(hook) : doc.head.appendChild(hook);
+
     return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
   }
+
+  var LINK_HOOK = [
+    '(function(){',
+    'document.addEventListener("click", function(e){',
+    '  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey) return;',
+    '  var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;',
+    '  if (!a) return;',
+    '  var h = a.getAttribute("href") || "";',
+    '  if (h.charAt(0) === "#") return;',
+    '  var u; try { u = new URL(h, "https://example.invalid/"); } catch (err) { return; }',
+    '  if (u.protocol !== "http:" && u.protocol !== "https:") return;',
+    '  e.preventDefault();',
+    '  parent.postMessage({ vnshOpen: u.href }, "*");',
+    '});',
+    '})();'
+  ].join('');
 
   function renderHtml(html) {
     var frame = document.createElement('iframe');
@@ -912,7 +937,22 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     frame.srcdoc = harden(html);
     mainEl.innerHTML = '';
     mainEl.appendChild(frame);
+    contentFrame = frame;
   }
+
+  // Only this frame may ask for a navigation, and only to a real web URL. The
+  // frame is opaque-origin so event.origin is "null"; identity has to come from
+  // the source window, not the origin string.
+  var contentFrame = null;
+  window.addEventListener('message', function (e) {
+    if (!contentFrame || e.source !== contentFrame.contentWindow) return;
+    var target = e.data && e.data.vnshOpen;
+    if (typeof target !== 'string') return;
+    var u;
+    try { u = new URL(target); } catch (err) { return; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+    window.open(u.href, '_blank', 'noopener,noreferrer');
+  });
 
   function renderText(text) {
     var pre = document.createElement('pre');

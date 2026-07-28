@@ -925,6 +925,25 @@ export function sandboxHtml(html: string): string {
 <script>
 (function () {
   var CSP = ${JSON.stringify(csp)};
+  // Links inside the sandbox would navigate the frame itself, and the target
+  // would inherit the sandbox — which is what makes them appear dead. Route them
+  // to the wrapper instead of granting allow-popups-to-escape-sandbox, which
+  // would also let content open windows with no click and use the URL to leak.
+  var HOOK = [
+    '(function(){',
+    'document.addEventListener("click", function(e){',
+    '  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey) return;',
+    '  var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;',
+    '  if (!a) return;',
+    '  var h = a.getAttribute("href") || "";',
+    '  if (h.charAt(0) === "#") return;',
+    '  var u; try { u = new URL(h, "https://example.invalid/"); } catch (err) { return; }',
+    '  if (u.protocol !== "http:" && u.protocol !== "https:") return;',
+    '  e.preventDefault();',
+    '  parent.postMessage({ vnshOpen: u.href }, "*");',
+    '});',
+    '})();'
+  ].join('');
   var raw = new TextDecoder().decode(
     Uint8Array.from(atob(${JSON.stringify(payload)}), function (c) { return c.charCodeAt(0); }));
 
@@ -936,6 +955,9 @@ export function sandboxHtml(html: string): string {
     m.setAttribute('http-equiv', 'Content-Security-Policy');
     m.setAttribute('content', CSP);
     doc.head.insertBefore(m, doc.head.firstChild);
+    var hook = doc.createElement('script');
+    hook.textContent = HOOK;
+    (doc.body || doc.head).appendChild(hook);
     out = '<!DOCTYPE html>' + doc.documentElement.outerHTML;
   } else {
     out = '<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="' +
@@ -943,6 +965,14 @@ export function sandboxHtml(html: string): string {
   }
 
   var f = document.createElement('iframe');
+  window.addEventListener('message', function (e) {
+    if (e.source !== f.contentWindow) return;
+    var t = e.data && e.data.vnshOpen;
+    if (typeof t !== 'string') return;
+    var u; try { u = new URL(t); } catch (err) { return; }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+    window.open(u.href, '_blank', 'noopener,noreferrer');
+  });
   f.setAttribute('sandbox', 'allow-scripts');
   f.setAttribute('referrerpolicy', 'no-referrer');
   f.setAttribute('title', 'Workspace content');
