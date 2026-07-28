@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.raullenchai/vnsh",
-  "description": "Ephemeral encrypted file sharing for AI. AES-256 encryption, 24h auto-vaporization.",
+  "description": "Portable workspaces for AI agents \u2014 one encrypted link that Claude Code, Cursor, OpenHands and others can all read and write",
   "repository": {
     "url": "https://github.com/raullenchai/vnsh",
     "source": "github"
   },
-  "version": "1.0.1",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "vnsh-mcp",
-      "version": "1.0.1",
+      "version": "1.3.0",
       "transport": {
         "type": "stdio"
       }
