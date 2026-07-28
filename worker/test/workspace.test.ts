@@ -405,51 +405,70 @@ describe('homepage', () => {
     expect(html).toContain('/api/workspace');
     expect(html).toContain('vnsh/enc/v2');
     expect(html).toContain('AES-GCM');
-    expect(html).toContain("data-mode=\"workspace\"");
   });
 
-  it('keeps one-shot file sharing available', async () => {
+  it('still shares files — that capability was never the thing being simplified', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
-    expect(html).toContain("data-mode=\"drop\"");
-    expect(html).toContain('/api/drop');
+
+    // Dropping or pasting a file still works and still yields a link. What went
+    // away is being asked to pick a lifecycle first; the upload path itself is
+    // untouched, it just produces a workspace now.
     expect(html).toContain('id="dropzone"');
+    expect(html).toContain('id="file-input"');
+    expect(html).toContain('uploadFile');
   });
 });
 
 describe('agent setup prompt', () => {
-  // Installing a tool does not make an agent reach for it. Agents are
-  // single-session and cannot infer that work should be handed off elsewhere, so
-  // the prompt has to write a standing rule into whatever instructions file that
-  // agent reads — otherwise vnsh is available but never used.
-  it('installs the server and establishes default behaviour', async () => {
+  it('is short enough to read at a glance', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
-
-    expect(html).toContain('npx -y vnsh-mcp');
-    expect(html).toContain('standing rule');
-    expect(html).toContain('CLAUDE.md, .cursorrules, AGENTS.md');
+    const m = html.match(/const SETUP_PROMPT = "((?:[^"\\]|\\.)*)"/);
+    expect(m).not.toBeNull();
+    // A call to action nobody reads is not one. The instructions it used to carry
+    // moved into /llms.txt, which is where an agent will look anyway.
+    expect(m![1].length).toBeLessThan(140);
+    expect(m![1]).toContain('npx -y vnsh-mcp');
+    expect(m![1]).toContain('vnsh.dev/llms.txt');
   });
 
-  it('is offered on the viewer too, where recipients land', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
-    expect(html).toContain('Get this in your own agent');
-    expect(html).toContain('npx -y vnsh-mcp');
-  });
-
-  it('names more than one agent, since model-agnostic is the claim', async () => {
+  it('is the first thing on the page, and offered on the viewer too', async () => {
     const home = await (await call(new Request('http://localhost/'))).text();
+    const viewer = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    expect(home.indexOf('cta-block')).toBeLessThan(home.indexOf('id="dropzone"'));
+    expect(viewer).toContain('Get this in your own agent');
+  });
+
+  it('llms.txt carries what the prompt no longer does', async () => {
     const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
 
+    // Installing a tool does not make an agent reach for it, so the setup
+    // instructions have to include writing a standing rule somewhere durable.
+    expect(llms).toContain('standing rule');
+    expect(llms).toContain('CLAUDE.md, .cursorrules');
     for (const agent of ['Cursor', 'OpenHands', 'Cline', 'Windsurf', 'Zed']) {
       expect(llms).toContain(agent);
     }
-    expect(home).toContain('claude mcp add vnsh -- npx -y vnsh-mcp');
-  });
-
-  it('llms.txt teaches workspaces, so the prompt can stay short', async () => {
-    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
     expect(llms).toContain('vnsh/enc/v2');
     expect(llms).toContain('If-Match');
-    expect(llms).toContain('#r=');
-    expect(llms).toContain('Claude Code Artifacts');
+  });
+});
+
+describe('homepage information architecture', () => {
+  it('presents one action, not a menu of surfaces', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    // Tabs organised the page by surface, which made a first-time visitor
+    // classify themselves before they knew what the product was.
+    expect(html).not.toContain('data-tab=');
+
+    // Choosing "workspace" vs "one-shot drop" asked people to model the product
+    // in order to use it. A workspace nobody writes to again is a one-shot drop,
+    // and what actually differs — can the recipient change it — is answered by
+    // which of the two links you send.
+    expect(html).not.toContain('data-mode=');
+
+    // Secondary surfaces are still reachable, just not in the way.
+    expect(html).toContain('details class="more"');
   });
 });
