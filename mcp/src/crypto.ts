@@ -245,15 +245,43 @@ export function decryptWorkspace(payload: Buffer, key: Buffer): Buffer {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
-/** `https://host/w/{id}#w={base64url(S)}` */
+/**
+ * Workspace links come in two tiers, distinguished by their fragment prefix:
+ *
+ *   #w=<S>   root secret   — read and write
+ *   #r=<K>   content key   — read only
+ *
+ * K is HKDF(S, "enc"), a one-way derivation, so handing out K lets someone
+ * decrypt every version while making it impossible to recover S and therefore
+ * impossible to forge a write. The read-only tier needs no server-side state and
+ * no extra crypto: it is just a different part of the same key schedule.
+ */
+export interface WorkspaceLink {
+  host: string;
+  id: string;
+  /** Content key. Always present — both tiers can decrypt. */
+  key: Buffer;
+  /** Root secret. Null for read-only links. */
+  secret: Buffer | null;
+  /** Write token. Null for read-only links. */
+  writeToken: string | null;
+  canWrite: boolean;
+}
+
+/** Read + write link. */
 export function buildWorkspaceUrl(host: string, id: string, secret: Buffer): string {
   return `${host}/w/${id}#w=${bufferToBase64url(secret)}`;
 }
 
-export function parseWorkspaceUrl(url: string): { host: string; id: string; secret: Buffer } {
+/** Read-only link: carries K instead of S, so the holder cannot derive W. */
+export function buildReadOnlyWorkspaceUrl(host: string, id: string, secret: Buffer): string {
+  return `${host}/w/${id}#r=${bufferToBase64url(deriveWorkspaceKeys(secret).key)}`;
+}
+
+export function parseWorkspaceUrl(url: string): WorkspaceLink {
   const [urlPart, fragment] = url.split('#');
   if (!fragment) {
-    throw new Error('Invalid workspace URL: missing #w= fragment');
+    throw new Error('Invalid workspace URL: missing #w= or #r= fragment');
   }
 
   const urlObj = new URL(urlPart);
@@ -261,12 +289,28 @@ export function parseWorkspaceUrl(url: string): { host: string; id: string; secr
   if (!pathMatch) {
     throw new Error('Invalid workspace URL: expected a /w/{id} path');
   }
+  const host = urlObj.origin;
+  const id = pathMatch[1];
 
-  const encoded = fragment.startsWith('w=') ? fragment.slice(2) : fragment;
-  const secret = base64urlToBuffer(encoded);
-  if (secret.length !== 32) {
-    throw new Error(`Invalid workspace URL: secret must be 32 bytes (got ${secret.length})`);
+  const readOnly = fragment.startsWith('r=');
+  const encoded = readOnly || fragment.startsWith('w=') ? fragment.slice(2) : fragment;
+
+  const material = base64urlToBuffer(encoded);
+  if (material.length !== 32) {
+    throw new Error(`Invalid workspace URL: key must be 32 bytes (got ${material.length})`);
   }
 
-  return { host: urlObj.origin, id: pathMatch[1], secret };
+  if (readOnly) {
+    return { host, id, key: material, secret: null, writeToken: null, canWrite: false };
+  }
+
+  const derived = deriveWorkspaceKeys(material);
+  return {
+    host,
+    id,
+    key: derived.key,
+    secret: material,
+    writeToken: derived.writeToken,
+    canWrite: true,
+  };
 }

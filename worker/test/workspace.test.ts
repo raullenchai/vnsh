@@ -269,10 +269,24 @@ describe('GET /w/:id viewer', () => {
     // Every shared workspace is seen by someone who may not know vnsh.
     expect(html).toContain('Share your own work like this');
 
-    // Phase 0 has a single tier, so the only link that exists also grants writes.
-    // Saying so is required, not optional.
-    expect(html).toContain('read and edit it');
-    expect(html).toContain('Copy link');
+    // What each tier grants has to be stated at the point of sharing, not left
+    // for the sender to discover after the fact.
+    expect(html).toContain('They can read it. They cannot change it.');
+    expect(html).toContain('They can read and change it.');
+  });
+
+  it('offers both share tiers and can never hand out more than it holds', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+
+    expect(html).toContain('Copy view-only link');
+    expect(html).toContain('Copy edit link');
+
+    // #r= carries K, which is HKDF(S,"enc") — a one-way derivation. A page opened
+    // with a view-only link therefore has no way to rebuild the edit link, and the
+    // edit option must stay hidden rather than merely disabled.
+    expect(html).toContain("var viewOnly = frag.indexOf('r=') === 0");
+    expect(html).toContain("document.getElementById('share-edit').hidden = !canWrite");
+    expect(html).toContain("rootSecret = viewOnly ? null : material");
   });
 
   it('does not advertise commands that do not exist', async () => {

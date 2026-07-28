@@ -37,6 +37,7 @@ import {
   encryptWorkspace,
   decryptWorkspace,
   buildWorkspaceUrl,
+  buildReadOnlyWorkspaceUrl,
   parseWorkspaceUrl,
 } from './crypto.js';
 
@@ -674,27 +675,30 @@ export async function handleWorkspaceCreate(args: unknown) {
 
   const data = (await response.json()) as { id: string; version: number; expires: string };
   const url = buildWorkspaceUrl(host, data.id, secret);
+  const viewUrl = buildReadOnlyWorkspaceUrl(host, data.id, secret);
 
   return {
     content: [
       {
         type: 'text',
         text:
-          `Workspace created at version ${data.version}.\n\n${url}\n\n` +
-          `Expires ${data.expires} (24h after the last write — each update renews it).\n` +
-          `Hand this URL to any other agent or session: they can read it with ` +
-          `vnsh_workspace_read and write to it with vnsh_workspace_update. ` +
-          `The key lives in the #w= fragment and never reaches the server.`,
+          `Workspace created at version ${data.version}. Two links, pick by intent:\n\n` +
+          `Edit link (read + write):\n${url}\n\n` +
+          `View-only link (read, cannot change it):\n${viewUrl}\n\n` +
+          `Give the edit link to agents that will contribute; give the view-only link to ` +
+          `anyone who just needs to read it. The view-only link cannot be turned back into ` +
+          `the edit link. Expires ${data.expires}, renewed on every write. Keys live in the ` +
+          `fragment and never reach the server.`,
       },
     ],
-    metadata: { url, workspaceId: data.id, version: data.version, expires: data.expires },
+    metadata: { url, viewUrl, workspaceId: data.id, version: data.version, expires: data.expires },
   };
 }
 
 // Fetch and decrypt a workspace. Shared by read/update/open.
 async function fetchWorkspace(url: string) {
-  const { host, id, secret } = parseWorkspaceUrl(url);
-  const { key, writeToken } = deriveWorkspaceKeys(secret);
+  const link = parseWorkspaceUrl(url);
+  const { host, id, key, secret, writeToken, canWrite } = link;
 
   const response = await fetch(`${host}/api/workspace/${id}`, {
     headers: { Accept: 'application/octet-stream', ...CLIENT_HEADER },
@@ -728,7 +732,7 @@ async function fetchWorkspace(url: string) {
     );
   }
 
-  return { host, id, version, writeToken, key, secret, plaintext };
+  return { host, id, version, writeToken, key, secret, canWrite, plaintext };
 }
 
 /**
@@ -737,20 +741,19 @@ async function fetchWorkspace(url: string) {
  */
 export async function handleWorkspaceRead(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
-  const { id, version, plaintext } = await fetchWorkspace(url);
+  const { host, id, version, secret, canWrite, plaintext } = await fetchWorkspace(url);
   const text = plaintext.toString('utf-8');
+  const viewUrl = secret ? buildReadOnlyWorkspaceUrl(host, id, secret) : url;
+
+  const header = canWrite
+    ? `Workspace ${id} — version ${version}.\n` +
+      `To modify it, call vnsh_workspace_update with base_version: ${version}.\n` +
+      `To let someone read it without being able to change it, share:\n${viewUrl}\n\n`
+    : `Workspace ${id} — version ${version}. This is a view-only link; it cannot be written to.\n\n`;
 
   return {
-    content: [
-      {
-        type: 'text',
-        text:
-          `Workspace ${id} — version ${version}.\n` +
-          `To modify it, call vnsh_workspace_update with base_version: ${version}.\n\n` +
-          text,
-      },
-    ],
-    metadata: { workspaceId: id, version, size: plaintext.length },
+    content: [{ type: 'text', text: header + text }],
+    metadata: { workspaceId: id, version, canWrite, viewUrl, size: plaintext.length },
   };
 }
 
@@ -760,8 +763,14 @@ export async function handleWorkspaceRead(args: unknown) {
  */
 export async function handleWorkspaceUpdate(args: unknown) {
   const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
-  const { host, id, secret } = parseWorkspaceUrl(url);
-  const { key, writeToken } = deriveWorkspaceKeys(secret);
+  const { host, id, key, writeToken, canWrite } = parseWorkspaceUrl(url);
+
+  if (!canWrite || !writeToken) {
+    throw new Error(
+      'This is a view-only link (#r=). It can decrypt the workspace but cannot write to it. ' +
+      'Ask whoever shared it for the edit link (#w=) if you need to make changes.',
+    );
+  }
 
   // Without an explicit base, read the latest so we write against something real.
   let version = base_version;

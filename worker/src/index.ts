@@ -768,6 +768,16 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     border-radius:5px;padding:.32em .7em;cursor:pointer;white-space:nowrap}
   button:hover{background:#30363d}
   button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .share-wrap{position:relative}
+  .menu{position:absolute;right:0;top:calc(100% + 6px);min-width:250px;background:var(--panel);
+    border:1px solid #30363d;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);
+    padding:5px;z-index:10;display:none}
+  .menu[data-open="1"]{display:block}
+  .menu button{display:block;width:100%;text-align:left;background:transparent;border:0;
+    border-radius:6px;padding:9px 10px;white-space:normal}
+  .menu button:hover{background:#21262d}
+  .menu .t{display:block;font-weight:600;color:var(--ink);font-size:.8rem}
+  .menu .d{display:block;color:var(--ink-3);font-size:.72rem;margin-top:1px}
   button.primary{background:#1f6feb;border-color:#2b7cf0;color:#fff}
   button.primary:hover{background:#2b7cf0}
   main{flex:1 1 auto;position:relative;min-height:0}
@@ -786,7 +796,19 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   <span class="brand"><a href="https://vnsh.dev">vnsh</a></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
-  <button class="primary" id="share" hidden>Copy link</button>
+  <span class="share-wrap">
+    <button class="primary" id="share" hidden>Share</button>
+    <div class="menu" id="menu">
+      <button id="share-view">
+        <span class="t">Copy view-only link</span>
+        <span class="d">They can read it. They cannot change it.</span>
+      </button>
+      <button id="share-edit">
+        <span class="t">Copy edit link</span>
+        <span class="d">They can read and change it.</span>
+      </button>
+    </div>
+  </span>
   <button id="dl" hidden>Download</button>
   <button id="raw" hidden>View source</button>
 </header>
@@ -796,7 +818,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 <footer>
   <span class="lock">&#128274;</span>
   <span id="trust">Encrypted end-to-end &mdash; vnsh cannot read this page.</span>
-  <span class="note" id="share-note" hidden>Anyone with the link can read and edit it.</span>
+  <span class="note" id="share-note" hidden></span>
   <a class="cta" href="https://vnsh.dev">Share your own work like this &rarr;</a>
 </footer>
 
@@ -806,6 +828,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   var metaEl = document.getElementById('meta');
   var mainEl = document.querySelector('main');
   var plaintext = null, fileName = 'workspace', showingSource = false;
+  var canWrite = false, rootSecret = null, contentKey = null;
 
   function fail(title, detail) {
     statusEl.innerHTML = '<b></b>';
@@ -822,12 +845,21 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   }
 
   // Must match the clients' HKDF(sha256, S, salt="", info, 32).
-  async function deriveKey(secret) {
+  async function hkdf(secret, info) {
     var ikm = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
-    var bits = await crypto.subtle.deriveBits(
+    return new Uint8Array(await crypto.subtle.deriveBits(
       { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0),
-        info: new TextEncoder().encode('vnsh/enc/v2') }, ikm, 256);
-    return crypto.subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['decrypt']);
+        info: new TextEncoder().encode(info) }, ikm, 256));
+  }
+
+  function importAes(raw) {
+    return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+  }
+
+  function b64url(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');
   }
 
   function looksLikeHtml(s) {
@@ -901,19 +933,26 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     var id = m[1];
 
     var frag = location.hash.replace(/^#/, '');
-    if (frag.indexOf('w=') === 0) frag = frag.slice(2);
+    // #w= carries the root secret (read + write); #r= carries only the content
+    // key, which is a one-way derivation of it and therefore cannot be turned
+    // back into write access. A bare fragment is treated as a root secret.
+    var viewOnly = frag.indexOf('r=') === 0;
+    if (viewOnly || frag.indexOf('w=') === 0) frag = frag.slice(2);
     if (!frag) {
       return fail('This link is missing its key',
         'The part after # was lost. Ask the sender for the full URL.');
     }
 
-    var secret;
+    var material;
     try {
-      secret = b64urlToBytes(frag);
-      if (secret.length !== 32) throw 0;
+      material = b64urlToBytes(frag);
+      if (material.length !== 32) throw 0;
     } catch (e) {
       return fail('This link is malformed', 'The key after # is not valid.');
     }
+
+    canWrite = !viewOnly;
+    rootSecret = viewOnly ? null : material;
 
     var res;
     try {
@@ -933,7 +972,9 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     if (payload.length < 28) return fail('This workspace is empty', '');
 
     try {
-      var key = await deriveKey(secret);
+      var raw = viewOnly ? material : await hkdf(material, 'vnsh/enc/v2');
+      var key = await importAes(raw);
+      contentKey = raw;
       var buf = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: payload.slice(0, 12) }, key, payload.slice(12));
       plaintext = new TextDecoder().decode(buf);
@@ -959,23 +1000,48 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     var raw = document.getElementById('raw');
     var share = document.getElementById('share');
 
-    // Sharing is just handing over the URL — possession of the link is the whole
-    // access model. The footer has to say so, because in this phase the only link
-    // that exists also grants write access.
+    // Two tiers, and you can never hand out more than you hold: a view-only link
+    // carries only the content key, so this page has no way to reconstruct the
+    // edit link from it.
+    var menu = document.getElementById('menu');
+    var shareNote = document.getElementById('share-note');
+    var base = location.origin + location.pathname;
+    var editUrl = canWrite ? base + '#w=' + b64url(rootSecret) : null;
+    var viewUrl = base + '#r=' + b64url(contentKey);
+
     share.hidden = false;
-    document.getElementById('share-note').hidden = false;
-    share.onclick = function () {
-      var full = location.href;
+    shareNote.hidden = false;
+    shareNote.textContent = canWrite
+      ? 'You can share this view-only or editable.'
+      : 'You opened a view-only link, so you can only share it view-only.';
+
+    document.getElementById('share-edit').hidden = !canWrite;
+
+    function copy(text, label) {
+      menu.removeAttribute('data-open');
       var done = function () {
-        share.textContent = 'Link copied';
-        setTimeout(function () { share.textContent = 'Copy link'; }, 2000);
+        share.textContent = label;
+        setTimeout(function () { share.textContent = 'Share'; }, 2000);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(full).then(done, function () { window.prompt('Copy this link:', full); });
+        navigator.clipboard.writeText(text).then(done, function () { window.prompt('Copy this link:', text); });
       } else {
-        window.prompt('Copy this link:', full);
+        window.prompt('Copy this link:', text);
       }
+    }
+
+    share.onclick = function (e) {
+      e.stopPropagation();
+      // With nothing to choose between, skip the menu.
+      if (!canWrite) return copy(viewUrl, 'View link copied');
+      menu.setAttribute('data-open', menu.getAttribute('data-open') === '1' ? '0' : '1');
     };
+    document.getElementById('share-view').onclick = function () { copy(viewUrl, 'View link copied'); };
+    document.getElementById('share-edit').onclick = function () { copy(editUrl, 'Edit link copied'); };
+    document.addEventListener('click', function () { menu.removeAttribute('data-open'); });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') menu.removeAttribute('data-open');
+    });
 
     dl.hidden = false;
     dl.onclick = function () {
@@ -1014,6 +1080,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     document.getElementById('raw').hidden = true;
     document.getElementById('share').hidden = true;
     document.getElementById('share-note').hidden = true;
+    document.getElementById('menu').removeAttribute('data-open');
     metaEl.textContent = '';
     mainEl.innerHTML = '<div id="status"><b>Decrypting\u2026</b>The key never leaves your browser.</div>';
     statusEl = document.getElementById('status');

@@ -317,7 +317,7 @@ describe('workspace crypto (v2)', () => {
     const parsed = parseWorkspaceUrl(url);
     expect(parsed.host).toBe('https://vnsh.dev');
     expect(parsed.id).toBe('aBcDeFgHiJkL');
-    expect(parsed.secret.toString('hex')).toBe(secret.toString('hex'));
+    expect(parsed.secret!.toString('hex')).toBe(secret.toString('hex'));
   });
 
   it('rejects malformed workspace URLs', () => {
