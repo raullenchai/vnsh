@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "vnsh \u2014 Encrypted Sharing for AI",
+  "name": "vnsh \u2014 workspaces your AI agents can read and write",
   "version": "1.1.0",
   "description": "One workspace all your AI agents can read and write. Encrypted in your browser, gone 24h after the last edit.",
   "icons": {

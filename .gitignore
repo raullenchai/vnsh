@@ -66,3 +66,6 @@ growth/
 mcp/src/*.js
 mcp/src/*.d.ts
 mcp/src/*.map
+
+# Store upload artifact, rebuilt from dist/ on demand
+extension/*.zip

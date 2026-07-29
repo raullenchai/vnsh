@@ -1,110 +1,39 @@
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    width: 1400px; height: 560px;
-    background: #0a0a0a;
-    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e5e5e5;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    position: relative;
-  }
-  body::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(circle at 1px 1px, #1a1a1a 1px, transparent 0);
-    background-size: 32px 32px;
-    opacity: 0.4;
-  }
-  .content {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    gap: 80px;
-  }
-  .left {
-    text-align: left;
-  }
-  .logo {
-    font-size: 72px;
-    font-weight: 700;
-    color: #22c55e;
-    letter-spacing: 3px;
-    margin-bottom: 16px;
-  }
-  .tagline {
-    font-size: 20px;
-    color: #a3a3a3;
-    line-height: 1.7;
-    max-width: 500px;
-  }
-  .tagline strong {
-    color: #fff;
-  }
-  .badges {
-    margin-top: 28px;
-    display: flex;
-    gap: 12px;
-  }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 8px 16px;
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.2);
-    border-radius: 6px;
-    font-size: 13px;
-    color: #22c55e;
-  }
-  .right {
-    text-align: left;
-  }
-  .terminal {
-    background: #111;
-    border: 1px solid #2a2a2a;
-    border-radius: 10px;
-    padding: 24px 28px;
-    width: 480px;
-    font-size: 15px;
-    line-height: 2;
-  }
-  .terminal .prompt { color: #22c55e; }
-  .terminal .cmd { color: #e5e5e5; }
-  .terminal .output { color: #525252; }
-  .terminal .url { color: #22c55e; font-size: 13px; }
-</style>
-</head>
-<body>
-  <div class="content">
-    <div class="left">
-      <div class="logo">vnsh</div>
-      <div class="tagline">
-        <strong>The Ephemeral Dropbox for AI.</strong><br>
-        Encrypt and share code, logs, and configs.<br>
-        Server-blind. Vaporizes in 24h.
-      </div>
-      <div class="badges">
-        <span class="badge">AES-256-CBC</span>
-        <span class="badge">Host-blind</span>
-        <span class="badge">Open source</span>
-      </div>
-    </div>
-    <div class="right">
-      <div class="terminal">
-        <div><span class="prompt">$ </span><span class="cmd">cat server.log | vn</span></div>
-        <div><span class="url">vnsh.dev/v/aBcDeFgH...#R_sI4...</span></div>
-        <div style="margin-top: 8px;"><span class="prompt">$ </span><span class="cmd">git diff HEAD~5 | vn</span></div>
-        <div><span class="url">vnsh.dev/v/xYz12345...#kL9m...</span></div>
-        <div style="margin-top: 8px;"><span class="output"># Paste link to Claude &mdash; decrypts automatically</span></div>
-      </div>
-    </div>
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  :root{--bg:#08090b;--panel:#0e1013;--line:#23272e;--ink:#e9ecef;--ink2:#a7aeb8;
+        --ink3:#6b7280;--accent:#22c55e;--ember:#f0a13a;
+        --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+        --mono:ui-monospace,'SF Mono',Menlo,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;overflow:hidden}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
+           text-transform:uppercase;color:var(--accent);opacity:.85}
+  .wordmark{font-family:var(--mono);font-weight:600;letter-spacing:-.02em}
+  .wordmark span{color:var(--accent)}
+
+  body{width:1400px;height:560px;display:flex;align-items:center;padding:0 96px;gap:70px;
+       background:radial-gradient(90% 120% at 12% 50%,rgba(34,197,94,.09),rgba(34,197,94,0) 60%),var(--bg)}
+  .left{flex:1}
+  .wordmark{font-size:44px;margin-bottom:26px}
+  h1{font-size:52px;line-height:1.08;letter-spacing:-.035em;font-weight:640;margin-bottom:20px;max-width:15ch}
+  p{font-size:20px;color:var(--ink2);line-height:1.55;max-width:44ch}
+  .flow{display:flex;flex-direction:column;gap:14px;flex-shrink:0}
+  .row{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:14px;color:var(--ink2)}
+  .box{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:13px 18px;min-width:170px}
+  .box.key{border-color:rgba(34,197,94,.4);color:var(--accent)}
+  .arrow{color:var(--ink3)}
+  .note{font-family:var(--mono);font-size:12px;color:var(--ink3);margin-top:4px}
+  .ember{color:var(--ember)}
+</style></head><body>
+  <div class="left">
+    <div class="wordmark">vnsh<span>_</span></div>
+    <h1>One workspace your AI agents can read and write.</h1>
+    <p>Encrypted in your browser, so vnsh never sees it. One address every agent and every person opens — and can change.</p>
   </div>
-</body>
-</html>
+  <div class="flow">
+    <div class="row"><span class="box">your page, logs, diff</span><span class="arrow">&rarr;</span><span class="box key">encrypted here</span></div>
+    <div class="row"><span class="box key">vnsh &mdash; ciphertext</span><span class="arrow">&rarr;</span><span class="box">Claude Code</span></div>
+    <div class="row"><span class="box"></span><span class="arrow">&rarr;</span><span class="box">Cursor &middot; a teammate</span></div>
+    <div class="note ember">deleted 24h after the last edit</div>
+  </div>
+</body></html>

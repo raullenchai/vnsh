@@ -1,70 +1,28 @@
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    width: 440px; height: 280px;
-    background: #0a0a0a;
-    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #e5e5e5;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    position: relative;
-  }
-  body::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(circle at 1px 1px, #1a1a1a 1px, transparent 0);
-    background-size: 32px 32px;
-    opacity: 0.4;
-  }
-  .content {
-    position: relative;
-    z-index: 1;
-    text-align: center;
-  }
-  .logo {
-    font-size: 44px;
-    font-weight: 700;
-    color: #22c55e;
-    letter-spacing: 2px;
-    margin-bottom: 12px;
-  }
-  .tagline {
-    font-size: 14px;
-    color: #a3a3a3;
-    line-height: 1.6;
-  }
-  .tagline strong {
-    color: #fff;
-  }
-  .badge {
-    margin-top: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.2);
-    border-radius: 6px;
-    font-size: 11px;
-    color: #22c55e;
-  }
-</style>
-</head>
-<body>
-  <div class="content">
-    <div class="logo">vnsh</div>
-    <div class="tagline">
-      <strong>Encrypt and share anything.</strong><br>
-      Server-blind. Vaporizes in 24h.
-    </div>
-    <div class="badge">AES-256-CBC &middot; Host-blind &middot; Open source</div>
-  </div>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  :root{--bg:#08090b;--panel:#0e1013;--line:#23272e;--ink:#e9ecef;--ink2:#a7aeb8;
+        --ink3:#6b7280;--accent:#22c55e;--ember:#f0a13a;
+        --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+        --mono:ui-monospace,'SF Mono',Menlo,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;overflow:hidden}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
+           text-transform:uppercase;color:var(--accent);opacity:.85}
+  .wordmark{font-family:var(--mono);font-weight:600;letter-spacing:-.02em}
+  .wordmark span{color:var(--accent)}
+
+  body{width:440px;height:280px;display:flex;flex-direction:column;justify-content:center;
+       padding:0 34px;gap:12px;
+       background:radial-gradient(120% 90% at 20% 0%,rgba(34,197,94,.10),rgba(34,197,94,0) 62%),var(--bg)}
+  .wordmark{font-size:27px}
+  h1{font-size:19px;line-height:1.25;letter-spacing:-.02em;font-weight:620}
+  p{font-size:12.5px;color:var(--ink3);line-height:1.5}
+  .chips{display:flex;gap:7px;margin-top:3px}
+  .chip{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--ink2);
+        border:1px solid var(--line);border-radius:999px;padding:4px 9px}
+</style></head><body>
+  <div class="wordmark">vnsh<span>_</span></div>
+  <h1>One workspace your AI agents<br>can read and write.</h1>
+  <p>Encrypted in your browser. Gone 24h after the last edit.</p>
+  <div class="chips"><span class="chip">AES-256-GCM</span><span class="chip">NO ACCOUNT</span><span class="chip">MIT</span></div>
+</body></html>
