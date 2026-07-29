@@ -1797,7 +1797,14 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     if (!text.trim()) return false;
     if (/^\\s*[<{[]/.test(text)) return false;
     if (/^#!/.test(text)) return false;
-    if (/^(---|\\+\\+\\+|diff --git|@@ )/m.test(text)) return false;
+    // Front matter can only be front matter at the very start of the document.
+    // This used to veto on any line anywhere, which rejected every markdown
+    // file containing a horizontal rule — the most common reason a "---" shows
+    // up in prose. A horizontal rule is also one of the positive signals below,
+    // so the rule contradicted itself and the veto ran first.
+    if (/^(---|\\+\\+\\+)[ \\t]*\\r?\\n/.test(text)) return false;
+    // Diff markers carry a filename or a hunk header; a horizontal rule does not.
+    if (/^(--- |\\+\\+\\+ |diff --git |@@ )/m.test(text)) return false;
     if (/^(FROM|RUN|COPY|ENTRYPOINT|CMD)\\s/m.test(text)) return false;
     if ((text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length >= 2) return false;
     if (/^\\s*[\\w.-]+\\s*=\\s*\\S/m.test(text)) return false;

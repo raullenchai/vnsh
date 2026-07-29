@@ -233,3 +233,82 @@ describe('choosing whether a document opens rendered', () => {
     expect(looksLikeMarkdown(body)).toBe(false);
   });
 });
+
+/**
+ * A real document, reported by a user, that opened as source instead of
+ * rendered. It is unmistakably markdown — headings, bold, lists, tables, a
+ * blockquote — but it contained a horizontal rule, and the front-matter veto
+ * matched "---" on any line rather than only at the start of the document. A
+ * horizontal rule is also one of the positive signals, so the rule was voting
+ * against itself and the veto ran first.
+ */
+describe('a horizontal rule is not front matter', () => {
+  let looksLikeMarkdown: (s: string) => boolean;
+
+  beforeAll(() => {
+    const start = page.indexOf('function looksLikeMarkdown(input)');
+    const end = page.indexOf('function render(', start);
+    expect(start).toBeGreaterThan(-1);
+    looksLikeMarkdown = new Function(
+      `${page.slice(start, end)};return looksLikeMarkdown;`,
+    )() as typeof looksLikeMarkdown;
+  });
+
+  const withRule = [
+    '# A report',
+    '',
+    '**Date: 2026-07-29**',
+    '',
+    'An opening paragraph that sets out what the document covers.',
+    '',
+    '---',
+    '',
+    '## First section',
+    '',
+    '- a point',
+    '- another point',
+    '',
+    '> a quoted line',
+  ].join('\n');
+
+  it('renders a document whose sections are separated by a rule', () => {
+    expect(looksLikeMarkdown(withRule)).toBe(true);
+  });
+
+  it('renders one that uses *** and ___ rules too', () => {
+    expect(looksLikeMarkdown(withRule.replace('---', '***'))).toBe(true);
+    expect(looksLikeMarkdown(withRule.replace('---', '___'))).toBe(true);
+  });
+
+  // The veto still has a job: these must not open rendered.
+  it('still declines YAML front matter', () => {
+    expect(looksLikeMarkdown('---\ntitle: a post\ntags: [x]\n---\n\n# Body\n\n- one\n- two')).toBe(
+      false,
+    );
+  });
+
+  it('still declines TOML front matter', () => {
+    expect(looksLikeMarkdown('+++\ntitle = "a post"\n+++\n\n# Body\n\n- one\n- two')).toBe(false);
+  });
+
+  it('still declines a unified diff', () => {
+    const diff = [
+      'diff --git a/readme.md b/readme.md',
+      '--- a/readme.md',
+      '+++ b/readme.md',
+      '@@ -1,4 +1,4 @@',
+      '-# Old heading',
+      '+# New heading',
+      '',
+      '- a list item',
+      '- another',
+    ].join('\n');
+    expect(looksLikeMarkdown(diff)).toBe(false);
+  });
+
+  it('still declines a bare diff body with no git header', () => {
+    expect(
+      looksLikeMarkdown('--- a/one.md\n+++ b/one.md\n@@ -1 +1 @@\n-# x\n+# y\n\n- item\n- item'),
+    ).toBe(false);
+  });
+});
