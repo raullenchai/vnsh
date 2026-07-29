@@ -131,3 +131,27 @@ describe('workspace create attribution', () => {
     expect(point.blobs?.[3]).toBe('cursor');
   });
 });
+
+/**
+ * prompt_copy sat at zero across every page view the site has ever had. That
+ * number has two incompatible readings — nobody scrolled to the CTA, or
+ * everybody saw it and declined — and they call for opposite fixes. prompt_seen
+ * is what separates them, so it has to be a beacon event the page may report.
+ */
+describe('the setup funnel can distinguish unseen from declined', () => {
+  it('accepts prompt_seen from the page', async () => {
+    const response = await beacon({ event: 'prompt_seen', ref: 'home' }, { 'X-Vnsh-Client': 'web' });
+    expect(response.status).toBe(204);
+    const [point] = eventsNamed('prompt_seen');
+    expect(point).toBeDefined();
+    expect(point.blobs?.[4]).toBe('home');
+  });
+
+  it('still refuses an event that is not on the whitelist', async () => {
+    const response = await beacon({ event: 'workspace_create' }, { 'X-Vnsh-Client': 'web' });
+    expect(response.status).toBe(204);
+    // Inferred events must not be forgeable through the beacon, or the funnel
+    // could be inflated by anyone with curl.
+    expect(eventsNamed('workspace_create')).toHaveLength(0);
+  });
+});

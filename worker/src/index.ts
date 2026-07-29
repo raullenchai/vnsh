@@ -285,11 +285,15 @@ type TrackedEvent =
   // Client-side-only conversions. These produce no other request, so the page
   // reports them explicitly via POST /api/event.
   | 'page_view'
+  // Fired when the setup CTA actually enters the viewport. Without it, a zero
+  // on prompt_copy has two incompatible readings — nobody scrolled that far, or
+  // everybody saw it and passed — and those call for opposite fixes.
+  | 'prompt_seen'
   | 'prompt_copy';
 
 // Events a page is allowed to report for itself. Everything else is inferred
 // from a real request, and must not be forgeable through the beacon.
-const BEACON_EVENTS: readonly TrackedEvent[] = ['page_view', 'prompt_copy'];
+const BEACON_EVENTS: readonly TrackedEvent[] = ['page_view', 'prompt_seen', 'prompt_copy'];
 
 // Where the visitor came from, for the reader -> creator funnel. 'w' means they
 // arrived from someone else's workspace page, which is the whole growth loop:
@@ -6132,6 +6136,26 @@ const APP_HTML = `<!DOCTYPE html>
     (function () {
       var el = document.getElementById('setup-prompt-text');
       if (el) el.textContent = SETUP_PROMPT;
+    })();
+
+    // The CTA sits more than a screen down on every desktop viewport, so a
+    // visitor who never scrolls never sees it. Reporting when it actually
+    // enters view splits "never reached" from "reached and declined" — the
+    // first is a placement problem, the second is an offer problem, and the
+    // copy count alone cannot tell you which one you have. Fires at most once.
+    (function () {
+      var target = document.querySelector('.setup-prompt');
+      if (!target || typeof IntersectionObserver === 'undefined') return;
+      var observer = new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) {
+            report('prompt_seen');
+            observer.disconnect();
+            return;
+          }
+        }
+      }, { threshold: 0.5 });
+      observer.observe(target);
     })();
     function copySetupPrompt() {
       report('prompt_copy');

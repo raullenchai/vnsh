@@ -99,15 +99,20 @@ console.log(`vnsh — last ${DAYS} days\n`);
 console.log('funnel');
 // Ordered as the journey runs, not by size: a stage that never fires is the
 // thing worth seeing, and sorting by count buries a zero at the bottom.
-for (const stage of ['page_view', 'prompt_copy', 'workspace_create', 'workspace_update', 'workspace_read']) {
+for (const stage of ['page_view', 'prompt_seen', 'prompt_copy', 'workspace_create', 'workspace_update', 'workspace_read']) {
   const count = total[stage] ?? 0;
   console.log(`  ${stage.padEnd(22)}${String(count).padStart(7)}${count === 0 ? '   <- never fired' : ''}`);
 }
 
+// Two ratios, because they answer different questions. A low reach rate is a
+// placement problem; a low take rate with healthy reach is an offer problem.
 const views = total.page_view ?? 0;
+const seen = total.prompt_seen ?? 0;
 const copies = total.prompt_copy ?? 0;
+const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : 'n/a');
 if (views) {
-  console.log(`\n  page_view -> prompt_copy: ${((copies / views) * 100).toFixed(1)}%`);
+  console.log(`\n  reached the CTA (view -> seen): ${pct(seen, views)}`);
+  console.log(`  took it        (seen -> copy): ${pct(copies, seen)}`);
 }
 
 // Only populated from 2026-07-29 onward; rows written before that carry no
