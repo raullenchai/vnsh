@@ -1,17 +1,19 @@
 {
   "name": "vnsh",
-  "version": "2.1.0",
-  "description": "The Ephemeral Dropbox for AI - CLI tool for encrypted file sharing",
+  "version": "2.2.0",
+  "description": "One workspace your AI agents can all read and write \u2014 encrypted in your terminal, gone 24h after the last edit",
   "keywords": [
     "vnsh",
+    "workspace",
+    "ai-agents",
+    "claude-code",
+    "cursor",
+    "mcp",
     "encryption",
-    "file-sharing",
-    "cli",
-    "claude",
-    "ai",
-    "secure",
+    "host-blind",
     "ephemeral",
-    "pastebin"
+    "cli",
+    "share-context"
   ],
   "author": "raullenchai",
   "license": "MIT",

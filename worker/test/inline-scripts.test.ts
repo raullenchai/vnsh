@@ -54,3 +54,50 @@ describe('inline scripts parse', () => {
     expect(() => new Function('var re = /\\+/g;')).not.toThrow();
   });
 });
+
+/**
+ * The viewer decides whether to render content as a document or print it as
+ * text. That decision used to be "does it start with a tag", which quietly
+ * failed for any HTML file beginning with a banner comment — a very ordinary
+ * thing for a generated file — and showed the reader raw markup instead.
+ *
+ * These run the function *as served*, so a backslash mangled by the template
+ * literal shows up here rather than in someone's browser.
+ */
+describe('viewer html detection', () => {
+  async function servedLooksLikeHtml(): Promise<(s: string) => boolean> {
+    const [script] = await scriptsOn('/w/aBcDeFgHiJkL');
+    const source = /function looksLikeHtml\(s\) \{[\s\S]*?\n  \}/.exec(script);
+    expect(source, 'looksLikeHtml not found in the served page').not.toBeNull();
+    return new Function('s', `${source![0]}\nreturn looksLikeHtml(s);`) as (s: string) => boolean;
+  }
+
+  it('renders a document that opens with a comment', async () => {
+    const looksLikeHtml = await servedLooksLikeHtml();
+    expect(looksLikeHtml('<!-- generated, do not edit -->\n<!DOCTYPE html><html></html>')).toBe(true);
+    expect(looksLikeHtml('<!--\n multi\n line\n banner\n-->\n<html><body>hi</body></html>')).toBe(true);
+    expect(looksLikeHtml('<!-- a --><!-- b --><div>x</div>')).toBe(true);
+  });
+
+  it('still renders the plain cases', async () => {
+    const looksLikeHtml = await servedLooksLikeHtml();
+    expect(looksLikeHtml('<!DOCTYPE html><html>')).toBe(true);
+    expect(looksLikeHtml('\n  <html>hi</html>')).toBe(true);
+    expect(looksLikeHtml('﻿<!DOCTYPE html>')).toBe(true);
+    expect(looksLikeHtml('<?xml version="1.0"?><html>')).toBe(true);
+    expect(looksLikeHtml('<p>a paragraph on its own</p>')).toBe(true);
+  });
+
+  it('does not mistake text, markdown or JSON for a document', async () => {
+    const looksLikeHtml = await servedLooksLikeHtml();
+    expect(looksLikeHtml('plain notes, nothing markup about them')).toBe(false);
+    expect(looksLikeHtml('# a markdown heading')).toBe(false);
+    expect(looksLikeHtml('{"json": true}')).toBe(false);
+    expect(looksLikeHtml('<notatag>hello')).toBe(false);
+  });
+
+  it('gives up on an unterminated comment instead of scanning forever', async () => {
+    const looksLikeHtml = await servedLooksLikeHtml();
+    expect(looksLikeHtml('<!-- ' + 'x'.repeat(200_000))).toBe(false);
+  });
+});

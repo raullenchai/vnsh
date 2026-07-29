@@ -859,6 +859,42 @@ export async function handleWorkspaceUpdate(args: unknown) {
 }
 
 /**
+ * Is this content an HTML document meant to be rendered?
+ *
+ * Skips everything that may legitimately precede the first element: a byte order
+ * mark, whitespace, XML declarations, and leading comments. The comment case is
+ * the one that mattered — a generated file whose first line is a banner comment
+ * is still HTML, and was being written out as .txt and shown as plain text.
+ *
+ * Scanned with indexOf rather than a lazy regex so a large unterminated comment
+ * cannot cause catastrophic backtracking. Kept identical to the worker's copy in
+ * WORKSPACE_PAGE: the two renderers must agree on what gets sandboxed.
+ */
+export function looksLikeHtml(input: string): boolean {
+  const t = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
+  let i = 0;
+  for (let guard = 0; guard < 64; guard++) {
+    while (i < t.length && (t[i] === ' ' || t[i] === '\t' || t[i] === '\n' || t[i] === '\r')) i++;
+    if (t.substr(i, 4) === '<!--') {
+      const end = t.indexOf('-->', i + 4);
+      if (end === -1) return false;
+      i = end + 3;
+      continue;
+    }
+    if (t.substr(i, 2) === '<?') {
+      const q = t.indexOf('?>', i + 2);
+      if (q === -1) return false;
+      i = q + 2;
+      continue;
+    }
+    break;
+  }
+  return /^<(!doctype html|html|head|body|div|section|main|article|style|h[1-6]|p|table|ul|ol|svg|header|footer|nav|figure|pre|blockquote)[\s>/]/i.test(
+    t.slice(i, i + 64),
+  );
+}
+
+/**
  * Handle vnsh_workspace_open tool call
  * @internal Exported for testing
  */
@@ -867,8 +903,7 @@ export async function handleWorkspaceOpen(args: unknown) {
   const { id, version, plaintext } = await fetchWorkspace(url);
 
   const text = plaintext.toString('utf-8');
-  const looksHtml = /^\s*(<!doctype html|<html|<head|<body|<div|<section|<main|<article|<style|<h1)/i
-    .test(text);
+  const looksHtml = looksLikeHtml(text);
   const ext = looksHtml ? 'html' : 'txt';
   const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
 

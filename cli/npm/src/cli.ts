@@ -16,9 +16,17 @@ import {
   bufferToHex,
   parseVnshUrl,
   buildVnshUrl,
+  generateRootSecret,
+  deriveWorkspaceKeys,
+  encryptWorkspace,
+  decryptWorkspace,
+  buildWorkspaceUrl,
+  buildReadOnlyWorkspaceUrl,
+  parseWorkspaceUrl,
+  isWorkspaceUrl,
 } from './crypto.js';
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 
@@ -50,6 +58,177 @@ interface UploadOptions {
   price?: string;
   host?: string;
   local?: boolean;
+  blob?: boolean;
+}
+
+interface WorkspaceResponse {
+  id: string;
+  version: number;
+  expires: string;
+}
+
+/** Read a file, or stdin when no path is given. Enforces the size ceiling. */
+async function readInput(input: string | undefined, label: string): Promise<Buffer> {
+  if (input) {
+    if (!fs.existsSync(input)) {
+      error(`File not found: ${input}`);
+    }
+    const stats = fs.statSync(input);
+    if (stats.size > MAX_SIZE) {
+      error(`File too large: ${formatBytes(stats.size)} (max: ${formatBytes(MAX_SIZE)})`);
+    }
+    info(`${label} ${input} (${formatBytes(stats.size)})...`);
+    return fs.readFileSync(input);
+  }
+
+  if (process.stdin.isTTY) {
+    error('No input provided. Use: echo "text" | vn or vn <file>');
+  }
+  info(`${label} stdin...`);
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+  }
+  const data = Buffer.concat(chunks);
+  if (data.length > MAX_SIZE) {
+    error(`Input too large: ${formatBytes(data.length)} (max: ${formatBytes(MAX_SIZE)})`);
+  }
+  return data;
+}
+
+/**
+ * Create a workspace — the default for `vn`, matching the website.
+ *
+ * A one-shot drop is just a workspace nobody writes to again, so there is no
+ * reason to make the caller choose up front. What actually differs is which of
+ * the two links you hand out, and that decision comes after you have both.
+ */
+async function createWorkspace(input: string | undefined, options: UploadOptions): Promise<void> {
+  const host = options.host || DEFAULT_HOST;
+  const data = await readInput(input, 'Encrypting');
+
+  const secret = generateRootSecret();
+  const keys = deriveWorkspaceKeys(secret);
+  const payload = encryptWorkspace(data, keys.key);
+
+  if (options.local) {
+    console.log(`\n${colors.green('Encrypted workspace payload (base64):')}`);
+    console.log(payload.toString('base64'));
+    console.log(`\n${colors.green('Root secret:')} ${bufferToHex(secret)}`);
+    return;
+  }
+
+  info(`Uploading encrypted workspace (${formatBytes(payload.length)})...`);
+  const response = await fetch(`${host}/api/workspace`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      'X-Vnsh-Write-Hash': keys.writeHash,
+    },
+    body: payload,
+  });
+
+  if (!response.ok) {
+    error(`Create failed (HTTP ${response.status}): ${await response.text()}`);
+  }
+  const result = (await response.json()) as WorkspaceResponse;
+
+  console.log('');
+  console.log(colors.green('✓ Workspace created'));
+  console.log('');
+  console.log(buildWorkspaceUrl(host, result.id, secret));
+  console.log(`${colors.yellow('  edit')}       anyone with this link can change it`);
+  console.log('');
+  console.log(buildReadOnlyWorkspaceUrl(host, result.id, secret));
+  console.log(`${colors.yellow('  view-only')}  they can read it, never write it`);
+  console.log('');
+  if (result.expires) {
+    console.log(`${colors.yellow('Expires:')} ${result.expires} (renewed on every write)`);
+  }
+  console.log(`${colors.yellow('Update:')}  vn write <edit-url> [file]`);
+}
+
+/**
+ * Replace the contents of an existing workspace.
+ *
+ * Writes are conditional on the version that was just read, so two agents
+ * editing at once cannot silently clobber each other — the loser is told.
+ */
+async function writeWorkspace(url: string, input: string | undefined, options: UploadOptions): Promise<void> {
+  const link = parseWorkspaceUrl(url);
+  if (!link.canWrite) {
+    error('That is a view-only link (#r=). Writing needs the edit link (#w=).');
+  }
+  const host = options.host || link.host;
+  const data = await readInput(input, 'Encrypting');
+
+  info(`Reading current version of ${link.id}...`);
+  const current = await fetch(`${host}/api/workspace/${link.id}`, {
+    headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+  });
+  if (current.status === 404) {
+    error('Workspace not found. It may have expired.');
+  }
+  if (!current.ok) {
+    error(`Failed to read workspace (HTTP ${current.status})`);
+  }
+  await current.arrayBuffer();
+  const version = (current.headers.get('ETag') || '').replace(/"/g, '');
+
+  const response = await fetch(`${host}/api/workspace/${link.id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      'X-Vnsh-Write': link.writeToken as string,
+      'If-Match': version,
+    },
+    body: encryptWorkspace(data, link.key),
+  });
+
+  if (response.status === 412) {
+    error(
+      'Someone else wrote to this workspace since you read it (version ' +
+        version +
+        ' is stale). Re-read it, merge, and write again.',
+    );
+  }
+  if (response.status === 403) {
+    error('That write token was rejected. Check you are using the edit link.');
+  }
+  if (!response.ok) {
+    error(`Write failed (HTTP ${response.status}): ${await response.text()}`);
+  }
+
+  const result = (await response.json()) as WorkspaceResponse;
+  console.log('');
+  console.log(colors.green(`✓ Workspace updated to v${result.version}`));
+  console.log(buildWorkspaceUrl(host, link.id, link.secret as Buffer));
+}
+
+/** Fetch and decrypt a workspace, writing the plaintext to stdout. */
+async function readWorkspace(url: string): Promise<void> {
+  const link = parseWorkspaceUrl(url);
+  info(`Fetching workspace ${link.id} from ${link.host}...`);
+
+  const response = await fetch(`${link.host}/api/workspace/${link.id}`, {
+    headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+  });
+  if (response.status === 404) {
+    error('Workspace not found. It may have expired or been deleted.');
+  }
+  if (!response.ok) {
+    error(`Failed to fetch workspace (HTTP ${response.status})`);
+  }
+
+  const payload = Buffer.from(await response.arrayBuffer());
+  info(`Decrypting workspace v${response.headers.get('ETag') || '?'} (${formatBytes(payload.length)})...`);
+  try {
+    process.stdout.write(decryptWorkspace(payload, link.key));
+  } catch {
+    error('Decryption failed. The link may be truncated or the key incorrect.');
+  }
 }
 
 interface UploadResponse {
@@ -164,6 +343,12 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
  * Read and decrypt a vnsh URL
  */
 async function read(url: string): Promise<void> {
+  // Both link generations stay readable forever: /w/ is a workspace, /v/ is a
+  // v1 one-shot blob. Every link already in the wild keeps working.
+  if (isWorkspaceUrl(url)) {
+    return readWorkspace(url);
+  }
+
   const { host, id, key, iv } = parseVnshUrl(url);
 
   info(`Fetching blob ${id} from ${host}...`);
@@ -197,16 +382,28 @@ async function read(url: string): Promise<void> {
 // Setup CLI
 program
   .name('vn')
-  .description('vnsh - The Ephemeral Dropbox for AI\n\nEncrypt and share content via host-blind data tunnel.')
+  .description(
+    'vnsh - one workspace your agents can all read and write\n\n' +
+      'Encrypts locally and returns two links: one that can edit, one that can only read.',
+  )
   .version(VERSION, '-v, --version')
-  .argument('[file]', 'File to encrypt and upload')
-  .option('-t, --ttl <hours>', 'Set expiry time in hours (default: 24, max: 168)')
-  .option('-p, --price <usd>', 'Set price in USD for x402 payment')
+  .argument('[file]', 'File to encrypt and share (default: stdin)')
+  .option('-t, --ttl <hours>', 'Expiry in hours, one-shot blobs only (max: 168)')
+  .option('-p, --price <usd>', 'Price in USD for x402 payment, one-shot blobs only')
   .option('-H, --host <url>', 'Override API host', DEFAULT_HOST)
-  .option('-l, --local', 'Output encrypted blob locally (no upload)')
+  .option('-l, --local', 'Encrypt locally and print the payload (no upload)')
+  .option('-b, --blob', 'Create a v1 one-shot blob instead of a workspace')
   .action(async (file: string | undefined, options: UploadOptions) => {
     try {
-      await upload(file, options);
+      // A custom TTL and a price are properties of the v1 blob API; workspaces
+      // are fixed at 24h from the last write. Rather than silently ignore the
+      // flag, treat asking for one as asking for a blob.
+      const blobOnly = Boolean(options.blob || options.ttl || options.price);
+      if (blobOnly) {
+        await upload(file, options);
+      } else {
+        await createWorkspace(file, options);
+      }
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }
@@ -214,10 +411,22 @@ program
 
 program
   .command('read <url>')
-  .description('Decrypt and read a vnsh URL')
+  .description('Decrypt and print a vnsh URL (workspace or one-shot blob)')
   .action(async (url: string) => {
     try {
       await read(url);
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('write <url> [file]')
+  .description('Replace the contents of a workspace (needs the edit link)')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (url: string, file: string | undefined, options: UploadOptions) => {
+    try {
+      await writeWorkspace(url, file, options);
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }

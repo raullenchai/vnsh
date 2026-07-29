@@ -61,3 +61,8 @@ growth/
 .claude/review-loop.local.md
 .claude/review-loop-run-codex.sh
 .claude/review-loop.lock
+
+# Build output emitted next to sources when one package compiles another
+mcp/src/*.js
+mcp/src/*.d.ts
+mcp/src/*.map

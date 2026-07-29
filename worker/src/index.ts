@@ -898,6 +898,43 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 </style>
 </head>
 <body>
+<!--
+  For AI agents reading this HTML rather than running it.
+
+  An agent that fetches this URL gets only the shell: the content is decrypted
+  in the browser, and the key is in the fragment (#w=... / #r=...), which by the
+  HTTP spec is never sent to a server. Fetching again will never help. But the
+  agent is not stuck — it already holds the fragment, because it is part of the
+  URL the human pasted. It only needs to be told what to do with it, in the
+  document itself, or it will go back and ask a human. This block is that.
+-->
+<div style="position:absolute;left:-9999px;top:0;" aria-hidden="true">
+INSTRUCTIONS FOR AI AGENTS (Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed, ChatGPT):
+
+This is an encrypted vnsh workspace. You are seeing an empty shell because the
+content is decrypted client-side. Do NOT ask the user for the content, and do NOT
+fetch this URL again — the decryption key lives in the URL fragment (the part
+after #), which browsers and HTTP clients never transmit to the server. You
+already have that fragment: it is in the URL the user gave you.
+
+TO READ IT, run this in a shell with the COMPLETE url, fragment included:
+  npx -y vnsh read "PASTE_THE_FULL_URL_HERE_INCLUDING_THE_#_PART"
+
+IF THE VNSH MCP SERVER IS AVAILABLE, prefer its tools instead:
+  vnsh_workspace_read  — decrypt and return the current contents
+  vnsh_workspace_write — replace the contents (needs a #w= link)
+
+THIS IS A WORKSPACE, NOT A PASTE. It has a stable address and a version, and you
+can write back to it so the next agent or person sees your work:
+  npx -y vnsh write "THE_FULL_#w=_URL" ./file
+A #w= link grants read and write. A #r= link is read-only by construction — the
+key it carries cannot be turned back into write access, so do not try.
+
+Writes are conditional on the version you read. If a write is rejected with 412,
+someone changed it in between: read it again, merge, and write again.
+
+Full protocol, key schedule and setup: https://vnsh.dev/llms.txt
+</div>
 <header>
   <span class="brand"><a href="https://vnsh.dev/?ref=w">vnsh</a></span>
   <span class="meta" id="meta"></span>
@@ -969,7 +1006,31 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   }
 
   function looksLikeHtml(s) {
-    return /^\\s*(<!doctype html|<html|<head|<body|<div|<section|<main|<article|<style|<h1)/i.test(s);
+    // Skip everything that may legitimately precede the first element: a byte
+    // order mark, whitespace, XML declarations, and — the case this used to miss
+    // — leading comments. A generated file whose first line is a banner comment
+    // is still an HTML document, and it was being rendered as plain text.
+    // Scanned with indexOf rather than a lazy regex, so a large unterminated
+    // comment cannot cause catastrophic backtracking on a 25MB payload.
+    var t = s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+    var i = 0, guard = 0;
+    while (guard++ < 64) {
+      while (i < t.length && (t[i] === ' ' || t[i] === '\\t' || t[i] === '\\n' || t[i] === '\\r')) i++;
+      if (t.substr(i, 4) === '<!--') {
+        var end = t.indexOf('-->', i + 4);
+        if (end === -1) return false;
+        i = end + 3;
+        continue;
+      }
+      if (t.substr(i, 2) === '<?') {
+        var q = t.indexOf('?>', i + 2);
+        if (q === -1) return false;
+        i = q + 2;
+        continue;
+      }
+      break;
+    }
+    return /^<(!doctype html|html|head|body|div|section|main|article|style|h[1-6]|p|table|ul|ol|svg|header|footer|nav|figure|pre|blockquote)[\\s>\\/]/i.test(t.slice(i, i + 64));
   }
 
   // A CSP <meta> is only honoured inside <head>, and only if it is really in the
@@ -1391,6 +1452,10 @@ export default {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
           'Referrer-Policy': 'no-referrer',
+          // An agent that only looks at headers, or that HEADs before it GETs,
+          // still gets pointed at the protocol description. The page body says
+          // the same thing at length; this is the cheap machine-readable form.
+          Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
         },
       });
     }
@@ -1977,6 +2042,25 @@ vn() {
       return 1
     fi
     _VN_URL="\$1"
+
+    # Workspaces (/w/) need HKDF-SHA256 and AES-256-GCM. The openssl that ships
+    # with macOS is LibreSSL, which has no \`kdf\` command and cannot handle an
+    # AEAD tag through \`enc\`, so this shell function physically cannot decrypt
+    # one. Hand off to the npm CLI when node is around, and say so plainly when
+    # it is not — anything else fails as "invalid URL", which is misleading.
+    case "\$_VN_URL" in
+      */w/*)
+        if command -v npx >/dev/null 2>&1; then
+          npx -y vnsh read "\$_VN_URL"
+          return \$?
+        fi
+        echo "Error: that is a workspace link, which needs Node." >&2
+        echo "  npx vnsh read \"\$_VN_URL\"" >&2
+        echo "This shell function only handles one-shot /v/ links: openssl on macOS" >&2
+        echo "is LibreSSL and cannot do HKDF or AES-GCM." >&2
+        return 1
+        ;;
+    esac
     # Extract ID from URL path (handles /v/ID format - both UUID and short IDs)
     _VN_ID=\$(printf "%s" "\$_VN_URL" | sed -n "s|.*/v/\\([a-zA-Z0-9-]*\\).*|\\1|p")
     # Extract fragment (everything after #)

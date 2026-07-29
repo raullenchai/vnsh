@@ -580,3 +580,51 @@ describe('homepage onboarding order', () => {
     expect(html).toContain('Workspace created');
   });
 });
+
+/**
+ * An agent handed a workspace link fetches it, gets a shell that says
+ * "Decrypting…", and has no way forward — so it goes back and asks the human,
+ * which is the one thing the product exists to avoid. The page has to explain
+ * itself to a reader that will never run its JavaScript.
+ */
+describe('workspace page explains itself to agents', () => {
+  async function page(): Promise<string> {
+    return (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+  }
+
+  it('names a command that works without a browser', async () => {
+    const html = await page();
+    expect(html).toContain('npx -y vnsh read');
+    expect(html).toContain('https://vnsh.dev/llms.txt');
+  });
+
+  it('heads off the two things an agent would otherwise try', async () => {
+    const html = await page();
+    // Re-fetching can never work: the fragment is not sent to the server.
+    expect(html).toMatch(/never transmit|never sent/i);
+    // And asking the human defeats the entire point.
+    expect(html).toMatch(/do not ask the user/i);
+  });
+
+  it('tells the agent it can write back, and how that can fail', async () => {
+    const html = await page();
+    expect(html).toContain('npx -y vnsh write');
+    expect(html).toMatch(/412/);
+    // The read-only tier is enforced by the key schedule, not by a policy the
+    // agent could be tempted to work around.
+    expect(html).toMatch(/#r= link is read-only/i);
+  });
+
+  it('advertises the protocol description in a header too', async () => {
+    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
+    await response.text();
+    expect(response.headers.get('Link')).toContain('rel="describedby"');
+    expect(response.headers.get('Link')).toContain('/llms.txt');
+  });
+
+  it('keeps the instructions away from human readers', async () => {
+    const html = await page();
+    // Off-screen and aria-hidden: agents read the markup, people do not see it.
+    expect(html).toMatch(/left:-9999px[^>]*"\s+aria-hidden="true"/);
+  });
+});
