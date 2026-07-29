@@ -159,3 +159,48 @@ describe('visibility is fixed at creation', () => {
     await response.text();
   });
 });
+
+/**
+ * The homepage had to gain this without becoming a menu again. An earlier
+ * version of the page asked people to choose between a "workspace" and a
+ * "one-shot job" before they knew what either was, and that was removed for
+ * being confusing. Publishing is an opt-out from the product's own promise, so
+ * it belongs as one quiet line under the dropzone, not a second front door.
+ */
+describe('the homepage offers publishing without becoming a menu', () => {
+  async function home(): Promise<string> {
+    return (await call(new Request('http://localhost/'))).text();
+  }
+
+  it('offers it as a single opt-in, off by default', async () => {
+    const html = await home();
+    expect(html).toContain('id="opt-public"');
+    // An unchecked checkbox: no `checked` attribute anywhere on it.
+    expect(html).toMatch(/<input type="checkbox" id="opt-public">/);
+    // And not a second mode selector.
+    expect(html).not.toContain('data-mode=');
+  });
+
+  it('states the cost in the same breath as the benefit', async () => {
+    const html = await home();
+    const label = html.slice(html.indexOf('for="opt-public"'), html.indexOf('</label>'));
+    expect(label).toMatch(/agents can just fetch it/i);
+    expect(label).toMatch(/vnsh\s*\n?\s*can read it/i);
+  });
+
+  it('sends the header only when asked, and skips encryption then', async () => {
+    const html = await home();
+    expect(html).toContain("...(wantsPublic() ? { 'X-Vnsh-Public': '1' } : {})");
+    // The encryption step is skipped rather than performed and discarded.
+    expect(html).toMatch(/if \(wantsPublic\(\)\) \{[\s\S]{0,200}Uploading in the clear/);
+  });
+
+  it('hands back a link with no fragment, and calls it what it is', async () => {
+    const html = await home();
+    // A public link cannot carry a key, so it must not pretend to.
+    expect(html).toMatch(/data\.public\s*\n?\s*\?\s*location\.origin \+ '\/p\/' \+ data\.id/);
+    // Calling it "view-only" would misdescribe who can read it.
+    expect(html).toContain("nameEl.textContent = 'Public link'");
+    expect(html).toContain("roleEl.textContent = 'anyone can read it, no key needed'");
+  });
+});

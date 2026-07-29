@@ -4173,6 +4173,19 @@ const APP_HTML = `<!DOCTYPE html>
 
     #file-input { display: none; }
 
+    .opt {
+      display: flex; gap: 9px; align-items: flex-start; cursor: pointer;
+      margin-top: 12px; padding: 10px 11px; border-radius: 9px;
+      border: 1px solid var(--line); background: var(--surface);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .opt:hover { border-color: var(--line-lit); }
+    .opt input { margin: 2px 0 0; accent-color: var(--accent); flex-shrink: 0; }
+    .opt-text { font-size: 12.5px; color: var(--ink-faint); line-height: 1.5; }
+    .opt-text b { color: var(--ink-soft); font-weight: 560; display: block; margin-bottom: 2px; }
+    .opt:has(input:checked) { border-color: var(--ember); background: rgba(240, 161, 58, 0.05); }
+    .opt:has(input:checked) .opt-text b { color: var(--ember); }
+
     /* The setup prompt: the only thing on the page that produces a second use. */
     .setup-prompt {
       border: 1px solid var(--accent-edge); border-radius: 11px; background: var(--surface);
@@ -4925,6 +4938,15 @@ const APP_HTML = `<!DOCTYPE html>
           </div>
           <input type="file" id="file-input">
 
+          <label class="opt" for="opt-public">
+            <input type="checkbox" id="opt-public">
+            <span class="opt-text">
+              <b>Skip the encryption so agents can just fetch it.</b>
+              A plain web page at a plain URL, no key and no setup &mdash; and vnsh
+              can read it. Off by default.
+            </span>
+          </label>
+
           <ul class="then" id="what-you-get">
             <li><span class="n">1</span><span>You get back an <b>edit link</b> and a <b>view-only link</b>.</span></li>
             <li><span class="n">2</span><span>Anyone holding the edit link can <b>change the document</b> &mdash; agents included.</span></li>
@@ -5349,13 +5371,22 @@ const APP_HTML = `<!DOCTYPE html>
       const W = toHex(await hkdf32(S, 'vnsh/write/v2'));
       const H = await sha256HexOf(W);
 
-      progressText.textContent = '> Encrypting (AES-256-GCM)...';
-      progressFill.style.width = '40%';
-      const nonce = crypto.getRandomValues(new Uint8Array(12));
-      const aes = await crypto.subtle.importKey('raw', K, { name: 'AES-GCM' }, false, ['encrypt']);
-      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, plaintext));
-      const payload = new Uint8Array(nonce.length + ct.length);
-      payload.set(nonce, 0); payload.set(ct, nonce.length);
+      // A public workspace is stored as-is so anything that speaks HTTP can read
+      // it. The encryption step is skipped rather than made pointless.
+      let payload;
+      if (wantsPublic()) {
+        progressText.textContent = '> Uploading in the clear...';
+        progressFill.style.width = '40%';
+        payload = typeof plaintext === 'string' ? new TextEncoder().encode(plaintext) : plaintext;
+      } else {
+        progressText.textContent = '> Encrypting (AES-256-GCM)...';
+        progressFill.style.width = '40%';
+        const nonce = crypto.getRandomValues(new Uint8Array(12));
+        const aes = await crypto.subtle.importKey('raw', K, { name: 'AES-GCM' }, false, ['encrypt']);
+        const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, plaintext));
+        payload = new Uint8Array(nonce.length + ct.length);
+        payload.set(nonce, 0); payload.set(ct, nonce.length);
+      }
 
       progressText.textContent = '> Creating workspace...';
       progressFill.style.width = '70%';
@@ -5366,6 +5397,7 @@ const APP_HTML = `<!DOCTYPE html>
           'X-Vnsh-Client': 'web/1.0',
           'X-Vnsh-Ref': VNSH_REF,
           'X-Vnsh-Write-Hash': H,
+          ...(wantsPublic() ? { 'X-Vnsh-Public': '1' } : {}),
         },
         body: payload,
       });
@@ -5373,7 +5405,11 @@ const APP_HTML = `<!DOCTYPE html>
       const data = await res.json();
       return {
         edit: location.origin + '/w/' + data.id + '#w=' + bytesToBase64url(S),
-        view: location.origin + '/w/' + data.id + '#r=' + bytesToBase64url(K),
+        // No fragment on a public link, because there is no key to put in one.
+        view: data.public
+          ? location.origin + '/p/' + data.id
+          : location.origin + '/w/' + data.id + '#r=' + bytesToBase64url(K),
+        isPublic: Boolean(data.public),
       };
     }
 
@@ -5399,6 +5435,18 @@ const APP_HTML = `<!DOCTYPE html>
         resultUrlFull.textContent = generatedUrl;
         document.getElementById('result-view-url').textContent = viewOnlyUrl;
         document.getElementById('result-view').classList.add('show');
+        const viewCard = document.getElementById('result-view');
+        const nameEl = viewCard.querySelector('.link-name');
+        const roleEl = viewCard.querySelector('.link-role');
+        if (links.isPublic) {
+          nameEl.textContent = 'Public link';
+          roleEl.textContent = 'anyone can read it, no key needed';
+          viewCard.classList.add('primary');
+        } else {
+          nameEl.textContent = 'View-only link';
+          roleEl.textContent = 'read, never write';
+          viewCard.classList.remove('primary');
+        }
         document.title = '\u2713 vnsh';
         resultEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         try {
@@ -5421,6 +5469,11 @@ const APP_HTML = `<!DOCTYPE html>
 
     // 'w' means they got here from someone else's workspace page — the growth
     // loop, and the only cohort whose conversion is worth measuring separately.
+    function wantsPublic() {
+      const box = document.getElementById('opt-public');
+      return Boolean(box && box.checked);
+    }
+
     const VNSH_REF = (function () {
       try {
         var r = new URLSearchParams(location.search).get('ref');
