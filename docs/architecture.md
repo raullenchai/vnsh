@@ -97,15 +97,23 @@ worker/
 | GET | `/robots.txt` | Search engine rules |
 | GET | `/sitemap.xml` | Sitemap for SEO |
 | GET | `/og-image.png` | Social sharing image |
-| POST | `/api/drop` | Upload blob |
-| GET | `/api/blob/:id` | Download blob |
-| GET | `/v/:id` | Serve viewer HTML (preserves hash fragment) |
+| POST | `/api/workspace` | Create a workspace |
+| GET | `/api/workspace/:id` | Read one; `ETag` is the version |
+| PUT | `/api/workspace/:id` | Replace one; needs `X-Vnsh-Write` and `If-Match` |
+| GET | `/w/:id` | Workspace viewer (decrypts client-side) |
+| GET | `/p/:id` | A public workspace, as a plain document |
+| POST | `/api/event` | Page-reported conversions |
+| POST | `/api/drop` | Upload a one-shot blob (v1) |
+| GET | `/api/blob/:id` | Download a one-shot blob (v1) |
+| GET | `/v/:id` | Blob viewer (preserves hash fragment) |
 | OPTIONS | `*` | CORS preflight |
 
 **Bindings:**
 
-- `VNSH_STORE` (R2 Bucket): Stores encrypted blobs
-- `VNSH_META` (KV Namespace): Stores metadata with TTL
+- `VNSH_STORE` (R2 Bucket): encrypted blobs and workspaces, with expiry and
+  version carried in `customMetadata` — the single source of truth
+- `UPLOAD_LIMITER` / `READ_LIMITER` (Rate Limit): native, in-colo, no storage writes
+- `VNSH_ANALYTICS` (Analytics Engine, optional): usage counts; absent binding no-ops
 
 ### CLI (`/cli`)
 

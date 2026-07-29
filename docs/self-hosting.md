@@ -32,16 +32,7 @@ export CLOUDFLARE_API_TOKEN="your-api-token"
 wrangler r2 bucket create vnsh-store
 ```
 
-### 4. Create KV Namespace
-
-```bash
-wrangler kv namespace create VNSH_META
-
-# Note the ID from output, e.g.:
-# { binding = "VNSH_META", id = "abc123..." }
-```
-
-### 5. Configure wrangler.toml
+### 4. Configure wrangler.toml
 
 ```toml
 name = "vnsh"
@@ -53,12 +44,33 @@ compatibility_flags = ["nodejs_compat"]
 binding = "VNSH_STORE"
 bucket_name = "vnsh-store"
 
-[[kv_namespaces]]
-binding = "VNSH_META"
-id = "YOUR_KV_NAMESPACE_ID"  # Replace with actual ID
+# Native, in-colo, and free. These replaced KV counters, which is why there is
+# no KV namespace to create.
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "READ_LIMITER"
+namespace_id = "1002"
+simple = { limit = 50, period = 60 }
+
+# Optional. Usage counts only; the worker no-ops without it.
+[[analytics_engine_datasets]]
+binding = "VNSH_ANALYTICS"
+dataset = "vnsh_events"
 ```
 
-### 6. Deploy
+> **No KV namespace.** Earlier versions kept blob metadata, rate-limit counters
+> and usage stats in KV. The free tier allows 1,000 writes a day, which at three
+> to four writes per request is a few hundred requests; past that every write
+> threw and the uncaught exception surfaced as a Cloudflare 1101 on every route
+> that touched it — the whole site, not just the counter. Metadata now lives in
+> R2 `customMetadata`, rate limiting uses the native binding, and analytics go to
+> Analytics Engine. If a guide tells you to create `VNSH_META`, it predates that.
+
+### 5. Deploy
 
 ```bash
 wrangler deploy

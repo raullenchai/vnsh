@@ -18,7 +18,8 @@ Production deployment details and operational knowledge for vnsh.
 |----------|------|---------|
 | Worker | Cloudflare Worker | `vnsh` |
 | R2 Bucket | Object Storage | `vnsh-store` |
-| KV Namespace | Key-Value Store | `VNSH_META` (ID: `67d2bdbe539e4620a20a65be26744a5e`) |
+| Rate limiters | Native binding | `UPLOAD_LIMITER` 10/60s, `READ_LIMITER` 50/60s |
+| Analytics | Analytics Engine | dataset `vnsh_events`, binding `VNSH_ANALYTICS` |
 | Custom Domain | DNS | `vnsh.dev` |
 
 ### Worker Bindings
@@ -29,9 +30,19 @@ Production deployment details and operational knowledge for vnsh.
 binding = "VNSH_STORE"
 bucket_name = "vnsh-store"
 
-[[kv_namespaces]]
-binding = "VNSH_META"
-id = "67d2bdbe539e4620a20a65be26744a5e"
+[[ratelimits]]
+name = "UPLOAD_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "READ_LIMITER"
+namespace_id = "1002"
+simple = { limit = 50, period = 60 }
+
+[[analytics_engine_datasets]]
+binding = "VNSH_ANALYTICS"
+dataset = "vnsh_events"
 ```
 
 ---
