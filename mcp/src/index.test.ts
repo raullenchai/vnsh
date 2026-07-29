@@ -7,6 +7,7 @@
  * - Tool handlers (with mocked fetch)
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { encrypt, decrypt, generateKey, generateIV, bufferToHex, buildVnshUrl, parseVnshUrl } from './crypto.js';
 import { detectImageType, detectBinary, handleRead, handleShare } from './index.js';
@@ -840,5 +841,36 @@ describe('error handling', () => {
     const validKey = '0'.repeat(64);
 
     expect(() => parseVnshUrl(`https://vnsh.dev/v/12345678-1234-1234-1234-123456789012#k=${validKey}&iv=short`)).toThrow('IV must be 32 hex chars');
+  });
+});
+
+/**
+ * The workspace page tells agents which tools to reach for, and it got one name
+ * wrong: it advertised vnsh_workspace_write, which has never existed. An agent
+ * following that instruction calls a tool that is not there and fails, which is
+ * precisely the dead end the instructions were added to prevent.
+ *
+ * That list lives in the worker, so it cannot import this one. This test is the
+ * other half of the pair: if a tool is renamed here, this fails and points at
+ * the copy in worker/test/workspace.test.ts that has to move with it.
+ */
+describe('the registered tool names', () => {
+  it('are exactly the set the workspace page advertises', () => {
+    const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf-8');
+    const registered = [
+      ...new Set([...source.matchAll(/name: '(vnsh_[a-z_]+)'/g)].map((m) => m[1])),
+    ].sort();
+
+    expect(registered).toEqual([
+      'vnsh_read',
+      'vnsh_share',
+      'vnsh_share_file',
+      'vnsh_workspace_create',
+      'vnsh_workspace_open',
+      'vnsh_workspace_read',
+      'vnsh_workspace_update',
+    ]);
+    // The name that was wrong, spelled out so it cannot quietly come back.
+    expect(registered).not.toContain('vnsh_workspace_write');
   });
 });

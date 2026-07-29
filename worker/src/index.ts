@@ -1096,7 +1096,7 @@ Ways this content can be read, best first:
 1. THE VNSH MCP SERVER, if the user has it configured. Its tools operate on
    this link directly and need nothing else:
      vnsh_workspace_read   - decrypt and return the current contents
-     vnsh_workspace_write  - replace the contents (needs a #w= link)
+     vnsh_workspace_update - replace the contents (needs a #w= link)
    This is the intended path, and it involves no new authority: the user
    installed those tools.
 
@@ -5238,24 +5238,8 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     // URL truncation toggle
-    function toggleFullUrl() {
-      const fullEl = document.getElementById('result-url-full');
-      const btn = event.target;
-      if (fullEl.classList.contains('show')) {
-        fullEl.classList.remove('show');
-        btn.textContent = 'show full';
-      } else {
-        fullEl.classList.add('show');
-        btn.textContent = 'hide';
-      }
-    }
 
     // Truncate URL for display
-    function truncateUrl(url) {
-      const match = url.match(/vnsh\\.dev\\/v\\/([a-f0-9-]{8})[^#]*#k=([a-f0-9]{8})/);
-      if (match) return 'vnsh.dev/v/' + match[1] + '...#k=' + match[2] + '...';
-      return url.length > 50 ? url.slice(0, 50) + '...' : url;
-    }
 
     // Copy MCP config
     function copyMcpConfig() {
@@ -5528,12 +5512,6 @@ const APP_HTML = `<!DOCTYPE html>
       });
     }
 
-    function openViewer() {
-      // Navigate directly to the generated URL (uses /v/:id#k=...&iv=... format)
-      if (generatedUrl) {
-        window.location.href = generatedUrl;
-      }
-    }
 
     // Viewer
     function showViewer(id, keyHex, ivHex) {

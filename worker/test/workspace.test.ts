@@ -641,9 +641,34 @@ describe('workspace page explains itself to agents', () => {
 
   it('explains the write semantics, including how a write fails', async () => {
     const html = await page();
-    expect(html).toContain('vnsh_workspace_write');
     expect(html).toMatch(/412/);
     expect(html).toMatch(/#r= link is read-only by construction/i);
+  });
+
+  /**
+   * The first version of this block told agents to call vnsh_workspace_write,
+   * which does not exist — the tool is vnsh_workspace_update. Worse, the test
+   * asserted the name I had written rather than the name that exists, so it
+   * locked the mistake in. Assert against the registry instead.
+   */
+  it('only names tools the MCP server actually registers', async () => {
+    // Kept in step with the tools registered in mcp/src/index.ts, which has its
+    // own test asserting this is exactly the set it exposes.
+    const REGISTERED = [
+      'vnsh_read',
+      'vnsh_share',
+      'vnsh_share_file',
+      'vnsh_workspace_create',
+      'vnsh_workspace_open',
+      'vnsh_workspace_read',
+      'vnsh_workspace_update',
+    ];
+    const html = await page();
+    const named = [...new Set([...html.matchAll(/\bvnsh_[a-z_]+/g)].map((m) => m[0]))];
+    expect(named.length).toBeGreaterThan(0);
+    for (const tool of named) {
+      expect(REGISTERED, `page names a tool that does not exist: ${tool}`).toContain(tool);
+    }
   });
 
   it('advertises the protocol description in a header too', async () => {

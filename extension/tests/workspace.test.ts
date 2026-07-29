@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import {
   deriveWorkspaceKeys,
@@ -142,5 +143,53 @@ describe('link detection on a page', () => {
     expect(LINK_RE.test('https://vnsh.dev/llms.txt')).toBe(false);
     expect(LINK_RE.test('https://vnsh.dev/blog/url-fragments-encryption-keys')).toBe(false);
     expect(LINK_RE.test('https://vnsh.dev/privacy')).toBe(false);
+  });
+});
+
+/**
+ * The popup offers one choice — publish, or keep it encrypted — and it has to
+ * mean the same thing on every button next to it. The first version threaded it
+ * only through plain text, so ticking the box and then sharing a screenshot
+ * silently produced an encrypted workspace: the same shape of lie as the TTL
+ * selector that this control replaced.
+ */
+describe('the publish choice reaches every share the popup offers', () => {
+  const popup = readFileSync(new URL('../src/popup/popup.ts', import.meta.url), 'utf-8');
+  const worker = readFileSync(
+    new URL('../src/background/service-worker.ts', import.meta.url),
+    'utf-8',
+  );
+
+  it('is sent with every action the popup dispatches', () => {
+    const actions = [...popup.matchAll(/action: '([a-z-]+)'/g)].map((m) => m[1]);
+    expect(actions.length).toBeGreaterThan(2);
+    for (const action of actions) {
+      const payload = popup.slice(popup.indexOf(`action: '${action}'`));
+      const upToClose = payload.slice(0, payload.indexOf('})'));
+      expect(upToClose, `${action} does not carry the publish choice`).toContain('isPublic');
+    }
+  });
+
+  it('is honoured by every handler those actions reach', () => {
+    for (const handler of [
+      'handleShareText',
+      'handleShareBinary',
+      'handleScreenshot',
+      'handleDebugBundle',
+    ]) {
+      const start = worker.indexOf(`async function ${handler}(`);
+      expect(start, `${handler} not found`).toBeGreaterThan(-1);
+      const body = worker.slice(start, worker.indexOf('\n}\n', start));
+      expect(body, `${handler} ignores the publish choice`).toContain('isPublic');
+    }
+  });
+
+  it('keeps context-menu shares encrypted, having no way to ask', () => {
+    // Publishing something on a right click is not a decision to make for
+    // someone, so this path must not inherit the popup's toggle.
+    const start = worker.indexOf('async function handleShareImage(');
+    const body = worker.slice(start, worker.indexOf('\n}\n', start));
+    expect(body).toContain('await createWorkspace(data)');
+    expect(body).not.toContain('public: isPublic');
   });
 });

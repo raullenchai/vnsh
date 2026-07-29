@@ -69,6 +69,7 @@ btnDebugBundle.addEventListener('click', async () => {
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'debug-bundle-from-popup',
+      isPublic: publicToggle.checked,
       userNote: shareText.value.trim() || undefined,
     });
 
@@ -87,7 +88,10 @@ btnScreenshot.addEventListener('click', async () => {
   showStatus('Capturing screenshot...', 'loading');
 
   try {
-    const response = await chrome.runtime.sendMessage({ action: 'screenshot' });
+    const response = await chrome.runtime.sendMessage({
+      action: 'screenshot',
+      isPublic: publicToggle.checked,
+    });
     if (response.error) throw new Error(response.error);
     showResult(response.url);
     showStatus('Screenshot shared!', 'success');
@@ -134,6 +138,7 @@ async function shareFile(file: File): Promise<void> {
     const buffer = await file.arrayBuffer();
     const response = await chrome.runtime.sendMessage({
       action: 'share-file',
+      isPublic: publicToggle.checked,
       data: Array.from(new Uint8Array(buffer)),
       filename: file.name,
     });

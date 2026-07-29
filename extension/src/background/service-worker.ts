@@ -110,21 +110,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.action === 'share-file') {
-    handleShareBinary(new Uint8Array(message.data), message.filename)
+    handleShareBinary(new Uint8Array(message.data), message.filename, message.isPublic)
       .then((url) => sendResponse({ url }))
       .catch((err) => sendResponse({ error: (err as Error).message }));
     return true;
   }
 
   if (message.action === 'screenshot') {
-    handleScreenshot(undefined)
+    handleScreenshot(undefined, message.isPublic)
       .then((url) => sendResponse({ url }))
       .catch((err) => sendResponse({ error: (err as Error).message }));
     return true;
   }
 
   if (message.action === 'debug-bundle-from-popup') {
-    handleDebugBundle(undefined, undefined, message.userNote)
+    handleDebugBundle(undefined, undefined, message.userNote, message.isPublic)
       .then((url) => sendResponse({ url }))
       .catch((err) => sendResponse({ error: (err as Error).message }));
     return true;
@@ -162,8 +162,9 @@ async function handleShareText(
 async function handleShareBinary(
   data: Uint8Array,
   filename?: string,
+  isPublic?: boolean,
 ): Promise<string> {
-  const { editUrl: url, expires } = await createWorkspace(data);
+  const { editUrl: url, expires } = await createWorkspace(data, { public: isPublic });
 
   await addToHistory({
     url,
@@ -184,6 +185,9 @@ async function handleShareImage(
   if (!response.ok) throw new Error('Failed to fetch image');
 
   const data = new Uint8Array(await response.arrayBuffer());
+  // Context-menu shares have nowhere to express the choice, so they stay
+  // encrypted. Defaulting the other way would publish something on a right
+  // click, which is not a decision to make on someone's behalf.
   const { editUrl: url, expires } = await createWorkspace(data);
 
   await addToHistory({
@@ -218,6 +222,7 @@ async function handleSaveSnippet(
 
 async function handleScreenshot(
   tab?: chrome.tabs.Tab,
+  isPublic?: boolean,
 ): Promise<string> {
   const currentTab = tab || (await getActiveTab());
   if (!currentTab?.id) throw new Error('No active tab');
@@ -235,7 +240,7 @@ async function handleScreenshot(
     bytes[i] = binary.charCodeAt(i);
   }
 
-  const { editUrl: url, expires } = await createWorkspace(bytes);
+  const { editUrl: url, expires } = await createWorkspace(bytes, { public: isPublic });
 
   await addToHistory({
     url,
@@ -254,6 +259,7 @@ async function handleDebugBundle(
   selectedText?: string,
   tab?: chrome.tabs.Tab,
   userNote?: string,
+  isPublic?: boolean,
 ): Promise<string> {
   const currentTab = tab || (await getActiveTab());
   if (!currentTab?.id) throw new Error('No active tab');
@@ -342,7 +348,7 @@ async function handleDebugBundle(
   const bundleJson = buildBundle(bundleInput);
   const bundleBytes = new TextEncoder().encode(bundleJson);
 
-  const { editUrl: url, expires } = await createWorkspace(bundleBytes);
+  const { editUrl: url, expires } = await createWorkspace(bundleBytes, { public: isPublic });
 
   const aiUrl = `${AI_PROMPT_PREFIX}${url}${AI_PROMPT_SUFFIX}`;
 
