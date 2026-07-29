@@ -171,3 +171,62 @@ describe('markdown never produces executable output', () => {
     expect(html).toContain('&lt;script&gt;');
   });
 });
+
+/**
+ * Links inside a sandboxed frame would navigate the frame itself, so the viewer
+ * injects a hook that asks the parent to open them instead. Codex flagged that
+ * the parent accepted that request from any script in the frame, tied to
+ * nothing — content can post the same shape on load or on a timer, so the only
+ * thing standing between a stranger's document and window.open was the
+ * browser's popup blocker.
+ *
+ * Whether a real browser's blocker would have caught it could not be settled
+ * here — headless Chrome has no popup blocker, and the harness said "allowed"
+ * even for an ordinary ungestured window.open, so the measurement proved
+ * nothing either way. The listener now requires live user activation, which
+ * makes the answer not matter.
+ */
+describe('the link hook cannot be driven without a user gesture', () => {
+  let listener: string;
+
+  beforeAll(async () => {
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(new Request('http://localhost/w/aBcDeFgHiJkL'), env as Env, ctx);
+    await waitOnExecutionContext(ctx);
+    const page = await res.text();
+    const start = page.indexOf("window.addEventListener('message'");
+    const end = page.indexOf('function renderText(', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    listener = page.slice(start, end);
+  });
+
+  it('checks user activation before opening anything', () => {
+    expect(listener).toContain('navigator.userActivation');
+    // The check has to gate the open, not merely be mentioned. Anchor on the
+    // call itself rather than the words "window.open", which also appear in the
+    // comment explaining why the gate is there.
+    const gate = listener.indexOf('activation.isActive');
+    const call = listener.indexOf('window.open(u.href');
+    expect(gate).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(call);
+  });
+
+  it('still requires the message to come from the content frame', () => {
+    expect(listener).toContain('e.source !== contentFrame.contentWindow');
+  });
+
+  it('still refuses anything that is not http or https', () => {
+    expect(listener).toContain("u.protocol !== 'http:'");
+    expect(listener).toContain("u.protocol !== 'https:'");
+  });
+
+  it('opens with noopener and noreferrer', () => {
+    expect(listener).toContain("'noopener,noreferrer'");
+  });
+
+  it('throttles so one gesture cannot become a burst of tabs', () => {
+    expect(listener).toMatch(/lastOpenedAt/);
+  });
+});

@@ -1762,13 +1762,32 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
   // frame is opaque-origin so event.origin is "null"; identity has to come from
   // the source window, not the origin string.
   var contentFrame = null;
+  var lastOpenedAt = 0;
   window.addEventListener('message', function (e) {
     if (!contentFrame || e.source !== contentFrame.contentWindow) return;
     var target = e.data && e.data.vnshOpen;
     if (typeof target !== 'string') return;
+
+    // Coming from the content frame is not evidence a person asked for
+    // anything. The frame is untrusted and its script can post this shape on
+    // load, on a timer, or from a handler with no link involved — the hook is
+    // a convention, not a capability the content lacks. Requiring live user
+    // activation is what ties an open to a real gesture. Without it the only
+    // thing between a stranger's document and window.open would be the
+    // browser's popup blocker, which is not ours to rely on.
+    var activation = navigator.userActivation;
+    if (activation && !activation.isActive) return;
+
+    // One window per gesture. window.open consumes transient activation on its
+    // own, but not every engine exposes userActivation, and a burst of tabs is
+    // the shape this abuse takes.
+    var now = Date.now();
+    if (now - lastOpenedAt < 1000) return;
+
     var u;
     try { u = new URL(target); } catch (err) { return; }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
+    lastOpenedAt = now;
     window.open(u.href, '_blank', 'noopener,noreferrer');
   });
 
