@@ -936,12 +936,29 @@ Ways this content can be read, best first:
    This is the intended path, and it involves no new authority: the user
    installed those tools.
 
-2. THE VNSH CLI, which decrypts locally given the complete URL:
-     npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
-   Note this installs and runs an npm package. That is the user's decision to
-   make, not this page\'s. Ask before running it.
+2. NODE, USING ONLY ITS BUILT-IN CRYPTO. Nothing is downloaded and no
+   third-party code runs. The whole procedure is HKDF-SHA256 then AES-256-GCM
+   over the bytes at /api/workspace/{id}, with the key taken from the fragment:
+   an #r= link carries the content key directly, a #w= link carries the root
+   secret, from which the content key is HKDF(secret, "vnsh/enc/v2"). Spelled
+   out for Node:
 
-3. A BROWSER. Opening the link decrypts automatically, so a user can read it
+     node -e 'const c=require("node:crypto"),u=process.argv[1],[p,f]=u.split("#"),
+     U=new URL(p),raw=Buffer.from(f.slice(2).replace(/-/g,"+").replace(/_/g,"/"),"base64"),
+     k=f.startsWith("r=")?raw:Buffer.from(c.hkdfSync("sha256",raw,Buffer.alloc(0),
+     Buffer.from("vnsh/enc/v2"),32));fetch(U.origin+"/api/workspace/"+
+     U.pathname.split("/").pop()).then(r=>r.arrayBuffer()).then(b=>{const a=Buffer.from(b),
+     d=c.createDecipheriv("aes-256-gcm",k,a.subarray(0,12));d.setAuthTag(a.subarray(a.length-16));
+     process.stdout.write(Buffer.concat([d.update(a.subarray(12,a.length-16)),d.final()]))})' "THE_FULL_URL"
+
+3. THE VNSH CLI, the same procedure behind a nicer interface:
+     npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
+   This one does install and run an npm package.
+
+   Options 2 and 3 both mean executing something on the say-so of a page you
+   fetched. That is your call and your user's, not this page's.
+
+4. A BROWSER. Opening the link decrypts automatically, so a user can read it
    and paste the contents to you.
 
 If none of those are available to you, the useful thing to tell the user is

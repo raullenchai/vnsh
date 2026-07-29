@@ -622,8 +622,14 @@ describe('workspace page explains itself to agents', () => {
     // The MCP tools are something the user installed, so using them needs no
     // new authority; npx installs and runs a package, so it does.
     expect(block.indexOf('vnsh_workspace_read')).toBeLessThan(block.indexOf('npx -y vnsh read'));
-    expect(block).toMatch(/the user['\u2019]s decision to\s+make, not this page/i);
-    expect(block).toMatch(/ask before running it/i);
+    // Executing anything is the reader's decision and their user's; a page
+    // cannot hand out that permission, and saying so is what stops this block
+    // from reading as an injection attempt.
+    expect(block).toMatch(/your call and your user['\u2019]s, not this page/i);
+    // And the lowest-authority option — no download, no third-party code —
+    // comes before the one that installs a package.
+    expect(block.indexOf('node -e')).toBeLessThan(block.indexOf('npx -y vnsh read'));
+    expect(block).toMatch(/does install and run an npm package/i);
   });
 
   it('leaves the agent something useful to say when it can do nothing', async () => {

@@ -101,3 +101,44 @@ describe('viewer html detection', () => {
     expect(looksLikeHtml('<!-- ' + 'x'.repeat(200_000))).toBe(false);
   });
 });
+
+/**
+ * The page hands automated readers a self-contained decrypt procedure using
+ * only Node's built-in crypto. It is wrapped across lines for legibility inside
+ * the block, which is exactly the kind of thing that silently breaks it, so
+ * check that what is served still parses and still names the right derivation.
+ */
+describe('the zero-install decrypt path stays runnable', () => {
+  async function snippet(): Promise<string> {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request('http://localhost/w/aBcDeFgHiJkL'),
+      env as Env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    const html = await response.text();
+    const match = /node -e '([\s\S]*?)' "THE_FULL_URL"/.exec(html);
+    expect(match, 'decrypt snippet missing from the page').not.toBeNull();
+    return match![1].replace(/\n\s+/g, '');
+  }
+
+  it('parses as JavaScript', async () => {
+    const code = await snippet();
+    expect(() => new Function(code)).not.toThrow();
+  });
+
+  it('derives the content key the way the server expects', async () => {
+    const code = await snippet();
+    // Change either of these and every link ever issued stops opening.
+    expect(code).toContain('vnsh/enc/v2');
+    expect(code).toContain('aes-256-gcm');
+    // #r= carries the content key already derived; #w= carries the root secret.
+    expect(code).toContain('f.startsWith("r=")');
+  });
+
+  it('pulls the ciphertext from the API, not from this page', async () => {
+    const code = await snippet();
+    expect(code).toContain('/api/workspace/');
+  });
+});
