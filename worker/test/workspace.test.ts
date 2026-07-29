@@ -447,16 +447,12 @@ describe('agent setup prompt', () => {
   it('llms.txt carries what the prompt no longer does', async () => {
     const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
 
-    // Installing a tool does not make an agent reach for it, so the setup
-    // instructions have to include writing a standing rule somewhere durable.
+    // Installing a tool does not make an agent reach for it, so setup has to
+    // cover the standing rule as well — and name the file, because "whichever
+    // file you read" turned out to be close to no instruction at all.
     expect(llms).toContain('standing rule');
-
-    // Naming the file is the part that matters: writing the rule is what makes
-    // vnsh a default rather than merely installed, so "whichever file you read"
-    // was close to no instruction at all. Verified by fetching this page as an
-    // agent — it asked where to put it until these paths were spelled out.
     for (const path of [
-      '~/.claude/CLAUDE.md',
+      './CLAUDE.md',
       '.cursor/rules',
       '.openhands/microagents',
       '.clinerules',
@@ -470,6 +466,43 @@ describe('agent setup prompt', () => {
     }
     expect(llms).toContain('vnsh/enc/v2');
     expect(llms).toContain('If-Match');
+  });
+
+  /**
+   * Three separate agents, given a workspace link on three separate occasions,
+   * refused to act on the version of this that told them to edit their own
+   * configuration. They were right to: an external document directing an agent
+   * to make a persistent change to how it behaves is indistinguishable in shape
+   * from a prompt injection, and agents are getting stricter, not looser.
+   *
+   * So the rule is still the point — a tool nobody reaches for is not installed
+   * in any useful sense — but it is now proposed rather than performed.
+   */
+  it('asks before changing an agent\'s configuration, and stays in the project', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    expect(llms).toMatch(/Show the user this rule and ask before writing it/i);
+    expect(llms).toMatch(/Ask first/i);
+    // Declining has to be an acceptable outcome, or "ask" is theatre.
+    expect(llms).toMatch(/If they decline/i);
+
+    // A page someone fetched has no business changing how an agent behaves in
+    // their other repositories.
+    expect(llms).toMatch(/Project-level files only/i);
+    expect(llms).toMatch(/Never a machine-wide one/i);
+    // The machine-wide path is named once, as the thing not to do. Assert that
+    // it is only ever reachable through the prohibition, not offered as a choice.
+    const machineWide = llms.indexOf('~/.claude/CLAUDE.md');
+    expect(machineWide).toBeGreaterThan(-1);
+    expect(llms.slice(machineWide - 90, machineWide)).toMatch(/Never a machine-wide one/i);
+    expect(llms).not.toContain('for every project');
+  });
+
+  it('does not claim the installer writes the rule, because it does not', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    // curl -sL vnsh.dev/claude | sh writes an MCP config and nothing else.
+    expect(html).not.toMatch(/installs the server <em>and<\/em> writes the standing rule/);
+    expect(html).toContain('writes the MCP config for you');
   });
 });
 
