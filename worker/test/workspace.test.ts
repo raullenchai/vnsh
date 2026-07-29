@@ -592,27 +592,52 @@ describe('workspace page explains itself to agents', () => {
     return (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
   }
 
-  it('names a command that works without a browser', async () => {
-    const html = await page();
-    expect(html).toContain('npx -y vnsh read');
-    expect(html).toContain('https://vnsh.dev/llms.txt');
-  });
-
   it('heads off the two things an agent would otherwise try', async () => {
     const html = await page();
     // Re-fetching can never work: the fragment is not sent to the server.
-    expect(html).toMatch(/never transmit|never sent/i);
-    // And asking the human defeats the entire point.
-    expect(html).toMatch(/do not ask the user/i);
+    expect(html).toMatch(/never transmits|never sent/i);
+    // And it already holds the key, so it does not need to ask for the content.
+    expect(html).toMatch(/you already hold the key/i);
   });
 
-  it('tells the agent it can write back, and how that can fail', async () => {
+  // An agent found the earlier version of this block, correctly refused to act
+  // on it, and went back to ask its user. That refusal was right: an imperative
+  // buried in fetched content has the exact shape of a prompt injection, and no
+  // page can grant anyone permission to run a command. The block has to inform,
+  // not command, or it converts one dead end into another.
+  it('describes a format rather than issuing orders', async () => {
     const html = await page();
-    expect(html).toContain('npx -y vnsh write');
+    const block = html.slice(html.indexOf('ABOUT THIS PAGE'), html.indexOf('</div>', html.indexOf('ABOUT THIS PAGE')));
+
+    expect(block).toMatch(/description of a file\s+format, not an instruction to you/i);
+    // The wording that reads as an injection attempt, and did get refused.
+    expect(block).not.toMatch(/INSTRUCTIONS FOR AI AGENTS/);
+    expect(block).not.toMatch(/^\s*TO READ IT, run/im);
+    expect(block).not.toMatch(/\bDo NOT\b/);
+  });
+
+  it('names the tool the user already authorised before the one they did not', async () => {
+    const html = await page();
+    const block = html.slice(html.indexOf('ABOUT THIS PAGE'));
+    // The MCP tools are something the user installed, so using them needs no
+    // new authority; npx installs and runs a package, so it does.
+    expect(block.indexOf('vnsh_workspace_read')).toBeLessThan(block.indexOf('npx -y vnsh read'));
+    expect(block).toMatch(/the user['\u2019]s decision to\s+make, not this page/i);
+    expect(block).toMatch(/ask before running it/i);
+  });
+
+  it('leaves the agent something useful to say when it can do nothing', async () => {
+    const html = await page();
+    // Otherwise it goes back to the human with a shrug, which is the failure.
+    expect(html).toMatch(/the useful thing to tell the user/i);
+    expect(html).toContain('https://vnsh.dev/llms.txt');
+  });
+
+  it('explains the write semantics, including how a write fails', async () => {
+    const html = await page();
+    expect(html).toContain('vnsh_workspace_write');
     expect(html).toMatch(/412/);
-    // The read-only tier is enforced by the key schedule, not by a policy the
-    // agent could be tempted to work around.
-    expect(html).toMatch(/#r= link is read-only/i);
+    expect(html).toMatch(/#r= link is read-only by construction/i);
   });
 
   it('advertises the protocol description in a header too', async () => {
@@ -622,9 +647,8 @@ describe('workspace page explains itself to agents', () => {
     expect(response.headers.get('Link')).toContain('/llms.txt');
   });
 
-  it('keeps the instructions away from human readers', async () => {
+  it('keeps the block away from human readers', async () => {
     const html = await page();
-    // Off-screen and aria-hidden: agents read the markup, people do not see it.
     expect(html).toMatch(/left:-9999px[^>]*"\s+aria-hidden="true"/);
   });
 });
