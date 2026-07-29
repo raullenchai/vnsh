@@ -20,6 +20,10 @@ LEGACY_PUBLIC_UNTIL = "2026-07-30T05:37:29Z"
 # bounces spends the one moment a reporter was willing to give, and tells a
 # gateway the route is unmaintained. Verified 2026-07-29.
 ABUSE_CONTACT = "mailto:abuse@vnsh.dev"
+# For /api/stats to read Analytics Engine over the SQL API. An account id is an
+# identifier, not a credential, so it lives here; the token it pairs with is a
+# secret (`wrangler secret put CF_API_TOKEN`).
+CF_ACCOUNT_ID = "f25478810829faf5ccc86f4ed9a96ef1"
 
 # Note: vnsh.dev and vnshcontent.dev are attached as Workers Custom Domains
 # (account-level, /workers/domains) rather than declared here. Declaring routes
