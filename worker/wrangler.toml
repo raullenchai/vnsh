@@ -15,7 +15,7 @@ compatibility_flags = ["nodejs_compat"]
 # of a redirect that leads to bad content.
 [vars]
 CONTENT_HOST = "vnshcontent.dev"
-LEGACY_PUBLIC_UNTIL = "2026-07-30T05:37:29Z"
+LEGACY_PUBLIC_UNTIL = "2026-08-05T14:35:07Z"
 # Set only after a real message was delivered to this mailbox — a contact that
 # bounces spends the one moment a reporter was willing to give, and tells a
 # gateway the route is unmaintained. Verified 2026-07-29.

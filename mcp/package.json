@@ -1,6 +1,6 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "mcpName": "io.github.raullenchai/vnsh",
   "description": "One workspace all your AI agents can read and write \u2014 MCP server for vnsh, encrypted client-side",
   "keywords": [
