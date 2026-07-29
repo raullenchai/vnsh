@@ -3124,6 +3124,34 @@ Your links are then:
 A public workspace still has a /w/#w= edit link, and it is the only way to
 change it later — the /p/ link carries no key, by design. Keep it.
 
+## Where the encryption boundary actually is
+
+Worth being exact, because "host-blind" is easy to over-read.
+
+The server holds ciphertext and no key. That part is checkable from outside:
+create a workspace, forge a write token, get a 403 — the only derived value it
+ever receives is SHA-256 of the write token.
+
+But the boundary is the client, not the transport. Whatever encrypts is holding
+your plaintext first, and if that is the vnsh MCP server or the vnsh CLI, then
+that process sees everything before it is sealed. So:
+
+  vnsh cannot read your content.        <- true, and verifiable
+  nothing between you and vnsh can.     <- not what is claimed
+
+That matters most for the recommended one-liner, which is npx -y vnsh-mcp:
+The -y skips the install prompt, and npx refetches the latest published version on
+every start, so the code handling your plaintext can change without you doing
+anything. That is a reasonable default for low friction and a bad one if you
+review what you run. To pin it:
+
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.4.0        pin the version
+  npm i -g vnsh-mcp@1.4.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
+
+Or implement the protocol yourself from the sections above and run no vnsh code
+at all — the format is fully specified here for exactly that reason.
+
 ## A note on User-Agent
 
 Requests sent with some default library user-agents are refused at the edge with

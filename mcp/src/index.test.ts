@@ -10,7 +10,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { encrypt, decrypt, generateKey, generateIV, bufferToHex, buildVnshUrl, parseVnshUrl } from './crypto.js';
-import { detectImageType, detectBinary, handleRead, handleShare } from './index.js';
+import {
+  detectImageType,
+  detectBinary,
+  handleRead,
+  handleShare,
+  handleWorkspaceCreate,
+} from './index.js';
 
 describe('detectImageType', () => {
   describe('PNG detection', () => {
@@ -872,5 +878,73 @@ describe('the registered tool names', () => {
     ]);
     // The name that was wrong, spelled out so it cannot quietly come back.
     expect(registered).not.toContain('vnsh_workspace_write');
+  });
+});
+
+/**
+ * The server could read a public workspace but never make one, so the surface
+ * agents actually use could not produce the thing that lets another agent read
+ * a link with no key and no setup.
+ */
+describe('creating a public workspace', () => {
+  // Captured per test rather than at collection time: another describe in this
+  // file that stubs fetch while its body evaluates would otherwise be what gets
+  // "restored", and the resulting failure would look intermittent.
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  function captureRequest() {
+    const seen: { url: string; headers: Record<string, string>; body: string }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => (headers[k.toLowerCase()] = v));
+      seen.push({
+        url: String(input),
+        headers,
+        body: Buffer.from(init?.body as Uint8Array).toString('utf-8'),
+      });
+      return new Response(
+        JSON.stringify({ id: 'aBcDeFgHiJkL', version: 1, expires: '2026-07-30T00:00:00Z' }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    return seen;
+  }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('sends the content as written, and says so', async () => {
+    const seen = captureRequest();
+    const result = await handleWorkspaceCreate({ content: '# Plan\n\n- one\n', public: true });
+
+    expect(seen[0].headers['x-vnsh-public']).toBe('1');
+    // Encryption is skipped rather than performed and thrown away — there is no
+    // pretence of a guarantee that is not there.
+    expect(seen[0].body).toBe('# Plan\n\n- one\n');
+
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('/p/aBcDeFgHiJkL');
+    expect(text).toMatch(/vnsh can read it/i);
+    // The shareable link has no fragment, because there is no key to carry.
+    expect(text).not.toMatch(/\/p\/aBcDeFgHiJkL#/);
+    // And the edit link is still handed back, or the author could never change it.
+    expect(text).toContain('/w/aBcDeFgHiJkL#w=');
+  });
+
+  it('stays encrypted unless asked, and never infers it', async () => {
+    const seen = captureRequest();
+    const result = await handleWorkspaceCreate({ content: 'sensitive notes' });
+
+    expect(seen[0].headers['x-vnsh-public']).toBeUndefined();
+    expect(seen[0].body).not.toContain('sensitive notes');
+
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('#r=');
+    expect(text).not.toContain('/p/');
   });
 });

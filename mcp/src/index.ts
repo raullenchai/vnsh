@@ -91,6 +91,12 @@ const ShareFileInputSchema = z.object({
 
 const WorkspaceCreateSchema = z.object({
   content: z.string().describe('Initial workspace content'),
+  // Never inferred. Publishing gives up the guarantee the product is built on,
+  // so it has to be asked for explicitly, by someone who knows they are asking.
+  public: z
+    .boolean()
+    .optional()
+    .describe('Store unencrypted so any agent can read it with no key. vnsh can read it too.'),
   host: z.string().optional(),
 });
 
@@ -205,7 +211,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             content: {
               type: 'string',
-              description: 'Initial content. HTML renders as a page via vnsh_workspace_open.',
+              description: 'Initial content. HTML and markdown render as a page.',
+            },
+            public: {
+              type: 'boolean',
+              description:
+                'Store unencrypted at /p/{id}, readable by any plain HTTP fetch with no key ' +
+                'and no setup. Use only when the recipient cannot run the vnsh tooling and ' +
+                'the content is not sensitive: vnsh can read a public workspace. Defaults ' +
+                'to false; ask the user before setting it.',
             },
             host: { type: 'string', description: 'Override the vnsh host URL' },
           },
@@ -678,21 +692,25 @@ export async function handleShareFile(args: unknown) {
  * @internal Exported for testing
  */
 export async function handleWorkspaceCreate(args: unknown) {
-  const { content, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const { content, public: isPublic, host: hostOverride } = WorkspaceCreateSchema.parse(args);
   const host = hostOverride || DEFAULT_HOST;
 
   const secret = generateRootSecret();
   const { key, writeHash } = deriveWorkspaceKeys(secret);
-  const encrypted = encryptWorkspace(content, key);
+  // A public workspace is stored as written, which is what lets an agent with
+  // only fetch read it. The encryption step is skipped rather than performed
+  // and discarded, so there is no pretence of a guarantee that is not there.
+  const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
 
   const response = await fetch(`${host}/api/workspace`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write-Hash': writeHash,
+      ...(isPublic ? { 'X-Vnsh-Public': '1' } : {}),
       ...clientHeaders(),
     },
-    body: new Uint8Array(encrypted),
+    body: new Uint8Array(body),
   });
 
   if (!response.ok) {
@@ -701,23 +719,37 @@ export async function handleWorkspaceCreate(args: unknown) {
 
   const data = (await response.json()) as { id: string; version: number; expires: string };
   const url = buildWorkspaceUrl(host, data.id, secret);
-  const viewUrl = buildReadOnlyWorkspaceUrl(host, data.id, secret);
+  // A public workspace has no key, so its shareable link carries no fragment.
+  // Reporting a "view-only" link here would misdescribe who can read it.
+  const viewUrl = isPublic
+    ? `${host}/p/${data.id}`
+    : buildReadOnlyWorkspaceUrl(host, data.id, secret);
+
+  const text = isPublic
+    ? `Public workspace created at version ${data.version}.\n\n` +
+      `Share this — no key, readable by any plain fetch:\n${viewUrl}\n\n` +
+      `Keep this — it is the only way to change it later:\n${url}\n\n` +
+      `This one is stored unencrypted, so vnsh can read it; that is the trade for ` +
+      `being readable without any setup. It still disappears ${data.expires}, renewed ` +
+      `on every write, and only the link above can change it.`
+    : `Workspace created at version ${data.version}. Two links, pick by intent:\n\n` +
+      `Edit link (read + write):\n${url}\n\n` +
+      `View-only link (read, cannot change it):\n${viewUrl}\n\n` +
+      `Give the edit link to agents that will contribute; give the view-only link to ` +
+      `anyone who just needs to read it. The view-only link cannot be turned back into ` +
+      `the edit link. Expires ${data.expires}, renewed on every write. Keys live in the ` +
+      `fragment and never reach the server.`;
 
   return {
-    content: [
-      {
-        type: 'text',
-        text:
-          `Workspace created at version ${data.version}. Two links, pick by intent:\n\n` +
-          `Edit link (read + write):\n${url}\n\n` +
-          `View-only link (read, cannot change it):\n${viewUrl}\n\n` +
-          `Give the edit link to agents that will contribute; give the view-only link to ` +
-          `anyone who just needs to read it. The view-only link cannot be turned back into ` +
-          `the edit link. Expires ${data.expires}, renewed on every write. Keys live in the ` +
-          `fragment and never reach the server.`,
-      },
-    ],
-    metadata: { url, viewUrl, workspaceId: data.id, version: data.version, expires: data.expires },
+    content: [{ type: 'text', text }],
+    metadata: {
+      url,
+      viewUrl,
+      public: Boolean(isPublic),
+      workspaceId: data.id,
+      version: data.version,
+      expires: data.expires,
+    },
   };
 }
 

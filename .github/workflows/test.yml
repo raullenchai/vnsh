@@ -64,11 +64,41 @@ jobs:
       - name: Install dependencies
         run: cd cli/npm && npm ci
 
+      - name: Install MCP dependencies
+        # The CLI suite imports the MCP server's crypto to assert both derive
+        # byte-identical keys, so that package has to be resolvable here.
+        run: cd mcp && npm ci
+
       - name: Build
         run: cd cli/npm && npm run build
 
+      - name: Run tests
+        run: cd cli/npm && npm test
+
       - name: Test CLI help
         run: node cli/npm/dist/cli.js --help
+
+  test-extension:
+    name: Extension Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: cd extension && npm ci
+
+      - name: Run tests
+        run: cd extension && npm test
+
+      - name: Build
+        run: cd extension && npm run build
 
   lint:
     name: Lint
@@ -86,3 +116,9 @@ jobs:
 
       - name: Check formatting (mcp)
         run: cd mcp && npm ci && npx tsc --noEmit
+
+      - name: Check formatting (cli)
+        run: cd cli/npm && npm ci && npx tsc --noEmit
+
+      - name: Check formatting (extension)
+        run: cd extension && npm ci && npx tsc --noEmit

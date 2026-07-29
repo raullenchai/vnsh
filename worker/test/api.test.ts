@@ -400,3 +400,47 @@ describe('vnsh API', () => {
     });
   });
 });
+
+/**
+ * "Host-blind" is easy to over-read. The server holding no key is verifiable
+ * from outside, but whatever does the encrypting holds the plaintext first —
+ * and the recommended install refetches that code on every start. A document
+ * that invites people to reimplement the protocol owes them both facts.
+ */
+describe('llms.txt states the trust boundary', () => {
+  async function llms(): Promise<string> {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(new Request('http://localhost/llms.txt'), env as Env, ctx);
+    await waitOnExecutionContext(ctx);
+    return response.text();
+  }
+
+  it('distinguishes what is verifiable from what is merely true today', async () => {
+    const text = await llms();
+    expect(text).toMatch(/the boundary is the client, not the transport/i);
+    expect(text).toMatch(/vnsh cannot read your content/i);
+    // The claim it must not let a reader infer.
+    expect(text).toMatch(/not what is claimed/i);
+  });
+
+  it('says that the default install refetches code on every start', async () => {
+    const text = await llms();
+    expect(text).toMatch(/refetches the latest published version/i);
+  });
+
+  it('gives a way to pin, for someone who reviews what they run', async () => {
+    const text = await llms();
+    expect(text).toContain('npx -y vnsh-mcp@');
+    expect(text).toMatch(/npm i -g vnsh-mcp@/);
+    expect(text).toMatch(/git clone/);
+  });
+
+  it('documents creating a workspace, not only reading one', async () => {
+    // The document's whole premise is that the clients are optional. It omitted
+    // the create endpoint entirely, which someone found by getting a 400.
+    const text = await llms();
+    expect(text).toContain('POST https://vnsh.dev/api/workspace');
+    expect(text).toContain('X-Vnsh-Write-Hash');
+    expect(text).toMatch(/X-Vnsh-Public/);
+  });
+});

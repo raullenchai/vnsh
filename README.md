@@ -5,7 +5,7 @@
 <h1 align="center">vnsh</h1>
 
 <p align="center">
-  <strong>The Ephemeral Dropbox for AI</strong>
+  <strong>One workspace all your AI agents can read and write</strong>
 </p>
 
 <p align="center">
@@ -18,432 +18,238 @@
 
 <p align="center">
   <a href="https://vnsh.dev">Website</a> •
-  <a href="#quick-start">Quick Start</a> •
+  <a href="#get-started">Get Started</a> •
+  <a href="#the-three-kinds-of-link">Links</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#self-hosting">Self-Hosting</a> •
-  <a href="#api-reference">API</a>
+  <a href="#api">API</a> •
+  <a href="#self-hosting">Self-Hosting</a>
 </p>
 
 ---
 
-## What is vnsh?
+Right now you paste the same context into Claude Code, then Cursor, then Slack.
 
-<p align="center">
-  <img src="https://vhs.charm.sh/vhs-3Ex3csS9i3iMvjOVO7WJc5.gif" alt="vnsh demo" width="800" />
-</p>
-
-**Stop pasting walls of text into Claude.** Pipe your logs, diffs, and images into a secure, host-blind URL. The server sees nothing. The data vaporizes in 24 hours.
-
-```bash
-# Pipe anything to vnsh, get a secure link
-git diff | vn
-# https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9QZ5xQB6hIRLWHVFa8v8
-```
-
-### Handles any context your AI needs:
-
-- 🖼️ **Screenshots** — UI bugs, error dialogs, terminal output
-- 📜 **Logs** — 5000+ lines of server errors (too long for copy-paste)
-- 🔄 **Git Diffs** — Complex PR reviews, multi-file changes
-- 📦 **Binaries** — PDFs, CSVs, config files, database dumps
-- 🔧 **Debug Context** — Stack traces, environment dumps, crash reports
-
-## Philosophy
-
-> *"Built for the ephemeral nature of AI workflows. Once your session is done, the data should be too."*
-
-Unlike Dropbox or pastebins, vnsh implements a **Host-Blind Architecture** with automatic vaporization:
-
-| Layer | What Happens |
-|-------|--------------|
-| **Encryption** | AES-256-CBC encryption happens entirely on your device |
-| **Transport** | Decryption keys travel only in the URL fragment (`#secret`) — never sent to servers |
-| **Storage** | Server stores encrypted binary blobs — host-blind, no access to contents |
-| **Vaporization** | Data vaporizes after 24 hours. No history. No leaks. |
-
-## Quick Start
-
-### Option 1: Web Upload
-
-Visit **[vnsh.dev](https://vnsh.dev)**, drag & drop a file, or paste text. Get an encrypted link instantly.
-
-### Option 2: CLI Installation
-
-**Zero-install** (just run it):
-```bash
-echo "hello" | npx vnsh
-```
-
-**NPM** (global install):
-```bash
-npm install -g vnsh
-```
-
-**Shell script** (cross-platform: macOS, Linux, WSL, Git Bash):
-```bash
-curl -sL https://vnsh.dev/i | sh
-```
-
-### CLI Usage
+vnsh gives that context one address instead. Drop it once and get a link; every
+agent and every person you hand it to opens the **same living document**, and can
+change it. Encrypted in your browser before upload, so vnsh never sees it, and
+deleted 24 hours after the last edit.
 
 ```bash
-# Upload a file
-vn secrets.env
-
-# Pipe from stdin
-cat crash.log | vn
-docker logs app | vn
-git diff HEAD~5 | vn
-
-# Read/decrypt a URL
-vn read "https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ..."
-
-# Custom expiry (1-168 hours)
-vn --ttl 1 temp-file.txt   # expires in 1 hour
-
-# Show version and help
-vn --version
-vn --help
+kubectl logs pod/app | vn
+# https://vnsh.dev/w/k2p9xf...#w=...   edit link — read and write
+# https://vnsh.dev/w/k2p9xf...#r=...   view-only — read, never write
 ```
 
-### Option 3: Claude Code (MCP Integration)
+## Why this and not a pastebin
 
-**Native to Claude Code.** Unlike Dropbox, vnsh has a first-party MCP server. Claude can "see" inside your encrypted links without leaving the terminal.
+A pastebin gives you a snapshot. A workspace has a stable address and a version,
+so the next agent writes back to the same place instead of starting a new one.
+Two properties make that safe to share:
 
-Create `.mcp.json` in your project root:
+- **The server cannot read it.** Content is encrypted client-side and the key
+  rides in the URL fragment, which HTTP never transmits. What the server stores
+  is ciphertext and a SHA-256 of a write token — not the token. That is checkable
+  from outside: forge a token and you get a 403.
+- **Two agents cannot silently clobber each other.** Writes are conditional on
+  the version you read. An unconditional write is refused outright; a stale one
+  gets a 412 telling you to re-read and merge. Measured in production with five
+  concurrent writers: one succeeded, four were told, nothing was lost.
 
-```json
-{
-  "mcpServers": {
-    "vnsh": {
-      "command": "npx",
-      "args": ["-y", "vnsh-mcp"]
-    }
-  }
-}
+## Get started
+
+### For an agent — the point of the thing
+
+Paste this into Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed — anything
+that speaks MCP:
+
+```
+Set up vnsh workspaces — one link to hand work between people and agents: https://vnsh.dev/llms.txt
 ```
 
-Restart Claude Code after adding the config. Now Claude can:
-- **Read** vnsh links automatically when you paste them
-- **Share** large text outputs via `vnsh_share` tool
-- **Share files** (images, PDFs, binaries) via `vnsh_share_file` tool
-
-### Option 4: Zero-Install (Remote Servers)
-
-**No installation needed.** Pipe anything from any server with just `curl` and `openssl`:
+It reads the protocol, installs the MCP server, and writes a standing rule into
+its own instruction file so it keeps using workspaces afterwards. By hand
+instead:
 
 ```bash
-# One-liner: encrypt and upload from any machine
-cat error.log | bash <(curl -sL vnsh.dev/pipe)
-# https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9...
-
-# Works with any command
-kubectl logs pod/crash | bash <(curl -sL vnsh.dev/pipe)
-docker logs app 2>&1 | bash <(curl -sL vnsh.dev/pipe)
-journalctl -u nginx --since "1 hour ago" | bash <(curl -sL vnsh.dev/pipe)
-
-# Custom TTL (hours)
-cat secrets.env | bash <(curl -sL vnsh.dev/pipe?ttl=1)
+claude mcp add vnsh -- npx -y vnsh-mcp
 ```
 
-Perfect for SSH sessions, CI runners, Docker containers — anywhere you can't install tools.
+The server exposes `vnsh_workspace_create`, `vnsh_workspace_read`,
+`vnsh_workspace_update` and `vnsh_workspace_open`, plus `vnsh_share` and
+`vnsh_read` for one-shot content.
 
-### Option 5: Chrome Extension
-
-**One-click encrypted debug bundles for AI.** Share text, screenshots, and console errors directly from your browser.
-
-- **Right-click** any selected text → **Share via vnsh**
-- **`Cmd+Shift+D`** → **AI Debug Bundle** (screenshot + console errors + selected text + URL, all encrypted)
-- **Hover** over vnsh links on any page → see decrypted preview tooltip
-
-Build from source or install from the Chrome Web Store (pending review):
+### From the terminal
 
 ```bash
-cd extension && npm install && npm run build
-# Load dist/ as unpacked extension in chrome://extensions/
+npx vnsh                      # or: npm i -g vnsh
+                              # or: curl -sL vnsh.dev/i | sh   (one-shot links only)
+
+vn ./report.html              # create a workspace from a file
+git diff | vn                 # or from stdin
+vn read "<any vnsh url>"      # read one back — workspace, public, or legacy blob
+vn write "<edit url>" ./new   # replace the contents; refuses to clobber
 ```
 
-See [extension/README.md](extension/README.md) for full documentation.
+`--public` publishes it unencrypted (see below). `--blob` makes a one-shot link,
+which is also what a custom `--ttl` implies, since workspaces are fixed at 24
+hours from the last write.
 
-### Option 6: GitHub Action (CI/CD)
+The dependency-free shell function from `curl -sL vnsh.dev/i | sh` handles
+one-shot links only. Workspaces need HKDF-SHA256 and AES-256-GCM, and the
+openssl that ships with macOS is LibreSSL, which has neither — it hands `/w/`
+links to `npx vnsh` when Node is available and says so plainly when it is not.
 
-**Debug CI failures with Claude in one click.** When your CI fails, automatically upload logs and post a secure link to your PR.
+### From a browser
 
-```yaml
-- name: Debug with vnsh
-  if: failure()
-  uses: raullenchai/upload-to-vnsh@v1
-  with:
-    file: test.log
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+<https://vnsh.dev> — drop a file or paste, and get both links back. Nothing is
+uploaded before it is encrypted.
 
-The action will post a comment to your PR:
+### From CI
 
-> 🔍 **Debug with Claude**
->
-> CI logs uploaded securely. [View Logs](https://vnsh.dev/v/...) | Paste link to Claude for instant analysis
+[`upload-to-vnsh`](https://github.com/raullenchai/upload-to-vnsh) uploads build
+output or failing test logs and prints a link in the job summary.
 
-See [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) for full documentation.
+### From Chrome
 
-## How It Works
+The [extension](extension/) previews vnsh links inline on GitHub, Slack and
+Discord, and bundles a screenshot, console errors and the page URL into one link
+with ⌘D.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              YOUR DEVICE                                  │
-│  ┌─────────┐    ┌──────────────┐    ┌─────────────────────────────────┐  │
-│  │  Data   │───▶│ AES-256-CBC  │───▶│  Encrypted Blob + URL Fragment  │  │
-│  └─────────┘    │  Encryption  │    │  https://vnsh.dev/v/id#k=...    │  │
-│                 └──────────────┘    └─────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
-                                           │
-                           Only encrypted blob sent to server
-                           (key stays in URL fragment, never transmitted)
-                                           ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           VNSH SERVER (BLIND)                             │
-│                                                                           │
-│   Receives: [encrypted binary blob]                                       │
-│   Stores:   [encrypted binary blob]                                       │
-│   Knows:    upload time, size, expiry                                     │
-│   Cannot:   decrypt, identify content type, read keys                     │
-│                                                                           │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+## The three kinds of link
 
-### URL Structure (v2 — compact format)
+| Link | Carries | Who can read | Who can write |
+|---|---|---|---|
+| `/w/{id}#w=<secret>` | the root secret | anyone with the link | anyone with the link |
+| `/w/{id}#r=<key>` | the content key | anyone with the link | **nobody** |
+| `/p/{id}` | nothing | anyone at all | only the author's `#w=` link |
+
+The view-only tier is not a setting the server enforces — it is arithmetic. The
+content key is `HKDF(secret, "vnsh/enc/v2")`, a one-way derivation, so its holder
+can decrypt every version while being unable to recover the secret and therefore
+unable to derive a write token.
+
+**Public workspaces** exist because a person opening a link has a browser doing
+the decryption for them, and an agent's `fetch` does not. A public workspace is
+stored as written and served from `/p/{id}` as an ordinary document, so anything
+that speaks HTTP can read it with no key and no setup. The trade is stated where
+you choose it: **vnsh can read a public workspace.** It is never the default and
+never inferred, its visibility is fixed at creation, and changing it still
+requires the write token.
+
+## How it works
 
 ```
-https://vnsh.dev/v/aBcDeFgHiJkL#R_sI4DHZ_6jNq6yqt2ORRDe9QZ5xQB6hIRLWHVFa8v8jYCFqgQIbsRJrtJze_nL5
-                  └────────────┘└────────────────────────────────────────────────────────────────────┘
-                  12-char ID     64-char base64url secret (key+iv, never sent to server)
+you ──encrypt──▶ [ vnsh: ciphertext, no key ] ──decrypt──▶ agent / person
+                              │
+                    deleted 24h after the last write
 ```
 
-The v2 format reduces URL length by ~40% (from ~160 to ~95 characters). Legacy v1 URLs (`#k=...&iv=...`) are still fully supported.
+**Key schedule**
 
-## Self-Hosting
+```
+S = random(32)                        root secret, lives only in the fragment
+K = HKDF-SHA256(S, "vnsh/enc/v2")     content key — AES-256-GCM
+W = HKDF-SHA256(S, "vnsh/write/v2")   write token, sent as 64 hex chars
+H = SHA-256(W)                        the only derived value the server stores
+```
 
-vnsh runs on Cloudflare Workers with R2 storage. Deploy your own instance:
+Workspaces use **AES-256-GCM**, not the AES-256-CBC of one-shot blobs, because
+mutable content needs integrity: without an authentication tag, anyone able to
+rewrite storage — the host included — could flip ciphertext bits undetectably,
+which hollows out the whole guarantee. Nonces are random per write and prepended,
+never derived from a version number.
 
-### Prerequisites
-- [Cloudflare account](https://cloudflare.com) with Workers & R2 enabled
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
+The viewer renders HTML and markdown in a frame with `sandbox="allow-scripts"`
+and deliberately no `allow-same-origin`, so content runs in an opaque origin and
+cannot read the key out of `location.hash`; an injected `default-src 'none'`
+removes its network access.
 
-### Deploy
+The whole protocol is specified in [`/llms.txt`](https://vnsh.dev/llms.txt),
+creation included, so you can implement it in any language with a crypto library
+and run no vnsh code at all. Someone did, in about 200 lines.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/workspace` | Create. Requires `X-Vnsh-Write-Hash`; `X-Vnsh-Public: 1` to publish. |
+| `GET /api/workspace/:id` | Read ciphertext. `ETag` is the version. |
+| `PUT /api/workspace/:id` | Replace. Requires `X-Vnsh-Write` and `If-Match`. |
+| `GET /w/:id` | The viewer. Decrypts client-side, renders sandboxed. |
+| `GET /p/:id` | A public workspace, as a plain document. |
+| `POST /api/drop` | One-shot blob (v1). `?ttl=` and `?price=`. |
+| `GET /api/blob/:id` | Read a one-shot blob. |
+| `GET /llms.txt` | The protocol, written for agents. |
+
+Writes answer `428` without `If-Match`, `412` on a stale version, and `403` on a
+bad write token. Full reference in [`docs/api.md`](docs/api.md).
+
+## Security model
+
+**What holds.** vnsh cannot read encrypted content, cannot write to it, and
+cannot recover a write token from anything it stores. Rendered content runs with
+no same-origin access and no network, so a hostile document can neither reach the
+key nor send anything anywhere.
+
+**What does not.**
+
+- **Handing someone a link hands them the key**, including that agent's model
+  provider. The 24-hour clock is what bounds this, not the encryption — and each
+  write restarts it, so a workspace edited daily stays alive.
+- **The boundary is the client, not the transport.** Whatever encrypts holds your
+  plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
+  latest published version on every start; pin it (`vnsh-mcp@1.4.0`), install it
+  globally once, or build from source if you review what you run.
+- **A public workspace is readable by vnsh**, by design. That is the tier.
+- **Metadata is not private.** Times, sizes and addresses exist for any hosted
+  service. Only the content does not.
+
+## Self-hosting
+
+Cloudflare Workers plus an R2 bucket. No database, no KV.
 
 ```bash
-# Clone the repository
 git clone https://github.com/raullenchai/vnsh.git
-cd vnsh/worker
-
-# Install dependencies
-npm install
-
-# Create R2 bucket
+cd vnsh/worker && npm install
 wrangler r2 bucket create vnsh-store
-
-# Deploy
 wrangler deploy
 ```
 
-### Configuration
+`wrangler.toml` binds R2, two native rate limiters and an Analytics Engine
+dataset. Earlier versions used a KV namespace for metadata and counters; it was
+removed after the free-tier write cap took the whole site down, and nothing needs
+it now — if you are following an older guide that tells you to create one, you do
+not. See [`docs/self-hosting.md`](docs/self-hosting.md).
 
-Edit `wrangler.toml` to customize:
+## Repository
 
-```toml
-name = "vnsh"
-
-[[r2_buckets]]
-binding = "VNSH_STORE"
-bucket_name = "vnsh-store"  # Your R2 bucket name
-
-[[kv_namespaces]]
-binding = "VNSH_META"
-id = "your-kv-namespace-id"  # Create with: wrangler kv namespace create VNSH_META
-```
-
-## API Reference
-
-### `POST /api/drop`
-
-Upload an encrypted blob.
+| Path | What it is |
+|---|---|
+| `worker/` | Cloudflare Worker: API, viewer, homepage, `llms.txt` |
+| `mcp/` | `vnsh-mcp` — the MCP server agents use |
+| `cli/npm/` | `vnsh` — the `vn` command |
+| `cli/` | `install.sh` and the dependency-free shell function |
+| `extension/` | Chrome extension |
+| `docs/` | Architecture, API, CLI, MCP, operations, self-hosting |
+| `docs/plans/` | Design documents, including the v2 workspace plan |
 
 ```bash
-curl -X POST https://vnsh.dev/api/drop \
-  -H "Content-Type: application/octet-stream" \
-  --data-binary @encrypted.bin
+npm test                      # every package
+cd worker && npm run dev      # local worker
 ```
 
-**Query Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ttl` | number | Time-to-live in hours (1-168, default: 24) |
-| `price` | number | Payment required to access (x402 protocol) |
-
-**Response:**
-```json
-{
-  "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
-  "expires": "2025-01-25T00:00:00.000Z"
-}
-```
-
-### `GET /api/blob/:id`
-
-Download an encrypted blob.
-
-```bash
-curl https://vnsh.dev/api/blob/a1b2c3d4-5678-90ab-cdef-1234567890ab
-```
-
-**Response Codes:**
-| Code | Description |
-|------|-------------|
-| 200 | Success — returns encrypted blob |
-| 402 | Payment required |
-| 404 | Not found |
-| 410 | Expired |
-
-### `GET /v/:id`
-
-Web viewer (serves HTML directly to preserve URL fragment with encryption keys).
-
-### `GET /i`
-
-CLI installation script.
-
-### `GET /pipe`
-
-Zero-install pipe upload script. Returns a shell script that encrypts stdin and uploads it.
-
-```bash
-cat file.log | bash <(curl -sL vnsh.dev/pipe)
-```
-
-Query Parameters:
-
-| Parameter | Type   | Description                              |
-|-----------|--------|------------------------------------------|
-| `ttl`     | number | Time-to-live in hours (1-168, default: 24) |
-
-### `GET /claude`
-
-Claude Code MCP integration installer script.
-
-## Security Model
-
-### What vnsh Protects Against
-
-✅ **Server Compromise** — Even with full server access, attackers cannot decrypt blobs
-✅ **Database Leaks** — Stored data is indistinguishable from random noise
-✅ **Traffic Analysis** — No content-type information stored
-✅ **Subpoenas** — Server operator cannot produce plaintext (doesn't have keys)
-
-### What vnsh Does NOT Protect Against
-
-❌ **URL Sharing** — Anyone with the full URL (including `#fragment`) can decrypt
-❌ **Client Compromise** — Malware on your device can intercept before encryption
-❌ **MITM on Upload Page** — An attacker serving malicious JavaScript could intercept
-
-### Recommendations
-
-- Use vnsh over HTTPS only
-- Don't share full URLs in public channels (Slack, Discord, Twitter)
-- For maximum security, self-host the worker
-
-## Project Structure
-
-```
-vnsh/
-├── worker/          # Cloudflare Worker (storage API + web viewer)
-│   ├── src/
-│   │   └── index.ts # Main worker code
-│   └── test/
-│       └── api.test.ts
-├── mcp/             # MCP Server (Claude Code integration)
-│   ├── src/
-│   │   ├── index.ts # MCP tool handlers
-│   │   └── crypto.ts # Encryption utilities
-│   └── package.json
-├── extension/       # Chrome Extension (AI debug sharing)
-│   ├── src/
-│   │   ├── lib/     # Shared crypto, API, storage
-│   │   ├── background/ # Service worker
-│   │   ├── content/    # Link detector + tooltip
-│   │   └── popup/      # Extension popup UI
-│   └── tests/
-├── cli/
-│   ├── vn           # Bash CLI script
-│   ├── npm/         # NPM package (vnsh)
-│   │   ├── src/
-│   │   │   ├── cli.ts
-│   │   │   └── crypto.ts
-│   │   └── package.json
-│   └── install.sh   # Shell installer
-├── homebrew-tap/    # Homebrew formula
-│   └── Formula/
-│       └── vnsh.rb
-└── docs/            # Documentation
-```
-
-## Packages
-
-| Package | Description | Install |
-|---------|-------------|---------|
-| [vnsh](https://www.npmjs.com/package/vnsh) | CLI tool | `npx vnsh` or `npm i -g vnsh` |
-| [vnsh-mcp](https://www.npmjs.com/package/vnsh-mcp) | MCP server for Claude | `npx vnsh-mcp` |
-| [vnsh extension](extension/) | Chrome Extension | [Chrome Web Store](https://chromewebstore.google.com/detail/vnsh) |
-| [upload-to-vnsh](https://github.com/raullenchai/upload-to-vnsh) | GitHub Action for CI/CD | `uses: raullenchai/upload-to-vnsh@v1` |
-| [homebrew-vnsh](https://github.com/raullenchai/homebrew-vnsh) | Homebrew tap | `brew install raullenchai/vnsh/vnsh` |
-
-## Development
-
-```bash
-# Clone
-git clone https://github.com/raullenchai/vnsh.git
-cd vnsh
-
-# Install dependencies
-npm install
-cd worker && npm install
-cd ../mcp && npm install
-
-# Run tests
-npm test                          # Worker + MCP tests
-cd extension && npm test          # Extension tests (48 tests, 93%+ coverage)
-cd extension && npm run test:cov  # Extension tests with coverage
-
-# Start local worker
-cd worker && npm run dev
-
-# Build MCP server
-cd mcp && npm run build
-
-# Build extension
-cd extension && npm install && npm run build
-# Load extension/dist/ as unpacked in chrome://extensions/
-```
+Four packages carry their own copy of the key schedule, because they ship
+independently. Each is pinned to the same test vectors: a link made by one that
+will not open in another reads as corruption rather than version skew, so the
+failure would be silent. If you change a derivation, those tests are what stops
+that happening quietly.
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting a PR.
-
-### Development Workflow
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Run tests (`npm test`)
-4. Commit changes (`git commit -m 'Add amazing feature'`)
-5. Push to branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+Issues and pull requests welcome. CI runs the tests and type-checks for every
+package; run `npm test` before pushing. Code, comments and commit messages in
+English.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  <sub>The Ephemeral Dropbox for AI. Your context. Your keys. Then it's gone.</sub>
-</p>
+MIT — see [LICENSE](LICENSE).
