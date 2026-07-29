@@ -1,0 +1,44 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For anything that would let someone read content they should not, forge
+        a write, or run script on vnsh.dev, use the
+        [private advisory form](https://github.com/raullenchai/vnsh/security/advisories/new)
+        instead. See [SECURITY.md](https://github.com/raullenchai/vnsh/blob/main/SECURITY.md).
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - vnsh.dev (website or viewer)
+        - vnsh CLI (the vn command)
+        - vnsh-mcp (MCP server)
+        - Chrome extension
+        - The protocol / llms.txt
+        - Self-hosted instance
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+      description: A curl transcript or a short script is worth more than a description.
+      placeholder: |
+        $ echo hi | vn
+        ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`vn --version`, the extension version, or the date if it was the website."
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: OS, agent, whether a link was involved. Never paste a link with its #fragment — that hands over the content.

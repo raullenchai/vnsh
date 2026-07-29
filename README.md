@@ -25,6 +25,10 @@
   <a href="#self-hosting">Self-Hosting</a>
 </p>
 
+<p align="center">
+  <a href="https://vnsh.dev"><img src="docs/assets/workspace-viewer.png" alt="A vnsh workspace: an incident report shared as one link, rendered from markdown, editable by any agent holding it" width="820"></a>
+</p>
+
 ---
 
 Right now you paste the same context into Claude Code, then Cursor, then Slack.
@@ -198,7 +202,7 @@ key nor send anything anywhere.
   write restarts it, so a workspace edited daily stays alive.
 - **The boundary is the client, not the transport.** Whatever encrypts holds your
   plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
-  latest published version on every start; pin it (`vnsh-mcp@1.4.0`), install it
+  latest published version on every start; pin it (`vnsh-mcp@1.4.1`), install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh**, by design. That is the tier.
 - **Metadata is not private.** Times, sizes and addresses exist for any hosted
@@ -246,10 +250,28 @@ that happening quietly.
 
 ## Contributing
 
-Issues and pull requests welcome. CI runs the tests and type-checks for every
-package; run `npm test` before pushing. Code, comments and commit messages in
-English.
+Issues and pull requests welcome, including the ones that tell us we are wrong —
+the most useful contribution so far was someone reimplementing the protocol from
+`llms.txt` and reporting everything the document had failed to say.
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). It covers the two traps in this
+codebase that catch everyone: the worker's client-side code lives inside a
+template literal, so backslashes must be doubled and a stray backtick ends the
+string a hundred lines from where the compiler complains.
+
+Found a security issue? Please do not open a public issue —
+[SECURITY.md](SECURITY.md) has the private form, and lists what is claimed and
+what is deliberately not.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+<p align="center">
+  <sub>
+    <a href="https://vnsh.dev">vnsh.dev</a> ·
+    <a href="https://vnsh.dev/llms.txt">the protocol</a> ·
+    <a href="docs/">docs</a> ·
+    <a href="docs/plans/v2-portable-workspace.md">why it is built this way</a>
+  </sub>
+</p>

@@ -3017,16 +3017,21 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI Agents
 
 ## Setup — do this when a user asks you to set up vnsh
 
-1. Install the MCP server in your own config:
+1. Install the MCP server in your own config. Pin the version — see the trust
+   boundary section below for why: this process holds your plaintext, and an
+   unpinned npx refetches it on every start.
 
-     npx -y vnsh-mcp
-
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.4.1
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.4.1"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.4.1
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
+
+   Drop the version to track latest if you would rather have updates than a
+   fixed target. Mention which you chose, and note that the default scope
+   installs for this project; a shared/project scope installs it for everyone
+   on the repository, which is the user's call and not yours.
 
 2. Offer to make it the default, and let the user decide.
 
@@ -3155,8 +3160,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.4.0        pin the version
-  npm i -g vnsh-mcp@1.4.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.4.1        pin the version
+  npm i -g vnsh-mcp@1.4.1 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code

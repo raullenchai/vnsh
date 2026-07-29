@@ -1,0 +1,20 @@
+name: Idea or change
+description: Something that should work differently
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem
+      description: The situation you were in, not the feature you want. The feature is easier to get right once the problem is clear.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you think should happen
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried or considered instead
+      description: Including "nothing, I gave up" — that is useful signal.

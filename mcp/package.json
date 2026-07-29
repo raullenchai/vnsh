@@ -1,21 +1,19 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.raullenchai/vnsh",
-  "description": "Portable workspaces for AI agents: one encrypted link any agent can read and write",
+  "description": "One workspace all your AI agents can read and write \u2014 MCP server for vnsh, encrypted client-side",
   "keywords": [
-    "vnsh",
     "mcp",
     "model-context-protocol",
-    "portable-workspace",
-    "multi-agent",
+    "ai-agents",
+    "workspace",
     "claude-code",
     "cursor",
-    "openhands",
-    "claude-code-artifacts-alternative",
-    "encrypted",
+    "encryption",
+    "host-blind",
     "ephemeral",
-    "ai-context-sharing"
+    "share-context"
   ],
   "author": "raullenchai",
   "license": "MIT",

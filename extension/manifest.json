@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "vnsh \u2014 Encrypted Sharing for AI",
   "version": "1.1.0",
-  "description": "One workspace your AI agents can all read and write. Encrypted in your browser, gone 24h after the last edit.",
+  "description": "One workspace all your AI agents can read and write. Encrypted in your browser, gone 24h after the last edit.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
