@@ -471,6 +471,42 @@ describe('agent setup prompt', () => {
     expect(llms).toContain('vnsh/enc/v2');
     expect(llms).toContain('If-Match');
   });
+
+  it('llms.txt documents creation, not only read and write', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    // The document invites implementers to reimplement the protocol without vnsh
+    // tooling, so leaving out the one call that starts a workspace made that
+    // impossible to finish: the requirement below is only discoverable by
+    // sending a request and reading the 400.
+    expect(llms).toContain('POST https://vnsh.dev/api/workspace');
+    expect(llms).toContain('X-Vnsh-Write-Hash');
+    expect(llms).toContain('vnsh/write/v2');
+
+    // The create response reports the version in JSON and sends no ETag, while
+    // PUT wants it back as If-Match. Silence about that costs a round of
+    // debugging.
+    expect(llms).toMatch(/create response[\s\S]{0,80}ETag/);
+  });
+
+  it('llms.txt says a public workspace keeps its write link elsewhere', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    // /p/{id} carries no fragment, so an implementation that surfaces only the
+    // public link cannot write to its own document ever again. The web client
+    // already returns both; the spec had not said so.
+    expect(llms).toContain('https://vnsh.dev/p/{id}');
+    expect(llms).toMatch(/only way to write again/);
+  });
+
+  it('llms.txt warns that a default User-Agent can be challenged', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    // The edge answers with an HTML error page, which reads as a broken request
+    // rather than a bot check — worth one sentence to save an implementer the
+    // detour.
+    expect(llms).toContain('User-Agent');
+  });
 });
 
 describe('homepage information architecture', () => {

@@ -2853,6 +2853,46 @@ X-Vnsh-Public: 1, the body is already plaintext — do not try to decrypt it.
 To create one, add X-Vnsh-Public: 1 to the create request, or run vn --public.
 Encrypted remains the default everywhere; public is never inferred.
 
+Public changes how the content is stored, not how writing is authorised. A
+write still needs the token derived from S, and /p/{id} has no fragment to
+carry it, so a public workspace is addressed two ways and only one of them can
+be handed out:
+
+  https://vnsh.dev/p/{id}                    share this — no key, nothing to lose
+  https://vnsh.dev/w/{id}#w=<base64url(S)>   keep this — the only way to write again
+
+Surface both when you create one. An implementation that shows only the public
+link has silently given up the ability to update its own document.
+
+## Creating a workspace
+
+The server is told the hash of the write token and never the token itself,
+which is what leaves it unable to author a write of its own.
+
+  S = 32 random bytes                                        # the root secret
+  K = HKDF-SHA256(ikm=S, salt="", info="vnsh/enc/v2", 32)    # content key
+  W = HKDF-SHA256(ikm=S, salt="", info="vnsh/write/v2", 32), hex-encoded
+
+  POST https://vnsh.dev/api/workspace
+    X-Vnsh-Write-Hash: <SHA-256 of W, as 64 hex chars>   required
+    X-Vnsh-Public: 1                                     optional, see above
+    body: nonce(12) || AES-256-GCM(K, nonce, content)
+          — or the content as plaintext, if the workspace is public
+
+  → 201 {"id": "…", "version": 1, "expires": "…", "public": false}
+
+The body is the first version, so creating a workspace and writing its opening
+content is one request, not two. Maximum 25 MB.
+
+Note the asymmetry when you write again: the create response reports the
+version in its JSON body and sends no ETag, while GET returns one and PUT
+expects it back as If-Match. Take the number from wherever you last saw it.
+
+Then build the links from S:
+
+  https://vnsh.dev/w/{id}#w=<base64url(S)>   read + write
+  https://vnsh.dev/w/{id}#r=<base64url(K)>   read only
+
 ## Reading a workspace without vnsh tooling
 
 The key is in the fragment, so an HTTP fetch alone never returns anything
@@ -2871,6 +2911,11 @@ To write, you also need the write token:
 
 A PUT without If-Match is refused, so one agent cannot silently overwrite
 another's work. On 412, re-read, merge, and retry.
+
+Send a User-Agent on every request. The edge in front of vnsh.dev challenges
+some libraries' default agent strings and answers 403 with an HTML error page
+instead of a JSON API error — which reads like a broken request rather than a
+bot check, and costs an implementer more time than it should.
 
 ## Why WebFetch alone will not work
 
