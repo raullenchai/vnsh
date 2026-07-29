@@ -3292,7 +3292,7 @@ curl "https://vnsh.dev/api/blob/{id}"
 `;
 
 // llms.txt - AI agent instructions (emerging standard)
-const LLMS_TXT = `# vnsh — Portable Workspaces for AI Agents
+const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
 # https://vnsh.dev
 
 > One encrypted link that several AI agents can each read AND write. Hand work
@@ -3748,7 +3748,7 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Blog | vnsh — Portable Workspaces for AI Agents</title>
+  <title>Blog | vnsh — Portable Workspaces for AI and Humans</title>
   <meta name="description" content="Technical articles on host-blind encryption, AI coding workflows, and secure developer tooling from the vnsh team.">
   <link rel="canonical" href="https://vnsh.dev/blog">
   <meta property="og:title" content="vnsh Blog">
@@ -4589,9 +4589,9 @@ const APP_HTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Share context between Claude Code, Cursor &amp; any agent | vnsh</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <meta name="description" content="A shared workspace that any AI agent can read and write through one link — Claude Code, Cursor, OpenHands. Encrypted in your browser, so vnsh cannot read it. Like Claude Code Artifacts, but not locked to one vendor. Free.">
+  <meta name="description" content="One workspace all your AI agents can read and write — Claude Code, Cursor, OpenHands. Encrypted in your browser, so vnsh cannot read it.">
   <meta name="keywords" content="vnsh, portable workspace, multi agent workspace, claude code artifacts alternative, share context between ai agents, model agnostic, mcp server, claude code, cursor, openhands, encrypted sharing, host-blind, ephemeral, ai context sharing, npx vnsh">
-  <meta property="og:title" content="vnsh — Portable Workspaces for AI Agents">
+  <meta property="og:title" content="vnsh — Portable Workspaces for AI and Humans">
   <meta property="og:description" content="One link. Any agent can read and write it. Encrypted in your browser — vnsh cannot read it. Gone 24h after the last edit.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="vnsh">
@@ -4601,8 +4601,8 @@ const APP_HTML = `<!DOCTYPE html>
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="vnsh — Portable Workspaces for AI Agents">
-  <meta name="twitter:description" content="One link your agents can all read and write. Encrypted in your browser — vnsh cannot read it.">
+  <meta name="twitter:title" content="vnsh — Portable Workspaces for AI and Humans">
+  <meta name="twitter:description" content="One link. Any agent can read and write it. Encrypted in your browser — vnsh cannot read it. Gone 24h after the last edit.">
   <meta name="twitter:image" content="https://vnsh.dev/og-image.png">
   <link rel="canonical" href="https://vnsh.dev">
   <meta name="robots" content="index, follow">
@@ -4613,7 +4613,7 @@ const APP_HTML = `<!DOCTYPE html>
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "vnsh",
-    "alternateName": "Portable Workspaces for AI Agents",
+    "alternateName": "Portable Workspaces for AI and Humans",
     "description": "A shared, encrypted workspace that any AI agent can read and write through one link \u2014 Claude Code, Cursor, OpenHands, Cline. Encrypted in your browser, so vnsh cannot read it. Deleted 24 hours after the last edit.",
     "url": "https://vnsh.dev",
     "applicationCategory": "DeveloperApplication",

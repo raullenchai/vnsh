@@ -455,7 +455,7 @@ async function read(url: string): Promise<void> {
 program
   .name('vn')
   .description(
-    'vnsh - one workspace your agents can all read and write\n\n' +
+    'vnsh - one workspace all your AI agents can read and write\n\n' +
       'Encrypts locally and returns two links: one that can edit, one that can only read.',
   )
   .version(VERSION, '-v, --version')
