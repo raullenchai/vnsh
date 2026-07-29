@@ -758,7 +758,10 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
 
   return new Response(JSON.stringify({ id, version: 1, expires: iso, public: isPublic }), {
     status: 201,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json',
+      // Writes are conditional on a version, so hand back the one just created
+      // rather than making the caller assume it is 1.
+      ETag: '"1"', ...corsHeaders },
   });
 }
 
@@ -1356,9 +1359,195 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     mainEl.appendChild(pre);
   }
 
+
+  // ── Markdown ──────────────────────────────────────────────────────────
+  //
+  // Agents write markdown by default, and it was the one format this viewer
+  // showed as raw text — so the format the main authors produce was the format
+  // that looked worst on arrival.
+  //
+  // Detection is deliberately reluctant. A naive "does it start with # or -"
+  // test misfires on shell scripts, Python, Dockerfiles, nginx configs, diffs
+  // and YAML, all of which open with a comment or a dash; rendering a script as
+  // prose is worse than not rendering markdown at all. So this wants two
+  // independent prose-markup signals and vetoes on any sign of being a source
+  // file, and the reader can override it either way from the header.
+  //
+  // No literal backtick appears below: this whole page lives inside a
+  // TypeScript template literal, where one would end the string.
+  var BT = String.fromCharCode(96);
+
+  function looksLikeMarkdown(input) {
+    var text = input.slice(0, 65536);
+    if (!text.trim()) return false;
+    if (/^\\s*[<{[]/.test(text)) return false;
+    if (/^#!/.test(text)) return false;
+    if (/^(---|\\+\\+\\+|diff --git|@@ )/m.test(text)) return false;
+    if (/^(FROM|RUN|COPY|ENTRYPOINT|CMD)\\s/m.test(text)) return false;
+    // A leading "# comment" in a config file is indistinguishable from an H1,
+    // so a heading must not excuse this check — that is how YAML slips through.
+    if ((text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length >= 2) return false;
+    if (/^\\s*[\\w.-]+\\s*=\\s*\\S/m.test(text)) return false;
+    if (/[{};]\\s*$/m.test(text) && text.indexOf(BT + BT + BT) === -1) return false;
+
+    var fence = new RegExp('^' + BT + BT + BT, 'm');
+    var signals = [
+      /^#{1,6}\\s+\\S/m, fence, /^\\s*([-*+]|\\d+\\.)\\s+\\S/m, /\\[[^\\]]+\\]\\([^)]+\\)/,
+      /\\*\\*[^*]+\\*\\*|__[^_]+__/, /^>\\s+\\S/m, /^\\|.+\\|\\s*$/m, /^(-{3,}|\\*{3,}|_{3,})\\s*$/m,
+    ].filter(function (re) { return re.test(text); }).length;
+    return signals >= 2;
+  }
+
+  function mdEscape(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Only schemes that cannot execute. The frame is sandboxed anyway, but a
+  // renderer that emits javascript: URLs is a bad renderer.
+  function mdSafeHref(url) {
+    var trimmed = url.trim();
+    return /^(https?:\\/\\/|mailto:|#|\\/)/i.test(trimmed) ? trimmed : '';
+  }
+
+  function mdInline(s) {
+    var codes = [];
+    // Code spans win over every other inline rule, so lift them out first.
+    s = s.replace(new RegExp(BT + '([^' + BT + ']+)' + BT, 'g'), function (_, code) {
+      codes.push(code);
+      return '' + (codes.length - 1) + '';
+    });
+    s = s.replace(/!\\[([^\\]]*)\\]\\(([^)\\s]+)[^)]*\\)/g, function (m, alt, url) {
+      var href = mdSafeHref(url);
+      return href ? '<img src="' + href + '" alt="' + alt + '">' : m;
+    });
+    s = s.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)[^)]*\\)/g, function (m, label, url) {
+      var href = mdSafeHref(url);
+      return href ? '<a href="' + href + '">' + label + '</a>' : m;
+    });
+    s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+         .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+         .replace(/(^|[^*])\\*([^*\\n]+)\\*/g, '$1<em>$2</em>')
+         .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    return s.replace(/(\\d+)/g, function (_, i) {
+      return '<code>' + codes[+i] + '</code>';
+    });
+  }
+
+  function mdList(lines) {
+    var ordered = /^\\s*\\d+\\./.test(lines[0]);
+    var out = ordered ? '<ol>' : '<ul>';
+    var buffer = null;
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\\s*(?:[-*+]|\\d+\\.)\\s+(.*)$/);
+      if (m) {
+        if (buffer !== null) out += '<li>' + mdInline(buffer) + '</li>';
+        buffer = m[1];
+      } else if (buffer !== null) {
+        buffer += ' ' + lines[i].trim();   // lazy continuation
+      }
+    }
+    if (buffer !== null) out += '<li>' + mdInline(buffer) + '</li>';
+    return out + (ordered ? '</ol>' : '</ul>');
+  }
+
+  function mdTable(lines) {
+    var row = function (line) {
+      return line.replace(/^\\||\\|$/g, '').split('|').map(function (c) { return c.trim(); });
+    };
+    var head = row(lines[0]);
+    var out = '<table><thead><tr>';
+    for (var h = 0; h < head.length; h++) out += '<th>' + mdInline(head[h]) + '</th>';
+    out += '</tr></thead><tbody>';
+    for (var i = 2; i < lines.length; i++) {
+      var cells = row(lines[i]);
+      out += '<tr>';
+      for (var c = 0; c < cells.length; c++) out += '<td>' + mdInline(cells[c]) + '</td>';
+      out += '</tr>';
+    }
+    return out + '</tbody></table>';
+  }
+
+  function renderMarkdown(source) {
+    var text = mdEscape(source.replace(/\\r\\n?/g, '\\n'));
+
+    // Fenced code is verbatim, so it comes out before anything else touches it.
+    var blocks = [];
+    var fenced = new RegExp('^' + BT + BT + BT + '[ \\\\t]*([\\\\w+-]*)[ \\\\t]*\\\\n([\\\\s\\\\S]*?)^' + BT + BT + BT + '[ \\\\t]*$', 'gm');
+    text = text.replace(fenced, function (_, lang, code) {
+      blocks.push('<pre class="md-code"' + (lang ? ' data-lang="' + lang + '"' : '') +
+                  '><code>' + code.replace(/\\n$/, '') + '</code></pre>');
+      return '' + (blocks.length - 1) + '';
+    });
+
+    var html = '';
+    var chunks = text.split(/\\n{2,}/);
+    for (var i = 0; i < chunks.length; i++) {
+      var chunk = chunks[i].replace(/\\s+$/, '');
+      if (!chunk.trim()) continue;
+
+      var placeholder = chunk.match(/^(\\d+)$/);
+      if (placeholder) { html += blocks[+placeholder[1]]; continue; }
+
+      var heading = chunk.match(/^(#{1,6})\\s+(.*)$/);
+      if (heading) {
+        var level = heading[1].length;
+        html += '<h' + level + '>' + mdInline(heading[2].replace(/\\s+#+\\s*$/, '')) + '</h' + level + '>';
+        continue;
+      }
+      if (/^(-{3,}|\\*{3,}|_{3,})$/.test(chunk.trim())) { html += '<hr>'; continue; }
+
+      var lines = chunk.split('\\n');
+      if (lines.length >= 2 && /^\\|.*\\|$/.test(lines[0].trim()) && /^\\|[\\s:|-]+\\|$/.test(lines[1].trim())) {
+        html += mdTable(lines.map(function (l) { return l.trim(); }));
+        continue;
+      }
+      if (/^\\s*([-*+]|\\d+\\.)\\s+/.test(lines[0])) { html += mdList(lines); continue; }
+      // The source was escaped before this point, so the marker is &gt; here.
+      if (/^&gt;\\s?/.test(lines[0])) {
+        html += '<blockquote>' + mdInline(lines.map(function (l) {
+          return l.replace(/^&gt;\\s?/, '');
+        }).join(' ')) + '</blockquote>';
+        continue;
+      }
+      html += '<p>' + mdInline(lines.join('\\n')).replace(/\\n/g, '<br>') + '</p>';
+    }
+
+    return html.replace(/(\\d+)/g, function (_, i) { return blocks[+i]; });
+  }
+
+  // Wrapped in a document so it goes through exactly the same sandboxed frame
+  // and injected CSP as any other HTML — no new attack surface, by construction.
+  function markdownDocument(source) {
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+      'body{margin:0;padding:28px 32px;max-width:70ch;font:16px/1.65 -apple-system,' +
+      'BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;color:#1a1d21;background:#fff;' +
+      '-webkit-font-smoothing:antialiased}' +
+      'h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.6em 0 .5em;font-weight:640;letter-spacing:-.015em}' +
+      'h1{font-size:1.9em;margin-top:0}h2{font-size:1.4em}h3{font-size:1.15em}' +
+      'p{margin:.85em 0}ul,ol{margin:.85em 0;padding-left:1.5em}li{margin:.3em 0}' +
+      'a{color:#0f766e}code{font:.88em ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'background:#f1f3f5;padding:.1em .3em;border-radius:4px}' +
+      'pre.md-code{background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;' +
+      'padding:14px 16px;overflow-x:auto;margin:1em 0}' +
+      'pre.md-code code{background:none;padding:0;font-size:.86em;line-height:1.5}' +
+      'blockquote{margin:1em 0;padding:.1em 1em;border-left:3px solid #d1d5db;color:#4b5563}' +
+      'table{border-collapse:collapse;margin:1em 0;width:100%;display:block;overflow-x:auto}' +
+      'th,td{border:1px solid #e5e7eb;padding:7px 11px;text-align:left;font-size:.94em}' +
+      'th{background:#f9fafb;font-weight:600}hr{border:0;border-top:1px solid #e5e7eb;margin:2em 0}' +
+      'img{max-width:100%}@media(prefers-color-scheme:dark){' +
+      'body{background:#0e1013;color:#e9ecef}a{color:#22c55e}' +
+      'code{background:#1a1d21}pre.md-code{background:#14171c;border-color:#23272e}' +
+      'blockquote{border-color:#2f353e;color:#a7aeb8}' +
+      'th,td{border-color:#23272e}th{background:#14171c}hr{border-color:#23272e}}' +
+      '</style></head><body>' + renderMarkdown(source) + '</body></html>';
+  }
+
   function render() {
-    if (!showingSource && looksLikeHtml(plaintext)) renderHtml(plaintext);
-    else renderText(plaintext);
+    if (showingSource) return renderText(plaintext);
+    if (looksLikeHtml(plaintext)) return renderHtml(plaintext);
+    if (looksLikeMarkdown(plaintext)) return renderHtml(markdownDocument(plaintext));
+    renderText(plaintext);
   }
 
   async function main() {
@@ -1426,7 +1615,8 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
         'The key in the link does not match, or the content was altered.');
     }
 
-    fileName = 'vnsh-' + id + '-v' + version + (looksLikeHtml(plaintext) ? '.html' : '.txt');
+    fileName = 'vnsh-' + id + '-v' + version +
+      (looksLikeHtml(plaintext) ? '.html' : looksLikeMarkdown(plaintext) ? '.md' : '.txt');
 
     function humanLeft(iso) {
       if (!iso) return '';
@@ -1494,11 +1684,12 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
       URL.revokeObjectURL(a.href);
     };
 
-    if (looksLikeHtml(plaintext)) {
+    var rendersRich = looksLikeHtml(plaintext) || looksLikeMarkdown(plaintext);
+    if (rendersRich) {
       raw.hidden = false;
       raw.onclick = function () {
         showingSource = !showingSource;
-        raw.textContent = showingSource ? 'View page' : 'View source';
+        raw.textContent = showingSource ? 'View rendered' : 'View source';
         render();
       };
     }
@@ -2852,6 +3043,40 @@ X-Vnsh-Public: 1, the body is already plaintext — do not try to decrypt it.
 
 To create one, add X-Vnsh-Public: 1 to the create request, or run vn --public.
 Encrypted remains the default everywhere; public is never inferred.
+
+## Creating a workspace without vnsh tooling
+
+  S = random 32 bytes                                          # the root secret
+  K = HKDF-SHA256(ikm=S, salt="", info="vnsh/enc/v2", 32)      # content key
+  W = HKDF-SHA256(ikm=S, salt="", info="vnsh/write/v2", 32), hex-encoded
+  H = SHA-256(W as a 64-character ASCII string), hex-encoded   # note: of the hex text
+
+  POST https://vnsh.dev/api/workspace
+    X-Vnsh-Write-Hash: <H>            required; 400 without it
+    X-Vnsh-Public: 1                  optional; stores plaintext, see below
+    body: nonce(12) || ciphertext || tag(16)      AES-256-GCM under K
+
+  201 -> {"id": "...", "version": 1, "expires": "...", "public": false}
+         ETag: "1"
+
+The server only ever receives H, so it cannot derive W and cannot write to what
+you create. That is checkable from outside: forge a token and you get a 403.
+
+Your links are then:
+
+  https://vnsh.dev/w/{id}#w=<base64url(S)>       read + write
+  https://vnsh.dev/w/{id}#r=<base64url(K)>       read only
+  https://vnsh.dev/p/{id}                        public, if created with the flag
+
+A public workspace still has a /w/#w= edit link, and it is the only way to
+change it later — the /p/ link carries no key, by design. Keep it.
+
+## A note on User-Agent
+
+Requests sent with some default library user-agents are refused at the edge with
+HTTP 403 and a Cloudflare error page (code 1010) before this service ever sees
+them. Python's urllib default is one of them. Set any User-Agent of your own
+and it goes away. The error will not point you at this, which is why it is here.
 
 ## Reading a workspace without vnsh tooling
 
