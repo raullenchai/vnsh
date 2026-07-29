@@ -579,6 +579,95 @@ function tooLargeResponse(): Response {
 
 const WORKSPACE_PREFIX = 'w/';
 
+/**
+ * A public workspace is stored as plaintext so that anything which speaks HTTP
+ * — an agent's fetch, curl, a crawler — can read it with no key, no runtime and
+ * no understanding of the product. That is the whole point: a human opening a
+ * link in a browser has a JavaScript runtime doing the decryption for them, and
+ * an agent does not, so the two experiences were never symmetric.
+ *
+ * The trade is explicit and per document: for a public workspace, vnsh can read
+ * the content. The link shape says so — a public read link carries no fragment
+ * at all, because there is no key to carry.
+ */
+function isPublicWorkspace(md: Record<string, string> | undefined): boolean {
+  return (md || {}).public === '1';
+}
+
+/**
+ * Does this look like a document to render, rather than text to show as-is?
+ * Skips a BOM, whitespace, XML declarations and leading comments — a generated
+ * file that opens with a banner comment is still HTML. Scanned with indexOf so
+ * an unterminated comment cannot backtrack catastrophically.
+ */
+function looksLikeHtml(input: string): boolean {
+  const t = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
+  let i = 0;
+  for (let guard = 0; guard < 64; guard++) {
+    while (i < t.length && (t[i] === ' ' || t[i] === '\t' || t[i] === '\n' || t[i] === '\r')) i++;
+    if (t.substr(i, 4) === '<!--') {
+      const end = t.indexOf('-->', i + 4);
+      if (end === -1) return false;
+      i = end + 3;
+      continue;
+    }
+    if (t.substr(i, 2) === '<?') {
+      const q = t.indexOf('?>', i + 2);
+      if (q === -1) return false;
+      i = q + 2;
+      continue;
+    }
+    break;
+  }
+  return /^<(!doctype html|html|head|body|div|section|main|article|style|h[1-6]|p|table|ul|ol|svg|header|footer|nav|figure|pre|blockquote)[\s>/]/i.test(
+    t.slice(i, i + 64),
+  );
+}
+
+/**
+ * Public content is served from vnsh.dev, so it must not run *as* vnsh.dev.
+ * The `sandbox` directive in a response header puts the document in an opaque
+ * origin, which is the same guarantee the encrypted viewer gets from an iframe
+ * without allow-same-origin: no same-origin reads of /api, no impersonating the
+ * real UI with a working session. The rest of the policy removes network egress
+ * for the same reason the framed renderer does.
+ *
+ * This does not address reputation — a phishing page here still lives under
+ * vnsh.dev, and blocklists work on the registrable domain. That needs a
+ * separate domain, tracked as its own piece of work.
+ */
+/**
+ * Shown for /p/ ids that are missing, expired, or encrypted. It says the same
+ * thing in all three cases on purpose: confirming which one applies would leak
+ * whether a given id exists.
+ */
+const NOT_PUBLIC_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nothing here | vnsh</title>
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center;
+    background:#08090b; color:#a7aeb8; font-size:15px; line-height:1.6;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; }
+  .box { max-width:44ch; padding:0 24px; text-align:center; }
+  h1 { font-size:19px; font-weight:600; color:#e9ecef; margin:0 0 10px; letter-spacing:-.015em; }
+  p { margin:0 0 8px; font-size:14px; color:#6b7280; }
+  a { color:#22c55e; text-decoration:none; }
+</style></head>
+<body><div class="box">
+  <h1>Nothing to show here</h1>
+  <p>This link has expired, never existed, or points to an encrypted workspace
+     rather than a public one.</p>
+  <p>An encrypted workspace lives at <code>/w/</code> and needs the key in its
+     URL fragment.</p>
+  <p style="margin-top:18px"><a href="https://vnsh.dev/">vnsh.dev</a></p>
+</div></body></html>`;
+
+const PUBLIC_CONTENT_CSP =
+  "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; " +
+  "script-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; " +
+  "font-src data:; form-action 'none'; base-uri 'none'";
+
 function isValidWorkspaceId(id: string): boolean {
   return /^[0-9A-Za-z]{12}$/.test(id);
 }
@@ -640,6 +729,10 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     id = generateShortId();
   }
 
+  // Opting out of encryption is the author's call and has to be deliberate, so
+  // it is a header the caller sets, never a default and never inferred.
+  const isPublic = request.headers.get('X-Vnsh-Public') === '1';
+
   const { iso } = workspaceExpiry();
   try {
     await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, await readCapped(body, MAX_BLOB_SIZE), {
@@ -648,6 +741,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
         version: '1',
         createdAt: new Date().toISOString(),
         expiresAt: iso,
+        ...(isPublic ? { public: '1' } : {}),
       },
     });
   } catch (err) {
@@ -662,7 +756,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
   });
 
-  return new Response(JSON.stringify({ id, version: 1, expires: iso }), {
+  return new Response(JSON.stringify({ id, version: 1, expires: iso, public: isPublic }), {
     status: 201,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
@@ -703,7 +797,71 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
       'X-Content-Type-Options': 'nosniff',
       // The version IS the ETag — one concept, not two.
       ETag: `"${md.version || '1'}"`,
+      // Without this a client would try to decrypt plaintext and report the
+      // failure as corruption.
+      ...(isPublicWorkspace(md) ? { 'X-Vnsh-Public': '1' } : {}),
       ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      ...corsHeaders,
+    },
+  });
+}
+
+/**
+ * GET /p/:id — a public workspace, served as an ordinary document.
+ *
+ * No fragment, no JavaScript, no client-side step: whatever can make an HTTP
+ * request can read it. An encrypted workspace is deliberately not reachable
+ * here, so the path itself tells you which guarantee applies.
+ */
+async function handlePublicPage(id: string, request: Request, env: Env): Promise<Response> {
+  const key = WORKSPACE_PREFIX + id;
+  const head = await env.VNSH_STORE.head(key);
+  if (!head || !isPublicWorkspace(head.customMetadata)) {
+    // Encrypted workspaces answer the same way as missing ones: whether a given
+    // id exists is not something this endpoint should confirm.
+    return new Response(NOT_PUBLIC_HTML, {
+      status: 404,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
+  const md = head.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(key);
+    return new Response(NOT_PUBLIC_HTML, {
+      status: 410,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
+  const object = await env.VNSH_STORE.get(key);
+  if (!object) {
+    return new Response(NOT_PUBLIC_HTML, {
+      status: 404,
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
+  const body = await object.text();
+  trackEvent(env, 'workspace_read', getClientSource(request), {
+    workspaceId: id,
+    agent: getClientAgent(request),
+  });
+
+  return new Response(request.method === 'HEAD' ? null : body, {
+    status: 200,
+    headers: {
+      'Content-Type': looksLikeHtml(body)
+        ? 'text/html; charset=utf-8'
+        : 'text/plain; charset=utf-8',
+      'Content-Security-Policy': PUBLIC_CONTENT_CSP,
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Cache-Control': 'no-cache',
+      ETag: `"${md.version || '1'}"`,
+      ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
       ...corsHeaders,
     },
   });
@@ -788,6 +946,12 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
         version: nextVersion,
         createdAt: md.createdAt || new Date().toISOString(),
         expiresAt: iso,
+        // Visibility is fixed when the workspace is created and carried
+        // forward verbatim. A write must not be able to change the guarantee
+        // the author advertised when they handed the link out — neither by
+        // dropping this and quietly turning a public document into one that
+        // looks encrypted, nor by setting it and exposing one that was not.
+        ...(isPublicWorkspace(md) ? { public: '1' } : {}),
       },
     });
 
@@ -1216,8 +1380,17 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     var version = (res.headers.get('ETag') || '').replace(/"/g, '') || '1';
     var expires = res.headers.get('X-Vnsh-Expires');
     var payload = new Uint8Array(await res.arrayBuffer());
-    if (payload.length < 28) return fail('This workspace is empty', '');
+    var isPublic = res.headers.get('X-Vnsh-Public') === '1';
+    if (!isPublic && payload.length < 28) return fail('This workspace is empty', '');
 
+    // A public workspace has an edit link too, and it is a /w/ link. Trying to
+    // decrypt plaintext here would tell the author their own link is broken.
+    if (isPublic) {
+      // canWrite was already decided by which link tier was used; the write
+      // token is derived from the secret and is unaffected by how content is
+      // stored.
+      plaintext = new TextDecoder().decode(payload);
+    } else
     try {
       var raw = viewOnly ? material : await hkdf(material, 'vnsh/enc/v2');
       var key = await importAes(raw);
@@ -1474,6 +1647,18 @@ export default {
         return handleWorkspacePut(workspaceMatch[1], request, env);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use GET or PUT', 405);
+    }
+
+    // Route: GET/HEAD /p/:id - a public workspace, served as a plain document.
+    const publicPageMatch = path.match(/^\/p\/([a-zA-Z0-9]+)$/);
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      publicPageMatch &&
+      isValidWorkspaceId(publicPageMatch[1])
+    ) {
+      const ip = getClientIp(request);
+      if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
+      return handlePublicPage(publicPageMatch[1], request, env);
     }
 
     // Route: GET/HEAD /w/:id - the workspace viewer.
@@ -2610,13 +2795,39 @@ long context into a reply.
 
 ## Workspace URLs
 
-  https://vnsh.dev/w/{id}#w=<secret>   read + write
-  https://vnsh.dev/w/{id}#r=<key>      read only
+  https://vnsh.dev/w/{id}#w=<secret>   encrypted, read + write
+  https://vnsh.dev/w/{id}#r=<key>      encrypted, read only
+  https://vnsh.dev/p/{id}              public, readable by anything
 
-Both decrypt every version. #r= cannot write and cannot be turned back into an
-edit link — the read key is a one-way derivation of the root secret.
+Both encrypted tiers decrypt every version. #r= cannot write and cannot be
+turned back into an edit link — the read key is a one-way derivation of the
+root secret.
 
 Workspaces are deleted 24 hours after their last write. Each write renews that.
+
+## Public workspaces — no key, no runtime, no setup
+
+A person opening an encrypted link has a browser doing the decryption for them.
+An agent's fetch does not run JavaScript, so those two experiences were never
+the same. An author can close that gap deliberately, per document, by creating
+the workspace public:
+
+  GET https://vnsh.dev/p/{id}   →   the content, as an ordinary document
+
+No key, no fragment, no decryption step: anything that can make an HTTP request
+can read it, including WebFetch. The link carries no fragment because there is
+no key to carry, which is how you can tell the two apart at a glance.
+
+What is traded away is stated plainly: vnsh can read a public workspace. The
+24-hour deletion still applies, and writing still requires the write token, so
+only the author can change it. Visibility is fixed when the workspace is created
+and cannot be changed by a later write.
+
+If you fetch /api/workspace/{id} directly and the response carries
+X-Vnsh-Public: 1, the body is already plaintext — do not try to decrypt it.
+
+To create one, add X-Vnsh-Public: 1 to the create request, or run vn --public.
+Encrypted remains the default everywhere; public is never inferred.
 
 ## Reading a workspace without vnsh tooling
 

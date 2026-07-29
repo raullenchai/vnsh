@@ -26,7 +26,7 @@ import {
   isWorkspaceUrl,
 } from './crypto.js';
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 
@@ -59,6 +59,7 @@ interface UploadOptions {
   host?: string;
   local?: boolean;
   blob?: boolean;
+  public?: boolean;
 }
 
 interface WorkspaceResponse {
@@ -109,7 +110,15 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
 
   const secret = generateRootSecret();
   const keys = deriveWorkspaceKeys(secret);
-  const payload = encryptWorkspace(data, keys.key);
+
+  // A public workspace is stored as plaintext so anything that speaks HTTP can
+  // read it with no key and no runtime — which is the only way an agent's fetch
+  // gets the same experience a human's browser does. The trade is stated at the
+  // point of choosing it, not buried: vnsh can read this one.
+  const payload = options.public ? data : encryptWorkspace(data, keys.key);
+  if (options.public) {
+    info(colors.yellow('Public: stored unencrypted so any agent can read it without a key.'));
+  }
 
   if (options.local) {
     console.log(`\n${colors.green('Encrypted workspace payload (base64):')}`);
@@ -118,13 +127,14 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     return;
   }
 
-  info(`Uploading encrypted workspace (${formatBytes(payload.length)})...`);
+  info(`Uploading workspace (${formatBytes(payload.length)})...`);
   const response = await fetch(`${host}/api/workspace`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
       'X-Vnsh-Write-Hash': keys.writeHash,
+      ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
     },
     body: payload,
   });
@@ -137,12 +147,23 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   console.log('');
   console.log(colors.green('✓ Workspace created'));
   console.log('');
-  console.log(buildWorkspaceUrl(host, result.id, secret));
-  console.log(`${colors.yellow('  edit')}       anyone with this link can change it`);
-  console.log('');
-  console.log(buildReadOnlyWorkspaceUrl(host, result.id, secret));
-  console.log(`${colors.yellow('  view-only')}  they can read it, never write it`);
-  console.log('');
+  if (options.public) {
+    // No key in the link, because there is no key. That is the honest shape for
+    // "anyone can read this", and it is why the read link carries no fragment.
+    console.log(`${host}/p/${result.id}`);
+    console.log(`${colors.yellow('  public')}     any agent or person can read it, no key needed`);
+    console.log('');
+    console.log(buildWorkspaceUrl(host, result.id, secret));
+    console.log(`${colors.yellow('  edit')}       keep this one; it is what lets you change it`);
+    console.log('');
+  } else {
+    console.log(buildWorkspaceUrl(host, result.id, secret));
+    console.log(`${colors.yellow('  edit')}       anyone with this link can change it`);
+    console.log('');
+    console.log(buildReadOnlyWorkspaceUrl(host, result.id, secret));
+    console.log(`${colors.yellow('  view-only')}  they can read it, never write it`);
+    console.log('');
+  }
   if (result.expires) {
     console.log(`${colors.yellow('Expires:')} ${result.expires} (renewed on every write)`);
   }
@@ -167,6 +188,9 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   const current = await fetch(`${host}/api/workspace/${link.id}`, {
     headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
   });
+  // Visibility is fixed at creation, so the write has to match how this
+  // workspace is stored rather than how the caller feels about it today.
+  const isPublic = current.headers.get('X-Vnsh-Public') === '1';
   if (current.status === 404) {
     error('Workspace not found. It may have expired.');
   }
@@ -184,7 +208,7 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
       'X-Vnsh-Write': link.writeToken as string,
       'If-Match': version,
     },
-    body: encryptWorkspace(data, link.key),
+    body: isPublic ? data : encryptWorkspace(data, link.key),
   });
 
   if (response.status === 412) {
@@ -204,7 +228,32 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   const result = (await response.json()) as WorkspaceResponse;
   console.log('');
   console.log(colors.green(`✓ Workspace updated to v${result.version}`));
-  console.log(buildWorkspaceUrl(host, link.id, link.secret as Buffer));
+  console.log(isPublic ? `${host}/p/${link.id}` : buildWorkspaceUrl(host, link.id, link.secret as Buffer));
+}
+
+/** True for a public workspace link: /p/{id}, and never carrying a key. */
+function isPublicUrl(url: string): boolean {
+  try {
+    return /^\/p\/[0-9A-Za-z]{12}$/.test(new URL(url.split('#')[0]).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch a public workspace. No key, no crypto — it is an ordinary document. */
+async function readPublic(url: string): Promise<void> {
+  const target = new URL(url.split('#')[0]);
+  info(`Fetching public workspace from ${target.origin}...`);
+  const response = await fetch(target.toString(), {
+    headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+  });
+  if (response.status === 404 || response.status === 410) {
+    error('Not found. It may have expired, or it may be an encrypted /w/ link.');
+  }
+  if (!response.ok) {
+    error(`Failed to fetch (HTTP ${response.status})`);
+  }
+  process.stdout.write(Buffer.from(await response.arrayBuffer()));
 }
 
 /** Fetch and decrypt a workspace, writing the plaintext to stdout. */
@@ -223,6 +272,16 @@ async function readWorkspace(url: string): Promise<void> {
   }
 
   const payload = Buffer.from(await response.arrayBuffer());
+
+  // A public workspace has an edit link too, and it is a /w/ link — so this
+  // path has to expect plaintext, or holding your own edit link looks like
+  // corruption.
+  if (response.headers.get('X-Vnsh-Public') === '1') {
+    info(`Public workspace v${response.headers.get('ETag') || '?'} — no decryption needed`);
+    process.stdout.write(payload);
+    return;
+  }
+
   info(`Decrypting workspace v${response.headers.get('ETag') || '?'} (${formatBytes(payload.length)})...`);
   try {
     process.stdout.write(decryptWorkspace(payload, link.key));
@@ -345,6 +404,9 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
 async function read(url: string): Promise<void> {
   // Both link generations stay readable forever: /w/ is a workspace, /v/ is a
   // v1 one-shot blob. Every link already in the wild keeps working.
+  if (isPublicUrl(url)) {
+    return readPublic(url);
+  }
   if (isWorkspaceUrl(url)) {
     return readWorkspace(url);
   }
@@ -393,11 +455,15 @@ program
   .option('-H, --host <url>', 'Override API host', DEFAULT_HOST)
   .option('-l, --local', 'Encrypt locally and print the payload (no upload)')
   .option('-b, --blob', 'Create a v1 one-shot blob instead of a workspace')
+  .option('--public', 'Store unencrypted so any agent can read it with no key (vnsh can read it too)')
   .action(async (file: string | undefined, options: UploadOptions) => {
     try {
       // A custom TTL and a price are properties of the v1 blob API; workspaces
       // are fixed at 24h from the last write. Rather than silently ignore the
       // flag, treat asking for one as asking for a blob.
+      if (options.public && options.blob) {
+        error('--public applies to workspaces; it cannot be combined with --blob.');
+      }
       const blobOnly = Boolean(options.blob || options.ttl || options.price);
       if (blobOnly) {
         await upload(file, options);

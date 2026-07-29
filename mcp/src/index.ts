@@ -747,7 +747,15 @@ async function fetchWorkspace(url: string) {
 
   const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
 
+  // A public workspace is stored as plaintext so that an agent's fetch can read
+  // it without a key or a runtime. Its edit link is still a /w/ link, so this
+  // path has to expect plaintext or the author's own link looks corrupted.
+  const isPublic = response.headers.get('X-Vnsh-Public') === '1';
+
   let plaintext: Buffer;
+  if (isPublic) {
+    plaintext = payload;
+  } else
   try {
     plaintext = decryptWorkspace(payload, key);
   } catch {
