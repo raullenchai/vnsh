@@ -678,8 +678,18 @@ describe('workspace page explains itself to agents', () => {
     expect(response.headers.get('Link')).toContain('/llms.txt');
   });
 
-  it('keeps the block away from human readers', async () => {
+  /**
+   * It used to be positioned off-screen. Two things were wrong with that. The
+   * decrypt snippet is one unbroken line far wider than the 9999px offset, so
+   * its tail wrapped back into the viewport and painted raw JavaScript across
+   * the header. And an agent reading the page flagged the deeper problem: text
+   * that only machines can see is the signature of cloaking, and a careful
+   * reader is right to distrust it. Nothing here is worth hiding.
+   */
+  it('is visible to people, not hidden from them', async () => {
     const html = await page();
-    expect(html).toMatch(/left:-9999px[^>]*"\s+aria-hidden="true"/);
+    expect(html).not.toContain('left:-9999px');
+    expect(html).toContain('<details class="agent-guide">');
+    expect(html).toMatch(/<summary>For automated readers/);
   });
 });

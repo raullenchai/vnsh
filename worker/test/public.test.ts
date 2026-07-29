@@ -204,3 +204,113 @@ describe('the homepage offers publishing without becoming a menu', () => {
     expect(html).toContain("roleEl.textContent = 'anyone can read it, no key needed'");
   });
 });
+
+/**
+ * "/" and "/v/:id" are the same document, so a note written for the viewer was
+ * also served on the landing page — telling agents that the homepage was an
+ * encrypted vnsh link, which it is not. Found by an agent reading the page as
+ * a stranger would.
+ */
+describe('the blob viewer guide is served only where it is true', () => {
+  it('is absent from the landing page', async () => {
+    const html = (await call(new Request('http://localhost/'))).text();
+    expect(await html).not.toContain('This is a vnsh link.');
+  });
+
+  it('is present on a blob viewer URL', async () => {
+    const response = await call(
+      new Request('http://localhost/v/12345678-1234-1234-1234-123456789abc'),
+    );
+    const html = await response.text();
+    expect(html).toContain('This is a vnsh link.');
+    expect(html).toContain('agent-guide');
+  });
+
+  it('leaves no unfilled placeholder on either surface', async () => {
+    for (const path of ['/', '/v/12345678-1234-1234-1234-123456789abc']) {
+      const html = await (await call(new Request('http://localhost' + path))).text();
+      expect(html, path).not.toContain('AGENT_GUIDE');
+    }
+  });
+});
+
+/**
+ * Claims the page makes about itself, which an outside reader called out as
+ * overstated. Each of these was true of the content and false of everything
+ * around it.
+ */
+describe('the page does not overclaim', () => {
+  it('does not promise there is nothing to subpoena', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    // Request metadata exists for any hosted service; only the content does not.
+    expect(html).not.toContain('No history to subpoena');
+    expect(html).toMatch(/ordinary request metadata/i);
+  });
+
+  it('admits an edited workspace never expires', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    // "24h after the last edit" plus "renewed on write" means a daily writer
+    // keeps it alive forever, which the page used to leave for the reader to
+    // work out.
+    expect(html).toMatch(/written to daily stays alive/i);
+  });
+
+  it('names the weakness of browser-delivered encryption', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    // The code doing the encrypting is served by the party it protects you
+    // from. An honesty box that skips this is not one.
+    expect(html).toMatch(/code this server sends you/i);
+  });
+
+  it('explains why an agent cannot read an encrypted link unaided', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+    // Without this premise the publish toggle reads as self-contradiction.
+    const label = html.slice(html.indexOf('for="opt-public"'), html.indexOf('</label>'));
+    expect(label).toMatch(/gets nothing from one until you set it up/i);
+  });
+});
+
+/**
+ * A client that echoes back the ETag it was given is behaving correctly, and an
+ * intermediary may have weakened that ETag to W/"n" on the way out — Cloudflare
+ * does exactly this when it compresses a response. Stripping only the quotes
+ * left "W/2", which matched nothing, so the most correct clients were the ones
+ * getting a version conflict that did not exist.
+ */
+describe('If-Match accepts what a correct client sends back', () => {
+  async function attempt(ifMatch: string) {
+    const token = 'd'.repeat(64);
+    const created = await call(
+      new Request('http://localhost/api/workspace', {
+        method: 'POST',
+        headers: { 'X-Vnsh-Write-Hash': await sha256Hex(token) },
+        body: 'v1',
+      }),
+    );
+    const { id } = await created.json<{ id: string }>();
+    const response = await call(
+      new Request(`http://localhost/api/workspace/${id}`, {
+        method: 'PUT',
+        headers: { 'X-Vnsh-Write': token, 'If-Match': ifMatch },
+        body: 'v2',
+      }),
+    );
+    const status = response.status;
+    await response.text();
+    return status;
+  }
+
+  it('takes a strong ETag, a weak one, and a wildcard', async () => {
+    expect(await attempt('"1"')).toBe(200);
+    expect(await attempt('W/"1"')).toBe(200);
+    expect(await attempt('w/"1"')).toBe(200);
+    // `*` means "whatever is there now", which is a legitimate thing to send.
+    expect(await attempt('*')).toBe(200);
+  });
+
+  it('still refuses a genuinely stale version', async () => {
+    // The whole point of the header: this is the case that must keep failing.
+    expect(await attempt('"7"')).toBe(412);
+    expect(await attempt('W/"7"')).toBe(412);
+  });
+});

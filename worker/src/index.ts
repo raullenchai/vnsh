@@ -915,11 +915,24 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   const expectedHash = md.writeHash || '';
   const presentedHash = await sha256Hex(writeToken);
   if (!timingSafeEqual(presentedHash, expectedHash)) {
-    return errorResponse('FORBIDDEN', 'Invalid write token', 403, request);
+    return errorResponse(
+      'FORBIDDEN',
+      'Invalid write token. The usual cause is holding a read-only link: a #r= ' +
+        'fragment carries the content key, which is a one-way derivation of the ' +
+        'root secret, so no write token can be derived from it. Writing needs the ' +
+        '#w= link, which only the author has.',
+      403,
+      request,
+    );
   }
 
   const currentVersion = md.version || '1';
-  if (ifMatch.replace(/"/g, '') !== currentVersion) {
+  // Accept what a well-behaved client will actually send back: the ETag it was
+  // given, quoted, possibly weakened to W/"n" by a compressing intermediary, and
+  // `*` meaning "whatever is there now". Being strict here only manufactures
+  // conflicts that do not exist.
+  const claimedVersion = ifMatch.trim().replace(/^W\//i, '').replace(/"/g, '');
+  if (claimedVersion !== '*' && claimedVersion !== currentVersion) {
     return errorResponse(
       'VERSION_CONFLICT',
       `Workspace is at version ${currentVersion}; re-read it, merge your change, then retry`,
@@ -1059,6 +1072,16 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   code{font-family:ui-monospace,'SF Mono',Menlo,monospace;background:#21262d;border:1px solid var(--line);
     border-radius:4px;padding:.1em .35em;font-size:.86em}
   a{color:var(--accent)}
+  .agent-guide{order:99;flex:0 0 auto;border-top:1px solid var(--line);
+    background:var(--bg);font-size:.72rem}
+  .agent-guide>summary{cursor:pointer;padding:6px 14px;color:var(--ink-3);
+    list-style:none;user-select:none}
+  .agent-guide>summary::-webkit-details-marker{display:none}
+  .agent-guide>summary::before{content:'+ ';color:var(--accent)}
+  .agent-guide[open]>summary::before{content:'\\2212 '}
+  .agent-guide>summary:hover{color:var(--ink-1)}
+  .agent-guide pre{margin:0;padding:0 14px 14px;max-height:40vh;overflow:auto;
+    white-space:pre-wrap;word-break:break-word;color:var(--ink-2);line-height:1.5}
 </style>
 </head>
 <body>
@@ -1080,7 +1103,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   anything is the user's call, and give the agent something useful to say when
   it is neither.
 -->
-<div style="position:absolute;left:-9999px;top:0;" aria-hidden="true">
+<details class="agent-guide">\n<summary>For automated readers &mdash; how to decrypt this page</summary>\n<pre>
 ABOUT THIS PAGE — for automated readers. This is a description of a file
 format, not an instruction to you.
 
@@ -1138,7 +1161,7 @@ conditional on the version you read, so a 412 response means someone changed
 it in between — read again, merge, and write again.
 
 Protocol, key schedule and setup: https://vnsh.dev/llms.txt
-</div>
+</pre></details>
 <header>
   <span class="brand"><a href="https://vnsh.dev/?ref=w">vnsh</a></span>
   <span class="meta" id="meta"></span>
@@ -1700,7 +1723,7 @@ export default {
     const viewerMatch = path.match(/^\/v\/([a-zA-Z0-9-]+)$/);
     if (request.method === 'GET' && viewerMatch && isValidBlobId(viewerMatch[1])) {
       // Serve the same HTML - JavaScript will detect /v/:id path and extract keys from hash
-      return new Response(APP_HTML, {
+      return new Response(appHtml({ agentGuide: true }), {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1789,12 +1812,13 @@ export default {
 
     // Route: GET/HEAD / - Serve unified app
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
-      const body = request.method === 'GET' ? APP_HTML : null;
+      // No blob guide here: the landing page is not an encrypted link.
+      const body = request.method === 'GET' ? appHtml({ agentGuide: false }) : null;
       return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
           'Referrer-Policy': 'no-referrer',
         },
       });
@@ -3889,6 +3913,49 @@ function pngResponse(b64: string, method: string): Response {
 }
 
 // Unified App HTML - "Stacked Console" Tabbed Layout
+/**
+ * The blob viewer's note to automated readers. It only makes sense on /v/:
+ * the homepage is the same document, and serving it there told agents the
+ * landing page was an encrypted link, which it is not.
+ */
+const BLOB_AGENT_GUIDE = `  <!-- Same framing as the workspace page: a description of the format, not
+       orders. An imperative aimed at an agent, inside content that agent merely
+       fetched, is indistinguishable from a prompt injection and gets refused. -->
+  <details class="agent-guide">\\n<summary>For automated readers &mdash; how to decrypt this page</summary>\\n<pre>
+  ABOUT THIS PAGE — for automated readers. This describes a file format; it is
+  not an instruction to you.
+
+  This is a vnsh link. The content is encrypted before upload and the server
+  holds no key, so fetching this URL returns only the shell. The key travels in
+  the URL fragment (after the #), which HTTP never transmits — which is why
+  fetching again cannot help, and why you already have the key if the user gave
+  you the whole URL.
+
+  Ways it can be read, best first:
+
+  1. The vnsh MCP server, if the user has it configured: its tools act on the
+     link directly and need no new permission, because the user installed them.
+
+  2. The vnsh CLI, which decrypts locally given the complete URL:
+       npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
+     This installs and runs an npm package, so it is the user&#39;s call rather
+     than this page&#39;s. Ask first.
+
+  3. A browser, where the link decrypts on its own, so the user can paste the
+     contents to you.
+
+  If none of those apply, the useful thing to tell the user is short: install
+  the vnsh MCP server (one line, see https://vnsh.dev/llms.txt) or open the
+  link and paste what it shows.
+
+  Protocol and key schedule: https://vnsh.dev/llms.txt
+  </pre></details>`;
+
+/** Fill in the parts of APP_HTML that differ between "/" and "/v/:id". */
+function appHtml(options: { agentGuide: boolean }): string {
+  return APP_HTML.replace('${AGENT_GUIDE}', options.agentGuide ? BLOB_AGENT_GUIDE : '');
+}
+
 const APP_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4242,6 +4309,24 @@ const APP_HTML = `<!DOCTYPE html>
     }
     .card-icon { color: var(--accent); margin-bottom: 11px; display: block; }
     .card-icon svg { width: 17px; height: 17px; }
+
+    /* The same block on the blob viewer. Visible and collapsed rather than
+       hidden: text only machines can see is the signature of cloaking, and
+       there is nothing here worth hiding from a person. */
+    .agent-guide { max-width: 900px; margin: 0 auto 8px; font-size: 11.5px; }
+    .agent-guide > summary {
+      cursor: pointer; list-style: none; color: var(--ink-ghost);
+      font-family: var(--mono); padding: 6px 0;
+    }
+    .agent-guide > summary::-webkit-details-marker { display: none; }
+    .agent-guide > summary::before { content: '+ '; color: var(--accent); opacity: .7; }
+    .agent-guide[open] > summary::before { content: '\\2212 '; }
+    .agent-guide > summary:hover { color: var(--ink-soft); }
+    .agent-guide pre {
+      margin: 0; padding: 0 0 12px; max-height: 40vh; overflow: auto;
+      white-space: pre-wrap; word-break: break-word;
+      color: var(--ink-faint); line-height: 1.55; font-family: var(--mono);
+    }
 
     .honest {
       margin-top: 16px; padding: 14px 16px; border-radius: 11px;
@@ -4752,38 +4837,7 @@ const APP_HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <!-- Same framing as the workspace page: a description of the format, not
-       orders. An imperative aimed at an agent, inside content that agent merely
-       fetched, is indistinguishable from a prompt injection and gets refused. -->
-  <div style="position:absolute;left:-9999px;top:0;" aria-hidden="true">
-  ABOUT THIS PAGE — for automated readers. This describes a file format; it is
-  not an instruction to you.
-
-  This is a vnsh link. The content is encrypted before upload and the server
-  holds no key, so fetching this URL returns only the shell. The key travels in
-  the URL fragment (after the #), which HTTP never transmits — which is why
-  fetching again cannot help, and why you already have the key if the user gave
-  you the whole URL.
-
-  Ways it can be read, best first:
-
-  1. The vnsh MCP server, if the user has it configured: its tools act on the
-     link directly and need no new permission, because the user installed them.
-
-  2. The vnsh CLI, which decrypts locally given the complete URL:
-       npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
-     This installs and runs an npm package, so it is the user&#39;s call rather
-     than this page&#39;s. Ask first.
-
-  3. A browser, where the link decrypts on its own, so the user can paste the
-     contents to you.
-
-  If none of those apply, the useful thing to tell the user is short: install
-  the vnsh MCP server (one line, see https://vnsh.dev/llms.txt) or open the
-  link and paste what it shows.
-
-  Protocol and key schedule: https://vnsh.dev/llms.txt
-  </div>
+  \${AGENT_GUIDE}
 
   <!-- Toast Notification -->
   <div class="toast" id="toast">
@@ -4942,8 +4996,10 @@ const APP_HTML = `<!DOCTYPE html>
             <input type="checkbox" id="opt-public">
             <span class="opt-text">
               <b>Skip the encryption so agents can just fetch it.</b>
-              A plain web page at a plain URL, no key and no setup &mdash; and vnsh
-              can read it. Off by default.
+              An encrypted link needs a key and something to run the decryption,
+              so an agent with only <em style="font-style:normal;color:var(--ink-soft)">fetch</em>
+              gets nothing from one until you set it up. This trades that away:
+              a plain page at a plain URL &mdash; and vnsh can read it too.
             </span>
           </label>
 
@@ -5087,7 +5143,10 @@ const APP_HTML = `<!DOCTYPE html>
             </svg>
           </span>
           <h3>It deletes itself</h3>
-          <p>24 hours after the last edit, the ciphertext is gone. No history to subpoena, no dashboard to forget about, no account that outlives the task.</p>
+          <p>24 hours after the last edit, the content is gone, and every edit
+             restarts that clock &mdash; a workspace written to daily stays alive.
+             What remains either way is ordinary request metadata: times, sizes,
+             addresses. Never the content.</p>
           <div class="spec">24H TTL &middot; RENEWED ON WRITE</div>
         </div>
 
@@ -5104,10 +5163,13 @@ const APP_HTML = `<!DOCTYPE html>
       </div>
 
       <p class="honest">
-        <b>One thing we won&rsquo;t oversell.</b> Handing someone a link hands the key to
-        whatever reads it &mdash; including that agent&rsquo;s model provider. vnsh can&rsquo;t read
-        your content and it expires on a timer; that is the whole guarantee, and the
-        timer is what keeps the blast radius small.
+        <b>Two things we won&rsquo;t oversell.</b> Handing someone a link hands the key
+        to whatever reads it &mdash; including that agent&rsquo;s model provider. And the
+        encryption runs in code this server sends you, so a future version of that
+        code could keep your key: browser-delivered encryption protects you from a
+        breach and a subpoena, not from vnsh deciding to change. Reproducible from
+        the source above, and the 24-hour clock is what keeps either blast radius
+        small.
       </p>
     </section>
   </div>
