@@ -157,3 +157,30 @@ describe('titles', () => {
     expect(descriptions.size).toBe(BLOG_SLUGS.length);
   });
 });
+
+/**
+ * The homepage used to pull a font stylesheet and six Prism scripts from a
+ * CDN. The font URL 404'd — so it had never once applied — and the scripts
+ * forced the CSP to trust a third-party script origin on a site whose entire
+ * claim is that it does not. Both are gone; this keeps them gone, because the
+ * cost of a reintroduced <link> is invisible until someone reads a console.
+ */
+describe('the app serves no third-party assets', () => {
+  it('references no external origin in the served page', async () => {
+    const { body: html } = await get('/');
+    expect(html).not.toContain('cdn.jsdelivr.net');
+    expect(html).not.toContain('unpkg.com');
+    // Every <script src> and <link href> must be same-origin or a data: URI.
+    const external = [...html.matchAll(/<(?:script|link)\b[^>]*?(?:src|href)="(https?:\/\/[^"]+)"/g)]
+      .map((m) => m[1])
+      .filter((u) => !u.startsWith('https://vnsh.dev'));
+    expect(external).toEqual([]);
+  });
+
+  it('grants its CSP no third-party script or style origin', async () => {
+    const { body: html } = await get('/');
+    const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
+    expect(csp).toContain("script-src 'self' 'unsafe-inline';");
+    expect(csp).not.toContain('jsdelivr');
+  });
+});

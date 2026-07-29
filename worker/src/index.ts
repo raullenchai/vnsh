@@ -156,7 +156,6 @@ function ERROR_HTML(code: string, message: string, status: number): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} | vnsh</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -2580,7 +2579,6 @@ const PIPE_USAGE_HTML = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>vnsh /pipe — Zero-Install Encrypted Upload</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -3606,7 +3604,6 @@ function blogPage(title: string, description: string, slug: string, date: string
   }
   </script>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -3728,7 +3725,6 @@ const BLOG_INDEX_HTML = `<!DOCTYPE html>
   <meta property="og:description" content="Technical articles on host-blind encryption, AI coding workflows, and secure developer tooling.">
   <meta property="og:url" content="https://vnsh.dev/blog">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -4618,10 +4614,7 @@ const APP_HTML = `<!DOCTYPE html>
     "keywords": "share context between ai agents, claude code, cursor, openhands, mcp server, portable workspace, encrypted sharing, host-blind, ephemeral, claude artifacts alternative"
   }
   </script>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' http://localhost:* https://*.vnsh.dev https://vnsh.dev; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' blob:">
-  <link rel="preconnect" href="https://cdn.jsdelivr.net">
-  <link href="https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-mono/style.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:* https://*.vnsh.dev https://vnsh.dev; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:">
   <style>
     :root {
       /* Cool-biased near-blacks. Sections separate by ground shade, not rules. */
@@ -5845,12 +5838,6 @@ const APP_HTML = `<!DOCTYPE html>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
   <script>
     // Console Easter Egg
     console.log(\`
@@ -6265,8 +6252,12 @@ const APP_HTML = `<!DOCTYPE html>
       else if (text.includes('#!/bin/bash')) lang = 'bash';
       else if (text.trim().startsWith('{')) lang = 'json';
 
-      let highlighted = escapeHtml(text);
-      try { if (Prism.languages[lang]) highlighted = Prism.highlight(text, Prism.languages[lang], lang); } catch (e) {}
+      // Syntax highlighting used to come from Prism on a CDN. That was seven
+      // cross-origin requests on every page load, and it forced the CSP to
+      // trust a third-party script origin on a site whose whole claim is that
+      // it does not — a poor trade for colouring the legacy blob viewer.
+      // Escaped plaintext with line numbers is the shape either way.
+      const highlighted = escapeHtml(text);
 
       viewerResult.innerHTML = '<div class="code-container"><div class="line-numbers">' + lineNums + '</div><div class="code-content">' + highlighted + '</div></div>';
     }
