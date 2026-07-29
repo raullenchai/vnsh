@@ -2319,7 +2319,11 @@ export default {
     if (request.method === 'GET' && path === '/.well-known/security.txt') {
       return new Response(securityTxt(env), {
         status: 200,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+        // Short on purpose. An hour of edge caching means a changed contact
+        // address stays wrong for an hour, which is the one property this file
+        // must not have — and it already bit us once, on the deploy that added
+        // the mailbox.
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
       });
     }
 

@@ -74,13 +74,27 @@ describe('the content domain serves published documents and nothing else', () =>
     await response.text();
   });
 
+  // Both report routes are asserted with an explicit override rather than
+  // whatever wrangler.toml happens to say, so configuring a mailbox cannot
+  // quietly turn this into a test of the other branch.
   it('explains itself at the root, so a scanner does not land on a bare 404', async () => {
-    const response = await call(new Request(`https://${CONTENT_HOST}/`));
+    const response = await call(new Request(`https://${CONTENT_HOST}/`), {
+      ABUSE_CONTACT: undefined,
+    });
     expect(response.status).toBe(200);
     const html = await response.text();
     // Names a disposal route and disclaims authorship — the two questions a
     // gateway asks before listing a host.
     expect(html).toContain('security/advisories/new');
+    expect(html).toContain('not reviewed or endorsed');
+  });
+
+  it('names the abuse mailbox at the root once one is configured', async () => {
+    const response = await call(new Request(`https://${CONTENT_HOST}/`), {
+      ABUSE_CONTACT: 'mailto:abuse@vnsh.dev',
+    });
+    const html = await response.text();
+    expect(html).toContain('href="mailto:abuse@vnsh.dev"');
     expect(html).toContain('not reviewed or endorsed');
   });
 
