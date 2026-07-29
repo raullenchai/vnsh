@@ -47,8 +47,10 @@ describe('POST /api/event', () => {
 
     const [point] = eventsNamed('prompt_copy');
     expect(point).toBeDefined();
-    // Slot layout is load-bearing: existing queries read blob3/blob4.
-    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w']);
+    // Slot layout is load-bearing: queries read positions, and rows already
+    // written cannot be migrated, so slots may only ever be appended.
+    // blob6 is visibility, which a beacon event has no notion of.
+    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w', '']);
     expect(point.indexes).toEqual(['prompt_copy']);
   });
 

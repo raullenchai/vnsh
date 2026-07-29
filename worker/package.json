@@ -9,7 +9,8 @@
     "tail": "wrangler tail",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "stats": "node scripts/stats.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.5.0",

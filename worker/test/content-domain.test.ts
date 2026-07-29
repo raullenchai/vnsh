@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
@@ -262,5 +262,66 @@ describe('what the primary host publishes about the split', () => {
     const response = await call(new Request('https://vnsh.dev/.well-known/security.txt'));
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('Canonical: https://vnsh.dev/.well-known/security.txt');
+  });
+});
+
+/**
+ * Without a visibility dimension the two tiers are indistinguishable in the
+ * numbers, so there is no way to answer "does anyone use the public tier" —
+ * the tier that cost a second registrable domain. Analytics Engine is unbound
+ * in tests, which means trackEvent() no-ops and any assertion about what got
+ * recorded would pass while recording nothing; the binding is stubbed so the
+ * slot layout is genuinely exercised.
+ */
+describe('the two tiers are distinguishable in the numbers', () => {
+  type Point = { blobs?: string[] };
+  let written: Point[] = [];
+
+  beforeEach(() => {
+    written = [];
+    (env as Record<string, unknown>).VNSH_ANALYTICS = {
+      writeDataPoint: (p: Point) => void written.push(p),
+    };
+  });
+  afterEach(() => {
+    delete (env as Record<string, unknown>).VNSH_ANALYTICS;
+  });
+
+  const visibilityOf = (event: string) =>
+    written.filter((p) => p.blobs?.[0] === event).map((p) => p.blobs?.[5]);
+
+  it('labels a public create public', async () => {
+    await createPublic();
+    expect(visibilityOf('workspace_create')).toEqual(['public']);
+  });
+
+  it('labels an encrypted create encrypted', async () => {
+    const response = await call(
+      new Request('https://vnsh.dev/api/workspace', {
+        method: 'POST',
+        headers: { 'X-Vnsh-Write-Hash': await sha256Hex(WRITE_TOKEN) },
+        body: 'ciphertext',
+      }),
+    );
+    await response.json();
+    expect(visibilityOf('workspace_create')).toEqual(['encrypted']);
+  });
+
+  it('labels a read of the public document public', async () => {
+    const { id } = await createPublic();
+    written = [];
+    const response = await call(new Request(`https://${CONTENT_HOST}/p/${id}`));
+    await response.text();
+    expect(visibilityOf('workspace_read')).toEqual(['public']);
+  });
+
+  // Appended, never renumbered: rows already written cannot be migrated, so
+  // moving an existing slot would silently reinterpret all of them.
+  it('puts visibility in slot 6 and leaves the earlier slots alone', async () => {
+    await createPublic();
+    const point = written.find((p) => p.blobs?.[0] === 'workspace_create');
+    expect(point?.blobs?.length).toBe(6);
+    expect(point?.blobs?.[1]).toBe('unknown');
+    expect(point?.blobs?.[5]).toBe('public');
   });
 });

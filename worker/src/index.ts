@@ -307,6 +307,10 @@ interface EventDimensions {
   workspaceId?: string;
   agent?: string;
   ref?: string;
+  // 'public' or 'encrypted'. Without it the two tiers are indistinguishable in
+  // the numbers, so there is no way to tell whether the public tier — the one
+  // that cost a second domain — is used at all.
+  visibility?: string;
 }
 
 function trackEvent(
@@ -318,9 +322,18 @@ function trackEvent(
   if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
   try {
     // Fixed slot layout so blob positions stay stable as dimensions are added:
-    // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer.
+    // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer,
+    // blob6 visibility. Append only — renumbering would silently reinterpret
+    // every row already written.
     env.VNSH_ANALYTICS.writeDataPoint({
-      blobs: [event, source, dims.workspaceId || '', dims.agent || '', dims.ref || ''],
+      blobs: [
+        event,
+        source,
+        dims.workspaceId || '',
+        dims.agent || '',
+        dims.ref || '',
+        dims.visibility || '',
+      ],
       doubles: [1],
       indexes: [event],
     });
@@ -929,6 +942,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     workspaceId: id,
     agent: getClientAgent(request),
     ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
+    visibility: isPublic ? 'public' : 'encrypted',
   });
 
   // The public URL is answered by the server rather than assembled by each
@@ -984,6 +998,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
   trackEvent(env, 'workspace_read', getClientSource(request), {
     workspaceId: id,
     agent: getClientAgent(request),
+    visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
   });
 
   return new Response(object.body, {
@@ -1045,6 +1060,8 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
   trackEvent(env, 'workspace_read', getClientSource(request), {
     workspaceId: id,
     agent: getClientAgent(request),
+    // Reached only via /p/, which by definition serves a public workspace.
+    visibility: 'public',
   });
 
   return new Response(request.method === 'HEAD' ? null : body, {
@@ -1184,6 +1201,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   trackEvent(env, 'workspace_update', getClientSource(request), {
     workspaceId: id,
     agent: getClientAgent(request),
+    visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
   });
 
   return new Response(
