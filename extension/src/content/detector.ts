@@ -9,7 +9,7 @@
 import { parseVnshUrl } from '../lib/url';
 import { decrypt } from '../lib/crypto';
 import { downloadBlob } from '../lib/api';
-import { TOOLTIP_PREVIEW_LENGTH } from '../lib/constants';
+import { TOOLTIP_PREVIEW_LENGTH, VNSH_HOST } from '../lib/constants';
 import { parseWorkspaceUrl, decryptWorkspace, workspaceKind } from '../lib/workspace';
 
 /**
@@ -17,8 +17,11 @@ import { parseWorkspaceUrl, decryptWorkspace, workspaceKind } from '../lib/works
  * because only they carry a key; a public workspace has none, so requiring one
  * would make every public link invisible to this extension.
  */
+// Public documents live on their own registrable domain, so they need their own
+// alternative here: "vnshcontent.dev/p/x" does not contain the substring
+// "vnsh.dev/" and would otherwise be invisible to this extension.
 const VNSH_LINK_RE =
-  /vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#\S+|w\/[a-zA-Z0-9]{12}#\S+|p\/[a-zA-Z0-9]{12})/;
+  /(?:vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#\S+|w\/[a-zA-Z0-9]{12}#\S+|p\/[a-zA-Z0-9]{12})|vnshcontent\.dev\/p\/[a-zA-Z0-9]{12})/;
 
 const processed = new WeakSet<HTMLAnchorElement>();
 
@@ -189,7 +192,14 @@ async function loadContent(url: string): Promise<Uint8Array> {
   const kind = workspaceKind(url);
 
   if (kind === 'public') {
-    const response = await fetch(url.split('#')[0], {
+    // Read through the API on the main host rather than fetching the public
+    // document itself. The bytes are identical — the API serves a public
+    // workspace as stored, flagged with X-Vnsh-Public — but this keeps the
+    // extension's host permissions to the one origin it already declares.
+    // Asking for the content domain as well would be a permission change, and
+    // permission changes are what turn a store review from days into weeks.
+    const id = new URL(url.split('#')[0]).pathname.split('/').pop() as string;
+    const response = await fetch(`${VNSH_HOST}/api/workspace/${id}`, {
       headers: { 'X-Vnsh-Client': 'extension' },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

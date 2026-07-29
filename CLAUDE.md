@@ -132,6 +132,10 @@ Link Hygiene: If the user shares the full URL (w/ hash) in a public channel, the
 
 **URLs**:
 - Website: https://vnsh.dev
+- Public content: https://vnshcontent.dev — serves `/p/{id}` and nothing else.
+  A separate registrable domain because public workspaces are user-written
+  top-level documents and reputation systems list domains, not paths. Controlled
+  by `CONTENT_HOST`; `LEGACY_PUBLIC_UNTIL` closes the old `vnsh.dev/p/` route.
 - Worker: https://vnsh.raullenchai.workers.dev
 - GitHub: https://github.com/raullenchai/vnsh
 

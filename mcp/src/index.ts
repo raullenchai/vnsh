@@ -717,12 +717,19 @@ export async function handleWorkspaceCreate(args: unknown) {
     throw new Error(`Create failed: HTTP ${response.status} - ${await response.text()}`);
   }
 
-  const data = (await response.json()) as { id: string; version: number; expires: string };
+  const data = (await response.json()) as {
+    id: string;
+    version: number;
+    expires: string;
+    url?: string;
+  };
   const url = buildWorkspaceUrl(host, data.id, secret);
   // A public workspace has no key, so its shareable link carries no fragment.
   // Reporting a "view-only" link here would misdescribe who can read it.
+  // The host is the server's to decide — public documents are served from a
+  // separate domain, and the fallback only covers servers predating that.
   const viewUrl = isPublic
-    ? `${host}/p/${data.id}`
+    ? data.url || `${host}/p/${data.id}`
     : buildReadOnlyWorkspaceUrl(host, data.id, secret);
 
   const text = isPublic

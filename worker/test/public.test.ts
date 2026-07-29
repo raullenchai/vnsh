@@ -197,8 +197,12 @@ describe('the homepage offers publishing without becoming a menu', () => {
 
   it('hands back a link with no fragment, and calls it what it is', async () => {
     const html = await home();
-    // A public link cannot carry a key, so it must not pretend to.
-    expect(html).toMatch(/data\.public\s*\n?\s*\?\s*location\.origin \+ '\/p\/' \+ data\.id/);
+    // A public link cannot carry a key, so it must not pretend to — and its
+    // host comes from the server, because public documents live on a domain of
+    // their own and this page has no business hardcoding which.
+    expect(html).toMatch(
+      /data\.public\s*\n?\s*\?\s*data\.url \|\| location\.origin \+ '\/p\/' \+ data\.id/,
+    );
     // Calling it "view-only" would misdescribe who can read it.
     expect(html).toContain("nameEl.textContent = 'Public link'");
     expect(html).toContain("roleEl.textContent = 'anyone can read it, no key needed'");

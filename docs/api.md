@@ -2,6 +2,55 @@
 
 Base URL: `https://vnsh.dev` (or your self-hosted instance)
 
+Public workspaces are served from a second domain, `https://vnshcontent.dev`,
+which answers `/p/{id}` and nothing else — no API. See
+[`architecture.md`](architecture.md#two-domains) for why. Never assemble a public
+URL yourself; the create and update responses return the exact one.
+
+The full protocol, complete enough to reimplement, is at
+<https://vnsh.dev/llms.txt>.
+
+## Workspace endpoints
+
+### POST /api/workspace
+
+Create a workspace. Body is the ciphertext (`nonce(12) || ciphertext || tag(16)`,
+AES-256-GCM) or, for a public workspace, the content as written.
+
+| Header | Required | Meaning |
+|---|---|---|
+| `X-Vnsh-Write-Hash` | yes | `SHA-256` of the write token, hex. The server never receives the token itself. |
+| `X-Vnsh-Public: 1` | no | Publish unencrypted. Never inferred; fixed at creation. |
+
+```json
+201 Created    ETag: "1"
+{ "id": "k2p9xf...", "version": 1, "expires": "...", "public": true,
+  "url": "https://vnshcontent.dev/p/k2p9xf..." }
+```
+
+`url` is present only for public workspaces. Use it verbatim — it is what keeps
+both a hosted instance and a single-domain self-hosted one working.
+
+### GET /api/workspace/:id
+
+Returns the stored bytes. `ETag` is the version. A public workspace comes back
+with `X-Vnsh-Public: 1`, since a client that tried to decrypt plaintext would
+report the author's own link as corrupt.
+
+### PUT /api/workspace/:id
+
+Replace the contents. Requires `X-Vnsh-Write` (the token) and `If-Match` (the
+version you read). Answers `428` without `If-Match`, `412` on a stale version,
+`403` on a bad token. Visibility is carried forward and cannot be changed by a
+write. The response mirrors create, including `url` when public.
+
+### GET /p/:id
+
+A public workspace as an ordinary document, on the content domain. No key, no
+fragment, no JavaScript required. Served with a `sandbox` CSP directive — the
+document loads into an opaque origin with no cookies, storage or network — plus
+`X-Robots-Tag: noindex`.
+
 ## Endpoints
 
 ### POST /api/drop

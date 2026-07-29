@@ -123,9 +123,17 @@ describe('link shapes', () => {
  * invisible to the hover preview, silently and with no error anywhere.
  */
 describe('link detection on a page', () => {
-  // Kept in step with the regex in src/content/detector.ts.
-  const LINK_RE =
-    /vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#\S+|w\/[a-zA-Z0-9]{12}#\S+|p\/[a-zA-Z0-9]{12})/;
+  // Lifted out of the file the extension actually ships rather than copied here.
+  // The copy was the bug: this block kept passing unchanged after the real regex
+  // gained the content domain, which is the failure mode of every test that
+  // asserts against a string the test itself wrote down.
+  const detectorSource = readFileSync(
+    new URL('../src/content/detector.ts', import.meta.url),
+    'utf-8',
+  );
+  const literal = detectorSource.match(/const VNSH_LINK_RE =\s*\/(.+)\/;/);
+  if (!literal) throw new Error('VNSH_LINK_RE not found in detector.ts');
+  const LINK_RE = new RegExp(literal[1]);
 
   it('finds all three link shapes', () => {
     expect(LINK_RE.test('https://vnsh.dev/v/aBcDeFgHiJkL#k=aa&iv=bb')).toBe(true);
@@ -133,6 +141,14 @@ describe('link detection on a page', () => {
     expect(LINK_RE.test('https://vnsh.dev/w/aBcDeFgHiJkL#r=key')).toBe(true);
     // No fragment, because a public workspace has no key to put in one.
     expect(LINK_RE.test('https://vnsh.dev/p/aBcDeFgHiJkL')).toBe(true);
+  });
+
+  // Public documents moved to their own registrable domain, and
+  // "vnshcontent.dev/p/x" does not contain the substring "vnsh.dev/". Without
+  // its own alternative in the pattern, every public link goes back to being
+  // invisible — the same silent failure this whole block exists to catch.
+  it('finds a public link on the content domain', () => {
+    expect(LINK_RE.test('https://vnshcontent.dev/p/aBcDeFgHiJkL')).toBe(true);
   });
 
   it('leaves the rest of the site alone', () => {

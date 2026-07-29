@@ -101,7 +101,7 @@ worker/
 | GET | `/api/workspace/:id` | Read one; `ETag` is the version |
 | PUT | `/api/workspace/:id` | Replace one; needs `X-Vnsh-Write` and `If-Match` |
 | GET | `/w/:id` | Workspace viewer (decrypts client-side) |
-| GET | `/p/:id` | A public workspace, as a plain document |
+| GET | `/p/:id` | A public workspace, as a plain document — served on `vnshcontent.dev` |
 | POST | `/api/event` | Page-reported conversions |
 | POST | `/api/drop` | Upload a one-shot blob (v1) |
 | GET | `/api/blob/:id` | Download a one-shot blob (v1) |
@@ -197,6 +197,45 @@ https://vnsh.dev/v/{uuid}#k={key_hex}&iv={iv_hex}
                    │        └────────────── 64 hex chars (32 bytes)
                    └─────────────────────── UUID v4
 ```
+
+## Two Domains
+
+Public workspaces are served from `vnshcontent.dev`; everything else — the API,
+the viewer, the homepage, `llms.txt` — stays on `vnsh.dev`.
+
+The split answers a threat that sandboxing cannot. Two are easy to conflate:
+
+| | What it is | What stops it |
+|---|---|---|
+| **Escape** | Rendered content reaches the key, storage, or the network | An opaque origin: `sandbox` with no `allow-same-origin`, plus `default-src 'none'`. Already held before the split. |
+| **Reputation** | A person or a crawler sees attacker-drawn pixels while the address bar reads `vnsh.dev` | Only the top-level URL being somewhere else. Sandboxing does nothing here. |
+
+Reputation systems act on the registrable domain, so the blast radius of one
+abusive page is not that page — it is the API, the site, and every CLI, MCP
+server and extension already installed elsewhere, which would fail silently. A
+subdomain does not help: `content.vnsh.dev` is the same registrable domain. The
+prior art is the same shape (`claudeusercontent.com` for rendering,
+`claude.site` for publicly shared artifacts).
+
+`/w/` stays on the brand domain because its key lives in the URL fragment, which
+HTTP never transmits: the server has never seen that plaintext and neither can a
+crawler, so there is nothing to enumerate or index. The gate decides the domain.
+
+Operationally:
+
+- `CONTENT_HOST` names the public domain. Unset serves everything from one host,
+  which is what a self-hosted instance wants.
+- The content domain answers `/p/{id}`, `/robots.txt`, `/.well-known/security.txt`
+  and a root explainer. Everything else 404s, including the whole API, and it is
+  dispatched before any other route so a route added later is off it by default.
+- Public responses carry `X-Robots-Tag: noindex`, enforced rather than hoped for.
+- `LEGACY_PUBLIC_UNTIL` keeps `vnsh.dev/p/` answering for one workspace lifetime
+  after a cutover, then 410 forever. Deliberately not a redirect: scanners can
+  tag the *source* of a redirect that leads to bad content.
+
+What the split does not buy: it does not stop abuse, it decides what abuse costs.
+The public tier is readable by us and unmoderated, and the name still says vnsh,
+so separation is clean for machines and only partial for people.
 
 ## Security Model
 

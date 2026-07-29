@@ -9,8 +9,14 @@ Production deployment details and operational knowledge for vnsh.
 | Service | URL |
 |---------|-----|
 | Website | https://vnsh.dev |
+| Public content | https://vnshcontent.dev (serves `/p/{id}` only) |
 | Worker (direct) | https://vnsh.raullenchai.workers.dev |
 | GitHub | https://github.com/raullenchai/vnsh |
+
+Both domains are Workers Custom Domains on the same worker, attached
+account-level rather than declared as `routes` in `wrangler.toml` — declaring
+routes there makes wrangler reconcile them on every deploy, and a mistake takes
+the live domain down. See `docs/architecture.md` for why the split exists.
 
 ### Cloudflare Resources
 
@@ -20,7 +26,7 @@ Production deployment details and operational knowledge for vnsh.
 | R2 Bucket | Object Storage | `vnsh-store` |
 | Rate limiters | Native binding | `UPLOAD_LIMITER` 10/60s, `READ_LIMITER` 50/60s |
 | Analytics | Analytics Engine | dataset `vnsh_events`, binding `VNSH_ANALYTICS` |
-| Custom Domain | DNS | `vnsh.dev` |
+| Custom Domain | DNS | `vnsh.dev`, `vnshcontent.dev` |
 
 ### Worker Bindings
 

@@ -60,7 +60,16 @@ None of these are bugs. They are the shape of the thing.
   refetches the latest published version on every start; pin it, install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh.** That is the entire point of the
-  tier. It is never the default and never inferred.
+  tier. It is never the default and never inferred. Public workspaces are served
+  from `vnshcontent.dev`, a separate registrable domain operated by this project,
+  so that content written by users does not share a reputation with the API and
+  the installed clients. They are still served with a `sandbox` directive, so
+  each one loads into an opaque origin — the domain split is about whose name is
+  on the page, not about what the page can reach.
+
+- **Nobody is reviewing the public tier.** There is no moderation queue. Reports
+  go to the same address as security reports; we can read and remove a public
+  document, and cannot read an encrypted one at all.
 - **Metadata is not private.** Request times, sizes and addresses exist for any
   hosted service. Only the content does not.
 - **The server cannot moderate what it cannot read.** This is a consequence of

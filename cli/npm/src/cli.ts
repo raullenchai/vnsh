@@ -66,6 +66,10 @@ interface WorkspaceResponse {
   id: string;
   version: number;
   expires: string;
+  public?: boolean;
+  /** Present for public workspaces: the full link, on whichever domain this
+   *  instance publishes from. Absent on older servers, hence the fallback. */
+  url?: string;
 }
 
 /** Read a file, or stdin when no path is given. Enforces the size ceiling. */
@@ -150,7 +154,9 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   if (options.public) {
     // No key in the link, because there is no key. That is the honest shape for
     // "anyone can read this", and it is why the read link carries no fragment.
-    console.log(`${host}/p/${result.id}`);
+    // The host comes from the server: public documents are served from their own
+    // domain, and a client that guessed it would print a link that 404s.
+    console.log(result.url || `${host}/p/${result.id}`);
     console.log(`${colors.yellow('  public')}     any agent or person can read it, no key needed`);
     console.log('');
     console.log(buildWorkspaceUrl(host, result.id, secret));
@@ -228,7 +234,11 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   const result = (await response.json()) as WorkspaceResponse;
   console.log('');
   console.log(colors.green(`✓ Workspace updated to v${result.version}`));
-  console.log(isPublic ? `${host}/p/${link.id}` : buildWorkspaceUrl(host, link.id, link.secret as Buffer));
+  console.log(
+    isPublic
+      ? result.url || `${host}/p/${link.id}`
+      : buildWorkspaceUrl(host, link.id, link.secret as Buffer),
+  );
 }
 
 /** True for a public workspace link: /p/{id}, and never carrying a key. */

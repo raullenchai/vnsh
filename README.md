@@ -123,9 +123,9 @@ with ⌘D.
 
 | Link | Carries | Who can read | Who can write |
 |---|---|---|---|
-| `/w/{id}#w=<secret>` | the root secret | anyone with the link | anyone with the link |
-| `/w/{id}#r=<key>` | the content key | anyone with the link | **nobody** |
-| `/p/{id}` | nothing | anyone at all | only the author's `#w=` link |
+| `vnsh.dev/w/{id}#w=<secret>` | the root secret | anyone with the link | anyone with the link |
+| `vnsh.dev/w/{id}#r=<key>` | the content key | anyone with the link | **nobody** |
+| `vnshcontent.dev/p/{id}` | nothing | anyone at all | only the author's `#w=` link |
 
 The view-only tier is not a setting the server enforces — it is arithmetic. The
 content key is `HKDF(secret, "vnsh/enc/v2")`, a one-way derivation, so its holder
@@ -134,11 +134,27 @@ unable to derive a write token.
 
 **Public workspaces** exist because a person opening a link has a browser doing
 the decryption for them, and an agent's `fetch` does not. A public workspace is
-stored as written and served from `/p/{id}` as an ordinary document, so anything
-that speaks HTTP can read it with no key and no setup. The trade is stated where
-you choose it: **vnsh can read a public workspace.** It is never the default and
-never inferred, its visibility is fixed at creation, and changing it still
-requires the write token.
+stored as written and served as an ordinary document, so anything that speaks
+HTTP can read it with no key and no setup. The trade is stated where you choose
+it: **vnsh can read a public workspace.** It is never the default and never
+inferred, its visibility is fixed at creation, and changing it still requires the
+write token.
+
+They are served from **`vnshcontent.dev`**, a separate registrable domain, and
+that is not cosmetic. A public document is written by a stranger and rendered as
+a top-level page, while reputation systems — Safe Browsing, mail gateways,
+corporate proxies — list a domain rather than a path. One abusive page on
+`vnsh.dev` would take the API, the site and every installed CLI, MCP server and
+extension down with it. A subdomain would not help; the unit is the registrable
+domain. Sandboxing is a separate matter and already handled: a public document
+is served with a `sandbox` CSP directive, so it loads into an opaque origin with
+no cookies, no storage, no network and no access to any other page. `/w/` links
+stay on `vnsh.dev` because the key in the fragment is a real gate — the server
+has never seen their plaintext and neither can a crawler.
+
+Don't assemble a public URL yourself. Creating one returns the exact link in the
+response's `url` field, which is also what keeps a self-hosted single-domain
+instance working.
 
 ## How it works
 
@@ -176,11 +192,11 @@ and run no vnsh code at all. Someone did, in about 200 lines.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /api/workspace` | Create. Requires `X-Vnsh-Write-Hash`; `X-Vnsh-Public: 1` to publish. |
+| `POST /api/workspace` | Create. Requires `X-Vnsh-Write-Hash`; `X-Vnsh-Public: 1` to publish. Returns `url` when public. |
 | `GET /api/workspace/:id` | Read ciphertext. `ETag` is the version. |
 | `PUT /api/workspace/:id` | Replace. Requires `X-Vnsh-Write` and `If-Match`. |
 | `GET /w/:id` | The viewer. Decrypts client-side, renders sandboxed. |
-| `GET /p/:id` | A public workspace, as a plain document. |
+| `GET /p/:id` | A public workspace, as a plain document — on `vnshcontent.dev`. |
 | `POST /api/drop` | One-shot blob (v1). `?ttl=` and `?price=`. |
 | `GET /api/blob/:id` | Read a one-shot blob. |
 | `GET /llms.txt` | The protocol, written for agents. |

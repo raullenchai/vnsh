@@ -115,13 +115,20 @@ export async function createWorkspace(
     throw new Error(`Create failed: ${response.status} ${response.statusText}`);
   }
 
-  const data = (await response.json()) as { id: string; expires: string; public?: boolean };
+  const data = (await response.json()) as {
+    id: string;
+    expires: string;
+    public?: boolean;
+    url?: string;
+  };
   return {
     id: data.id,
     editUrl: buildWorkspaceUrl(host, data.id, secret),
-    // A public link carries no fragment, because there is no key to carry.
+    // A public link carries no fragment, because there is no key to carry, and
+    // its host is the server's to decide — public documents are served from a
+    // domain of their own. buildPublicUrl only covers servers predating that.
     viewUrl: data.public
-      ? buildPublicUrl(host, data.id)
+      ? data.url || buildPublicUrl(host, data.id)
       : await buildReadOnlyWorkspaceUrl(host, data.id, secret),
     expires: data.expires,
   };

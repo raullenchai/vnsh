@@ -27,6 +27,28 @@ interface Env {
   // For the /api/stats endpoint to query Analytics Engine via the SQL API.
   CF_ACCOUNT_ID?: string;
   CF_API_TOKEN?: string;
+  // The registrable domain that serves public workspaces, e.g. vnshcontent.dev.
+  // Public content is written by strangers and rendered as a top-level document,
+  // so it must not share a registrable domain with the API, the viewer, or the
+  // clients people have already installed: reputation systems list a domain, not
+  // a path, so one abusive page would take all of them down together. Leave it
+  // unset to serve everything from one host — correct for a self-hosted instance
+  // where the operator is also the only author.
+  CONTENT_HOST?: string;
+  // ISO instant until which the primary host keeps answering /p/ after a
+  // cutover. Links already handed out stay alive for one data lifetime and then
+  // the route is gone for good. Deliberately not a redirect: some scanners tag
+  // the *source* of a redirect that leads to bad content, which would hand back
+  // the exact liability the content domain exists to remove. A workspace only
+  // lives 24 hours, so a window that long breaks nothing — by the time it shuts,
+  // there is nothing behind an old link to reach.
+  LEGACY_PUBLIC_UNTIL?: string;
+  // A mailto: or URL for reporting content published on the public tier. Left
+  // unset until the mailbox actually receives mail: a contact address that
+  // bounces is worse than none, because it costs a reporter the one moment they
+  // were willing to spend, and it tells a gateway the route is unmaintained.
+  // The GitHub advisory form is always listed, because it always works.
+  ABUSE_CONTACT?: string;
 }
 
 // Constants
@@ -632,9 +654,12 @@ function looksLikeHtml(input: string): boolean {
  * real UI with a working session. The rest of the policy removes network egress
  * for the same reason the framed renderer does.
  *
- * This does not address reputation — a phishing page here still lives under
- * vnsh.dev, and blocklists work on the registrable domain. That needs a
- * separate domain, tracked as its own piece of work.
+ * What it does not address is reputation. An opaque origin is invisible to the
+ * person reading the address bar, and to the scanner deciding what to list, so
+ * a convincing fake login page here would be attributed to whatever domain
+ * served it. That is why public content moved to CONTENT_HOST: sandboxing
+ * answers "what can this page reach", and only the top-level domain answers
+ * "whose name is on it".
  */
 /**
  * Shown for /p/ ids that are missing, expired, or encrypted. It says the same
@@ -667,6 +692,156 @@ const PUBLIC_CONTENT_CSP =
   "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; " +
   "script-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; " +
   "font-src data:; form-action 'none'; base-uri 'none'";
+
+// Staying out of search is enforced here rather than hoped for by declining to
+// publish a sitemap. It also removes most of the point of publishing a phishing
+// page on this domain, since none of it can accrue search traffic.
+const PUBLIC_ROBOTS_TAG = 'noindex, noarchive, nosnippet, noimageindex';
+
+/** Where public workspaces live. Falls back to the requesting origin, which is
+ *  what a single-domain self-hosted instance wants. */
+function contentOrigin(env: Env, url: URL): string {
+  return env.CONTENT_HOST ? `https://${env.CONTENT_HOST}` : url.origin;
+}
+
+/** True when this request arrived on the content domain. */
+function onContentHost(env: Env, url: URL): boolean {
+  return !!env.CONTENT_HOST && url.hostname === env.CONTENT_HOST;
+}
+
+/** True once the primary host's quiet window for /p/ has closed. */
+function legacyPublicClosed(env: Env): boolean {
+  if (!env.CONTENT_HOST || !env.LEGACY_PUBLIC_UNTIL) return false;
+  const until = Date.parse(env.LEGACY_PUBLIC_UNTIL);
+  return !isNaN(until) && Date.now() > until;
+}
+
+/**
+ * RFC 9116. Expires is generated a year out rather than written down, because a
+ * security.txt that has lapsed is worse than none at all — it tells a reporter
+ * the contact is unmaintained at exactly the moment they were willing to use it.
+ */
+function securityTxt(env: Env): string {
+  const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  return [
+    'Contact: https://github.com/raullenchai/vnsh/security/advisories/new',
+    ...(env.ABUSE_CONTACT ? [`Contact: ${env.ABUSE_CONTACT}`] : []),
+    `Expires: ${expires}`,
+    'Preferred-Languages: en',
+    'Canonical: https://vnsh.dev/.well-known/security.txt',
+    'Policy: https://github.com/raullenchai/vnsh/blob/main/SECURITY.md',
+    '',
+    '# Reports about content published on the public tier are welcome at the',
+    '# same address. We can read a public document and will remove it. We cannot',
+    '# read an encrypted workspace at all, so we cannot act on its contents and',
+    '# do not claim to; every workspace is deleted 24h after its last write.',
+    ...(env.CONTENT_HOST
+      ? [
+          '#',
+          `# Published documents are served from ${env.CONTENT_HOST}, operated by`,
+          '# this project. They are written by users and are not reviewed.',
+        ]
+      : []),
+    '',
+  ].join('\n');
+}
+
+/**
+ * What a person or a scanner sees at the root of the content domain. This page
+ * is the cheapest reputation work available: gateways check whether a host has
+ * a stated owner and a disposal route before listing it, and landing on a bare
+ * 404 answers neither question.
+ */
+function contentHostRootHtml(env: Env): string {
+  // Only ever a route that works. See ABUSE_CONTACT.
+  const report = env.ABUSE_CONTACT?.startsWith('mailto:')
+    ? `<a href="${env.ABUSE_CONTACT}">${env.ABUSE_CONTACT.slice(7)}</a>`
+    : '<a href="https://github.com/raullenchai/vnsh/security/advisories/new">this form</a>';
+  return CONTENT_HOST_ROOT_HTML.replace('{{REPORT}}', report);
+}
+
+const CONTENT_HOST_ROOT_HTML = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>vnsh published content</title>
+<style>
+  body { margin:0; min-height:100vh; display:grid; place-items:center;
+    background:#08090b; color:#a7aeb8; font-size:15px; line-height:1.65;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif; }
+  .box { max-width:52ch; padding:32px 24px; }
+  h1 { font-size:19px; font-weight:600; color:#e9ecef; margin:0 0 14px; letter-spacing:-.015em; }
+  p { margin:0 0 12px; font-size:14px; color:#8b929c; }
+  a { color:#22c55e; text-decoration:none; }
+  code { color:#cbd2da; }
+</style></head>
+<body><div class="box">
+  <h1>This domain serves documents published by vnsh users</h1>
+  <p>Pages here live at <code>/p/{id}</code>. They are written by whoever created
+     them, not by vnsh, and they are not reviewed or endorsed. Every one of them
+     is deleted 24 hours after its last edit.</p>
+  <p>They are served from a domain of their own precisely so that nothing
+     published here reflects on the service itself, or on the software people
+     have installed.</p>
+  <p>To report something published here, use {{REPORT}}. We can read and remove
+     a public document. Encrypted workspaces we cannot read at all, so we cannot
+     act on their contents.</p>
+  <p>The service is at <a href="https://vnsh.dev">vnsh.dev</a>.</p>
+</div></body></html>`;
+
+/**
+ * The content domain answers for published documents and nothing else. Keeping
+ * the API, the viewer and the homepage off it is the point of having it: an
+ * escape or a listing here must not reach anything that matters.
+ */
+async function handleContentHost(
+  request: Request,
+  env: Env,
+  url: URL,
+  path: string,
+): Promise<Response> {
+  const textHeaders = {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
+    ...corsHeaders,
+  };
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    if (path === '/robots.txt') {
+      return new Response('User-agent: *\nDisallow: /\n', { headers: textHeaders });
+    }
+    if (path === '/.well-known/security.txt') {
+      return new Response(securityTxt(env), { headers: textHeaders });
+    }
+    if (path === '/') {
+      return new Response(request.method === 'HEAD' ? null : contentHostRootHtml(env), {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
+          'Referrer-Policy': 'no-referrer',
+        },
+      });
+    }
+
+    const match = path.match(/^\/p\/([a-zA-Z0-9]+)$/);
+    if (match && isValidWorkspaceId(match[1])) {
+      if (!(await checkRateLimit(env.READ_LIMITER, getClientIp(request)))) {
+        return rateLimitResponse();
+      }
+      return handlePublicPage(match[1], request, env);
+    }
+  }
+
+  // Everything else, including the whole API surface, does not exist here.
+  return new Response(NOT_PUBLIC_HTML, {
+    status: 404,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
+    },
+  });
+}
 
 function isValidWorkspaceId(id: string): boolean {
   return /^[0-9A-Za-z]{12}$/.test(id);
@@ -756,13 +931,33 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
   });
 
-  return new Response(JSON.stringify({ id, version: 1, expires: iso, public: isPublic }), {
-    status: 201,
-    headers: { 'Content-Type': 'application/json',
-      // Writes are conditional on a version, so hand back the one just created
-      // rather than making the caller assume it is 1.
-      ETag: '"1"', ...corsHeaders },
-  });
+  // The public URL is answered by the server rather than assembled by each
+  // client. Four packages already carry their own copy of the key schedule and
+  // that is a maintenance cost we accepted for a reason; the host a public link
+  // points at has no such reason, and a client that guessed it wrong would print
+  // a link that 404s. Older clients that still build their own get a working
+  // link too, since the primary host keeps answering /p/ during the window.
+  const publicUrl = isPublic ? `${contentOrigin(env, new URL(request.url))}/p/${id}` : undefined;
+
+  return new Response(
+    JSON.stringify({
+      id,
+      version: 1,
+      expires: iso,
+      public: isPublic,
+      ...(publicUrl ? { url: publicUrl } : {}),
+    }),
+    {
+      status: 201,
+      headers: {
+        'Content-Type': 'application/json',
+        // Writes are conditional on a version, so hand back the one just created
+        // rather than making the caller assume it is 1.
+        ETag: '"1"',
+        ...corsHeaders,
+      },
+    },
+  );
 }
 
 // GET /api/workspace/:id — return the latest ciphertext. Dumb pipe, as with blobs.
@@ -860,6 +1055,7 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
         : 'text/plain; charset=utf-8',
       'Content-Security-Policy': PUBLIC_CONTENT_CSP,
       'X-Content-Type-Options': 'nosniff',
+      'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
       'Referrer-Policy': 'no-referrer',
       'Cache-Control': 'no-cache',
       ETag: `"${md.version || '1'}"`,
@@ -991,7 +1187,16 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   });
 
   return new Response(
-    JSON.stringify({ id, version: parseInt(nextVersion, 10), expires: iso }),
+    JSON.stringify({
+      id,
+      version: parseInt(nextVersion, 10),
+      expires: iso,
+      // Same reason as on create: a client echoing the link back after a write
+      // must not have to know which domain public documents live on.
+      ...(isPublicWorkspace(md)
+        ? { public: true, url: `${contentOrigin(env, new URL(request.url))}/p/${id}` }
+        : {}),
+    }),
     {
       status: 200,
       headers: { 'Content-Type': 'application/json', ETag: `"${nextVersion}"`, ...corsHeaders },
@@ -1829,6 +2034,13 @@ export default {
       return handleOptions();
     }
 
+    // The content domain is dispatched before every other route, so nothing
+    // below can be reached on it by accident. A route added later is off it by
+    // default, which is the direction the mistake should fall.
+    if (onContentHost(env, url)) {
+      return handleContentHost(request, env, url, path);
+    }
+
     // Route: GET /api/stats - Usage analytics (authenticated)
     // Queries Workers Analytics Engine via the SQL API. Requires CF_ACCOUNT_ID and
     // a CF_API_TOKEN secret with the "Account Analytics Read" permission.
@@ -1923,6 +2135,21 @@ export default {
       publicPageMatch &&
       isValidWorkspaceId(publicPageMatch[1])
     ) {
+      // Public content has moved to its own registrable domain. This route stays
+      // alive for one workspace lifetime so links already in circulation keep
+      // working, then answers 410 permanently — by which point every workspace
+      // reachable through an old link has expired anyway.
+      if (legacyPublicClosed(env)) {
+        return new Response(NOT_PUBLIC_HTML, {
+          status: 410,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
+            Link: `<${contentOrigin(env, url)}/p/${publicPageMatch[1]}>; rel="canonical"`,
+          },
+        });
+      }
       const ip = getClientIp(request);
       if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
       return handlePublicPage(publicPageMatch[1], request, env);
@@ -2079,9 +2306,20 @@ export default {
 
     // Route: GET /llms.txt - AI agent instructions
     if (request.method === 'GET' && path === '/llms.txt') {
-      return new Response(LLMS_TXT, {
+      // The document is written against the primary host; public links are
+      // rewritten to the content domain here so a self-hosted instance with no
+      // second domain still reads correctly rather than advertising ours.
+      return new Response(LLMS_TXT.split('https://vnsh.dev/p/').join(`${contentOrigin(env, url)}/p/`), {
         status: 200,
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+      });
+    }
+
+    // Route: GET /.well-known/security.txt - how to report, and what we can act on
+    if (request.method === 'GET' && path === '/.well-known/security.txt') {
+      return new Response(securityTxt(env), {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
       });
     }
 
@@ -3101,6 +3339,19 @@ No key, no fragment, no decryption step: anything that can make an HTTP request
 can read it, including WebFetch. The link carries no fragment because there is
 no key to carry, which is how you can tell the two apart at a glance.
 
+### The public host is a different domain, on purpose
+
+Public documents are not served from the same registrable domain as the API and
+the viewer. That is not a redirect to a third party and not a sign the link has
+been tampered with: pages on the public host are written by users rather than by
+vnsh, and reputation systems act on whole domains, so they are deliberately kept
+off the domain that the API and every installed client depend on. Both domains
+are operated by the same project, and each publishes the relationship at
+/.well-known/security.txt.
+
+Do not assemble a public URL yourself. The create response returns the exact one
+in its "url" field, which is also what keeps a self-hosted instance working.
+
 What is traded away is stated plainly: vnsh can read a public workspace. The
 24-hour deletion still applies, and writing still requires the write token, so
 only the author can change it. Visibility is fixed when the workspace is created
@@ -3126,6 +3377,9 @@ Encrypted remains the default everywhere; public is never inferred.
 
   201 -> {"id": "...", "version": 1, "expires": "...", "public": false}
          ETag: "1"
+
+  When created public, the response also carries "url": the full public link,
+  on the public host. Use it verbatim.
 
 The server only ever receives H, so it cannot derive W and cannot write to what
 you create. That is checkable from outside: forge a token and you get a 403.
@@ -3209,6 +3463,9 @@ immutable and use AES-256-CBC. Details below.
 // robots.txt - Allow all crawlers
 const ROBOTS_TXT = `User-agent: *
 Allow: /
+# Published user documents. They have their own domain now; this path only
+# still answers so links handed out before the move keep working.
+Disallow: /p/
 
 Sitemap: https://vnsh.dev/sitemap.xml
 # AI agent instructions
@@ -5773,8 +6030,10 @@ const APP_HTML = `<!DOCTYPE html>
       return {
         edit: location.origin + '/w/' + data.id + '#w=' + bytesToBase64url(S),
         // No fragment on a public link, because there is no key to put in one.
+        // The host comes from the server: public documents are served from a
+        // separate domain, and this page has no business knowing which one.
         view: data.public
-          ? location.origin + '/p/' + data.id
+          ? data.url || location.origin + '/p/' + data.id
           : location.origin + '/w/' + data.id + '#r=' + bytesToBase64url(K),
         isPublic: Boolean(data.public),
       };

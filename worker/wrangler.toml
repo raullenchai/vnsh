@@ -3,6 +3,25 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
+# Public workspaces are served from their own registrable domain. They are
+# user-written documents rendered as top-level pages, and reputation systems act
+# on domains rather than paths, so one abusive page must not be able to take the
+# API, the viewer and every installed client down with it. Unset this to serve
+# everything from one host, which is what a self-hosted instance wants.
+#
+# LEGACY_PUBLIC_UNTIL keeps vnsh.dev/p/ answering for one workspace lifetime
+# after the cutover so links already handed out do not break; after that the
+# route is 410 forever. Not a redirect on purpose — scanners can tag the source
+# of a redirect that leads to bad content.
+[vars]
+CONTENT_HOST = "vnshcontent.dev"
+LEGACY_PUBLIC_UNTIL = "2026-07-30T05:37:29Z"
+
+# Note: vnsh.dev and vnshcontent.dev are attached as Workers Custom Domains
+# (account-level, /workers/domains) rather than declared here. Declaring routes
+# in this file makes wrangler reconcile them on every deploy, and a mistake there
+# takes the live domain down.
+
 # R2 bucket for blob storage. R2 customMetadata is the source of truth for blob
 # expiry and payment info — the core read/write path depends on nothing else.
 [[r2_buckets]]

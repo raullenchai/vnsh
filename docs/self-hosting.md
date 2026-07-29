@@ -107,6 +107,35 @@ const DEFAULT_TTL_HOURS = 24;
 const MAX_TTL_HOURS = 168; // 7 days
 ```
 
+### Public content domain (`[vars]` in `wrangler.toml`)
+
+```toml
+[vars]
+CONTENT_HOST = "vnshcontent.dev"        # where public workspaces are served
+LEGACY_PUBLIC_UNTIL = "2026-07-30T00:00:00Z"  # optional; see below
+ABUSE_CONTACT = "mailto:abuse@example.com"    # optional
+```
+
+**Leave `CONTENT_HOST` unset unless you need it.** A single-domain deployment
+works exactly as before: public links are then served from the same host, and the
+API reports them there.
+
+Set it if untrusted people can publish on your instance. A public workspace is
+stored as written and served as a top-level document, and reputation systems —
+Safe Browsing, mail gateways, corporate proxies — list a registrable domain
+rather than a path. One abusive page would take your API and every client
+configured against it down together. A subdomain does not separate anything; the
+unit is the registrable domain, so this has to be a second name you own.
+
+`LEGACY_PUBLIC_UNTIL` is for a cutover on an instance that already published
+links: the old host keeps answering `/p/` until that instant, then returns 410
+permanently. Set it one workspace lifetime (24h) ahead. It is not a redirect on
+purpose — a scanner can tag the source of a redirect that leads to bad content.
+
+`ABUSE_CONTACT` is added to `/.well-known/security.txt` and the content domain's
+root page. Set it only once the mailbox actually receives mail: a contact that
+bounces is worse than none, and the GitHub advisory link is always listed anyway.
+
 ### Environment Variables (Optional)
 
 Set via Wrangler secrets for x402 payment support:
