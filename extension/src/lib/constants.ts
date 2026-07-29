@@ -2,10 +2,11 @@
 export const VNSH_HOST = 'https://vnsh.dev';
 
 /** Regex to match vnsh URLs (both v1 and v2 formats) */
-export const VNSH_URL_PATTERN = /https?:\/\/vnsh\.dev\/v\/[a-zA-Z0-9-]+#[^\s]+/g;
+export const VNSH_URL_PATTERN =
+  /https?:\/\/vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#[^\s]+|w\/[a-zA-Z0-9]{12}#[^\s]+|p\/[a-zA-Z0-9]{12})/g;
 
 /** Regex to loosely detect vnsh links in text */
-export const VNSH_LINK_PATTERN = /vnsh\.dev\/v\/[a-zA-Z0-9-]+/;
+export const VNSH_LINK_PATTERN = /vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+|[wp]\/[a-zA-Z0-9]{12})/;
 
 /** Max console errors to capture in a debug bundle */
 export const MAX_CONSOLE_ERRORS = 20;

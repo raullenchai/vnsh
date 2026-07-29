@@ -10,9 +10,15 @@ import { parseVnshUrl } from '../lib/url';
 import { decrypt } from '../lib/crypto';
 import { downloadBlob } from '../lib/api';
 import { TOOLTIP_PREVIEW_LENGTH } from '../lib/constants';
+import { parseWorkspaceUrl, decryptWorkspace, workspaceKind } from '../lib/workspace';
 
-/** Only match links that include a fragment (required for decryption). */
-const VNSH_LINK_RE = /vnsh\.dev\/v\/[a-zA-Z0-9-]+#\S+/;
+/**
+ * The three shapes a vnsh link can take. Only /v/ and /w/ need a fragment,
+ * because only they carry a key; a public workspace has none, so requiring one
+ * would make every public link invisible to this extension.
+ */
+const VNSH_LINK_RE =
+  /vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#\S+|w\/[a-zA-Z0-9]{12}#\S+|p\/[a-zA-Z0-9]{12})/;
 
 const processed = new WeakSet<HTMLAnchorElement>();
 
@@ -148,13 +154,10 @@ async function loadPreview(
   body.innerHTML = '<div class="vnsh-tooltip-loading">Decrypting...</div>';
 
   try {
-    const { id, key, iv } = parseVnshUrl(url);
-    const { data } = await downloadBlob(id);
-    const decrypted = await decrypt(data, key, iv);
-    const bytes = new Uint8Array(decrypted);
+    const bytes = await loadContent(url);
 
     if (isImage(bytes)) {
-      const blob = new Blob([bytes]);
+      const blob = new Blob([bytes as BlobPart]);
       const blobUrl = URL.createObjectURL(blob);
       cacheSet(url, { type: 'image', content: blobUrl });
       renderPreview(body, 'image', blobUrl);
@@ -171,6 +174,44 @@ async function loadPreview(
     cacheSet(url, { type: 'error', content: msg });
     renderPreview(body, 'error', msg);
   }
+}
+
+/**
+ * Fetch and, where required, decrypt whatever a vnsh link points at.
+ *
+ * Three cases, because there are three link shapes and they fail differently:
+ * a v1 blob is CBC with the key and IV in the fragment; an encrypted workspace
+ * is GCM with a key derived from the fragment; a public workspace has no key at
+ * all and is served as an ordinary document. Treating the third as malformed is
+ * what made every public link show nothing.
+ */
+async function loadContent(url: string): Promise<Uint8Array> {
+  const kind = workspaceKind(url);
+
+  if (kind === 'public') {
+    const response = await fetch(url.split('#')[0], {
+      headers: { 'X-Vnsh-Client': 'extension' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  if (kind === 'encrypted') {
+    const link = await parseWorkspaceUrl(url);
+    const response = await fetch(`${link.host}/api/workspace/${link.id}`, {
+      headers: { 'X-Vnsh-Client': 'extension' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = new Uint8Array(await response.arrayBuffer());
+    // A public workspace still has a /w/ edit link, so plaintext can arrive
+    // here; decrypting it would report the author's own link as corrupt.
+    if (response.headers.get('X-Vnsh-Public') === '1') return payload;
+    return decryptWorkspace(payload, link.key as Uint8Array);
+  }
+
+  const { id, key, iv } = parseVnshUrl(url);
+  const { data } = await downloadBlob(id);
+  return new Uint8Array(await decrypt(data, key, iv));
 }
 
 function renderPreview(

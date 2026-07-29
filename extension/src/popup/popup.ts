@@ -13,7 +13,7 @@ const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
 
 const shareText = document.getElementById('share-text') as HTMLTextAreaElement;
 const dropZone = document.getElementById('drop-zone') as HTMLDivElement;
-const ttlSelect = document.getElementById('ttl-select') as HTMLSelectElement;
+const publicToggle = document.getElementById('public-toggle') as HTMLInputElement;
 const btnShare = document.getElementById('btn-share') as HTMLButtonElement;
 const btnDebugBundle = document.getElementById('btn-debug-bundle') as HTMLButtonElement;
 const btnScreenshot = document.getElementById('btn-screenshot') as HTMLButtonElement;
@@ -107,14 +107,13 @@ btnCopy.addEventListener('click', () => {
 
 async function shareTextContent(text: string): Promise<void> {
   setLoading(true);
-  showStatus('Encrypting & uploading...', 'loading');
+  showStatus(publicToggle.checked ? 'Uploading...' : 'Encrypting & uploading...', 'loading');
 
   try {
-    const ttl = parseInt(ttlSelect.value, 10);
     const response = await chrome.runtime.sendMessage({
       action: 'share-text',
       text,
-      ttl,
+      isPublic: publicToggle.checked,
     });
 
     if (response.error) throw new Error(response.error);

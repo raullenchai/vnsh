@@ -28,16 +28,14 @@
     </div>
 
     <div class="share-options">
-      <label>
-        <span>TTL</span>
-        <select id="ttl-select">
-          <option value="1">1 hour</option>
-          <option value="6">6 hours</option>
-          <option value="24" selected>24 hours</option>
-          <option value="72">3 days</option>
-          <option value="168">7 days</option>
-        </select>
+      <label class="opt-public" for="public-toggle">
+        <input type="checkbox" id="public-toggle">
+        <span>
+          <strong>Readable without a key</strong>
+          <em>Agents can fetch it directly &mdash; and vnsh can read it.</em>
+        </span>
       </label>
+      <p class="opt-note">Deleted 24 hours after the last edit.</p>
     </div>
 
     <div class="share-actions">

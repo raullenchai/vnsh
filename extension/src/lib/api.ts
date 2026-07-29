@@ -4,6 +4,14 @@
  */
 
 import { VNSH_HOST } from './constants';
+import {
+  generateRootSecret,
+  deriveWorkspaceKeys,
+  encryptWorkspace,
+  buildWorkspaceUrl,
+  buildReadOnlyWorkspaceUrl,
+  buildPublicUrl,
+} from './workspace';
 
 const CLIENT_HEADER = { 'X-Vnsh-Client': 'extension/1.0.0' };
 
@@ -68,4 +76,53 @@ export async function downloadBlob(
   const expires = response.headers.get('X-Opaque-Expires') ?? undefined;
   const data = await response.arrayBuffer();
   return { data, expires };
+}
+
+/**
+ * Create a workspace.
+ *
+ * The extension used to hand out v1 one-shot blobs, which meant everything it
+ * shared was dead on arrival: no stable address, nothing to write back to, and
+ * a link shape the rest of the product had moved past. Sharing now produces the
+ * same thing the website and the CLI produce.
+ *
+ * Public workspaces are stored as plaintext, which is what lets an agent's
+ * fetch read them with no key and no runtime. It is never the default and never
+ * inferred — the caller has to ask.
+ */
+export async function createWorkspace(
+  plaintext: Uint8Array,
+  options: { public?: boolean; host?: string } = {},
+): Promise<{ id: string; editUrl: string; viewUrl: string; expires: string }> {
+  const host = options.host || VNSH_HOST;
+  const secret = generateRootSecret();
+  const { key, writeHash } = await deriveWorkspaceKeys(secret);
+
+  const body = options.public ? plaintext : await encryptWorkspace(plaintext, key);
+
+  const response = await fetch(`${host}/api/workspace`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      ...CLIENT_HEADER,
+      'X-Vnsh-Write-Hash': writeHash,
+      ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
+    },
+    body: body as BodyInit,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Create failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as { id: string; expires: string; public?: boolean };
+  return {
+    id: data.id,
+    editUrl: buildWorkspaceUrl(host, data.id, secret),
+    // A public link carries no fragment, because there is no key to carry.
+    viewUrl: data.public
+      ? buildPublicUrl(host, data.id)
+      : await buildReadOnlyWorkspaceUrl(host, data.id, secret),
+    expires: data.expires,
+  };
 }

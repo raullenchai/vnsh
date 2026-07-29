@@ -97,5 +97,7 @@ export function buildVnshUrl(
  * Check if a string looks like a vnsh URL.
  */
 export function isVnshUrl(text: string): boolean {
-  return /vnsh\.dev\/v\/[a-zA-Z0-9-]+#\S+/.test(text);
+  // A public workspace carries no fragment because it carries no key, so
+  // requiring one here would make every public link invisible.
+  return /vnsh\.dev\/(?:v\/[a-zA-Z0-9-]+#\S+|w\/[a-zA-Z0-9]{12}#\S+|p\/[a-zA-Z0-9]{12})/.test(text);
 }

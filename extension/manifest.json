@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "vnsh — Encrypted Sharing for AI",
-  "version": "1.0.0",
-  "description": "The Ephemeral Dropbox for AI. Encrypt and share text, images, and logs via self-destructing URLs. Server-blind. Vaporizes in 24h.",
+  "name": "vnsh \u2014 Encrypted Sharing for AI",
+  "version": "1.1.0",
+  "description": "One workspace your AI agents can all read and write. Encrypted in your browser, gone 24h after the last edit.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
@@ -42,8 +42,12 @@
         "https://*.vnsh.dev/*",
         "https://vnsh.dev/*"
       ],
-      "js": ["content/detector.js"],
-      "css": ["content/detector.css"],
+      "js": [
+        "content/detector.js"
+      ],
+      "css": [
+        "content/detector.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -60,7 +64,7 @@
         "default": "Ctrl+Shift+D",
         "mac": "Command+Shift+D"
       },
-      "description": "AI Debug Bundle — capture & share context"
+      "description": "AI Debug Bundle \u2014 capture & share context"
     },
     "screenshot": {
       "suggested_key": {

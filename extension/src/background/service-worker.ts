@@ -11,19 +11,10 @@
  * - Onboarding on install
  */
 
-import {
-  generateKey,
-  generateIV,
-  encrypt,
-  encryptText,
-} from '../lib/crypto';
-import { uploadBlob } from '../lib/api';
-import { buildVnshUrl } from '../lib/url';
+import { createWorkspace } from '../lib/api';
 import { addToHistory, saveSnippet, generateSnippetId } from '../lib/storage';
 import { buildBundle, type BundleInput, type ConsoleError } from '../lib/bundle';
 import {
-  VNSH_HOST,
-  DEFAULT_TTL,
   SCREENSHOT_QUALITY,
   AI_PROMPT_PREFIX,
   AI_PROMPT_SUFFIX,
@@ -112,7 +103,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'share-text') {
-    handleShareText(message.text, undefined, message.ttl)
+    handleShareText(message.text, undefined, message.isPublic)
       .then((url) => sendResponse({ url }))
       .catch((err) => sendResponse({ error: (err as Error).message }));
     return true;
@@ -145,16 +136,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function handleShareText(
   text: string,
   tab?: chrome.tabs.Tab,
-  ttl?: number,
+  isPublic?: boolean,
 ): Promise<string> {
   if (!text) throw new Error('No text to share');
 
-  const key = generateKey();
-  const iv = generateIV();
-  const ciphertext = await encryptText(text, key, iv);
-
-  const { id, expires } = await uploadBlob(ciphertext, ttl || DEFAULT_TTL);
-  const url = buildVnshUrl(VNSH_HOST, id, key, iv);
+  // A public workspace is stored as plaintext, which is the only way an agent's
+  // fetch reads it with no key and no runtime. Never the default.
+  const { editUrl: url, expires } = await createWorkspace(new TextEncoder().encode(text), {
+    public: isPublic,
+  });
 
   await addToHistory({
     url,
@@ -173,12 +163,7 @@ async function handleShareBinary(
   data: Uint8Array,
   filename?: string,
 ): Promise<string> {
-  const key = generateKey();
-  const iv = generateIV();
-  const ciphertext = await encrypt(data, key, iv);
-
-  const { id, expires } = await uploadBlob(ciphertext, DEFAULT_TTL);
-  const url = buildVnshUrl(VNSH_HOST, id, key, iv);
+  const { editUrl: url, expires } = await createWorkspace(data);
 
   await addToHistory({
     url,
@@ -199,12 +184,7 @@ async function handleShareImage(
   if (!response.ok) throw new Error('Failed to fetch image');
 
   const data = new Uint8Array(await response.arrayBuffer());
-  const key = generateKey();
-  const iv = generateIV();
-  const ciphertext = await encrypt(data, key, iv);
-
-  const { id, expires } = await uploadBlob(ciphertext, DEFAULT_TTL);
-  const url = buildVnshUrl(VNSH_HOST, id, key, iv);
+  const { editUrl: url, expires } = await createWorkspace(data);
 
   await addToHistory({
     url,
@@ -255,12 +235,7 @@ async function handleScreenshot(
     bytes[i] = binary.charCodeAt(i);
   }
 
-  const key = generateKey();
-  const iv = generateIV();
-  const ciphertext = await encrypt(bytes, key, iv);
-
-  const { id, expires } = await uploadBlob(ciphertext, DEFAULT_TTL);
-  const url = buildVnshUrl(VNSH_HOST, id, key, iv);
+  const { editUrl: url, expires } = await createWorkspace(bytes);
 
   await addToHistory({
     url,
@@ -367,12 +342,7 @@ async function handleDebugBundle(
   const bundleJson = buildBundle(bundleInput);
   const bundleBytes = new TextEncoder().encode(bundleJson);
 
-  const key = generateKey();
-  const iv = generateIV();
-  const ciphertext = await encrypt(bundleBytes, key, iv);
-
-  const { id, expires } = await uploadBlob(ciphertext, DEFAULT_TTL);
-  const url = buildVnshUrl(VNSH_HOST, id, key, iv);
+  const { editUrl: url, expires } = await createWorkspace(bundleBytes);
 
   const aiUrl = `${AI_PROMPT_PREFIX}${url}${AI_PROMPT_SUFFIX}`;
 
