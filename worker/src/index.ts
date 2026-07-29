@@ -1323,6 +1323,201 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     '})();'
   ].join('');
 
+  // Kept in step with the viewer's own palette so rendered content reads as part
+  // of the page rather than something bolted into a frame. Inline only: the
+  // injected policy allows no stylesheet, font, or image from the network.
+  var MD_CSS = [
+    ':root{--bg:#0d1117;--panel:#161b22;--line:#21262d;--ink:#e6edf3;',
+    '--ink-2:#9da7b3;--ink-3:#6e7681;--accent:#d29922}',
+    '*{box-sizing:border-box}',
+    'body{margin:0;padding:22px 24px 56px;background:var(--bg);color:var(--ink);',
+    "font:15px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',system-ui,sans-serif;",
+    'overflow-wrap:break-word}',
+    'h1,h2,h3,h4,h5,h6{line-height:1.3;margin:1.7em 0 .6em;font-weight:600}',
+    'h1{font-size:1.7em;letter-spacing:-.02em}h2{font-size:1.34em;letter-spacing:-.01em}',
+    'h3{font-size:1.13em}h4,h5,h6{font-size:1em}',
+    'h1,h2{padding-bottom:.3em;border-bottom:1px solid var(--line)}',
+    'body>*:first-child{margin-top:0}',
+    'p{margin:0 0 1em}',
+    'a{color:var(--accent)}',
+    'strong{font-weight:600}',
+    'ul,ol{margin:0 0 1em;padding-left:1.6em}li{margin:.25em 0}',
+    'li>p{margin:0}',
+    'blockquote{margin:0 0 1em;padding:.1px 0 .1px 1em;border-left:3px solid var(--line);color:var(--ink-2)}',
+    'hr{border:0;border-top:1px solid var(--line);margin:1.8em 0}',
+    "code{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.88em;",
+    'background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:.12em .35em}',
+    'pre{background:var(--panel);border:1px solid var(--line);border-radius:6px;',
+    'padding:12px 14px;overflow:auto;margin:0 0 1em}',
+    'pre code{background:none;border:0;padding:0;font-size:.85em;line-height:1.55}',
+    'table{border-collapse:collapse;margin:0 0 1em;display:block;overflow:auto;max-width:100%}',
+    'th,td{border:1px solid var(--line);padding:.42em .75em;text-align:left}',
+    'th{background:var(--panel);font-weight:600}',
+    'del{color:var(--ink-3)}'
+  ].join('');
+
+  // Markdown is rendered by building HTML here and handing it to renderHtml(),
+  // so it lands in the same opaque-origin, CSP-restricted frame an HTML document
+  // already gets. Nothing below passes source through: every span of text is
+  // escaped before any tag is emitted, so a document containing a raw <script>
+  // shows the tag as text instead of running it.
+  function mdEscape(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // The frame allows scripts, so a javascript: href would run inside it. Only
+  // schemes a reader can act on survive; anything else renders as plain text.
+  // The input is already escaped, so quotes cannot break out of the attribute.
+  function mdHref(raw) {
+    var h = String(raw).trim();
+    return /^(https?:|mailto:)/i.test(h) || /^[#\\/]/.test(h) ? h : '';
+  }
+
+  function mdInline(s) {
+    // Code spans are lifted out before anything else and restored last, so their
+    // contents cannot be re-read as emphasis, links, or tags.
+    var code = [];
+    s = s.replace(/\`([^\`]+)\`/g, function (_, c) {
+      return '\\u0000' + (code.push(c) - 1) + '\\u0000';
+    });
+    s = mdEscape(s);
+    s = s.replace(/!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)/g, function (_, alt, src) {
+      // The frame's policy allows only data: and blob: images, so a remote one
+      // would silently fail to load. A link states what it is and still works.
+      var h = mdHref(src);
+      return h ? '<a href="' + h + '">' + (alt || 'image') + '</a>' : (alt || '');
+    });
+    s = s.replace(/\\[([^\\]]*)\\]\\(([^)\\s]+)\\)/g, function (_, txt, href) {
+      var h = mdHref(href);
+      return h ? '<a href="' + h + '">' + txt + '</a>' : txt;
+    });
+    s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    s = s.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>');
+    // _emphasis_ only at word boundaries, so snake_case_identifiers survive.
+    s = s.replace(/(^|[\\s(])_([^_\\n]+)_(?=[\\s).,;:!?]|$)/g, '$1<em>$2</em>');
+    return s.replace(/\\u0000(\\d+)\\u0000/g, function (_, n) {
+      return '<code>' + mdEscape(code[+n]) + '</code>';
+    });
+  }
+
+  function mdCells(row) {
+    return row.trim().replace(/^\\||\\|$/g, '').split('|').map(function (c) { return c.trim(); });
+  }
+
+  function mdBody(src) {
+    var lines = String(src).replace(/[\\u0000\\u0001]/g, '').replace(/\\r\\n?/g, '\\n').split('\\n');
+    var out = [], i = 0;
+    var STARTER = /^ {0,3}(#{1,6}\\s|>|\`\`\`|~~~|[-*+]\\s|\\d+[.)]\\s)/;
+
+    function list(ordered) {
+      var re = ordered ? /^ {0,3}\\d+[.)]\\s+(.*)$/ : /^ {0,3}[-*+]\\s+(.*)$/;
+      var items = [], m;
+      while (i < lines.length && (m = re.exec(lines[i]))) {
+        var item = [m[1]];
+        i++;
+        // Lines indented under the marker continue the same item.
+        while (i < lines.length && /^\\s{2,}\\S/.test(lines[i]) && !STARTER.test(lines[i])) {
+          item.push(lines[i].trim());
+          i++;
+        }
+        items.push('<li>' + mdInline(item.join(' ')) + '</li>');
+      }
+      var tag = ordered ? 'ol' : 'ul';
+      out.push('<' + tag + '>' + items.join('') + '</' + tag + '>');
+    }
+
+    while (i < lines.length) {
+      var line = lines[i], m;
+
+      if (!line.trim()) { i++; continue; }
+
+      if ((m = /^ {0,3}(\`\`\`+|~~~+)/.exec(line))) {
+        var close = new RegExp('^ {0,3}' + (m[1].charAt(0) === '~' ? '~~~' : '\`\`\`'));
+        var buf = [];
+        i++;
+        while (i < lines.length && !close.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + mdEscape(buf.join('\\n')) + '</code></pre>');
+        continue;
+      }
+
+      if ((m = /^ {0,3}(#{1,6})\\s+(.*?)\\s*#*\\s*$/.exec(line))) {
+        out.push('<h' + m[1].length + '>' + mdInline(m[2]) + '</h' + m[1].length + '>');
+        i++;
+        continue;
+      }
+
+      if (/^ {0,3}([-*_])\\s*(\\1\\s*){2,}$/.test(line)) { out.push('<hr>'); i++; continue; }
+
+      // A table is a row of cells whose next line is the delimiter. Checking the
+      // delimiter — not just the presence of a pipe — keeps prose containing a
+      // vertical bar from being torn into columns.
+      if (line.indexOf('|') !== -1 && i + 1 < lines.length &&
+          /^[\\s|:-]+$/.test(lines[i + 1]) && lines[i + 1].indexOf('-') !== -1) {
+        var head = mdCells(line);
+        var align = mdCells(lines[i + 1]).map(function (c) {
+          return /^:-+:$/.test(c) ? 'center' : /:$/.test(c) ? 'right' : '';
+        });
+        function cell(tag, c, n) {
+          return '<' + tag + (align[n] ? ' style="text-align:' + align[n] + '"' : '') + '>' +
+            mdInline(c) + '</' + tag + '>';
+        }
+        i += 2;
+        var rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].indexOf('|') !== -1) {
+          rows.push('<tr>' + mdCells(lines[i]).map(function (c, n) {
+            return cell('td', c, n);
+          }).join('') + '</tr>');
+          i++;
+        }
+        out.push('<table><thead><tr>' +
+          head.map(function (c, n) { return cell('th', c, n); }).join('') +
+          '</tr></thead><tbody>' + rows.join('') + '</tbody></table>');
+        continue;
+      }
+
+      if (/^ {0,3}>/.test(line)) {
+        var quote = [];
+        while (i < lines.length && /^ {0,3}>/.test(lines[i])) {
+          quote.push(lines[i].replace(/^ {0,3}>\\s?/, ''));
+          i++;
+        }
+        out.push('<blockquote>' + mdBody(quote.join('\\n')) + '</blockquote>');
+        continue;
+      }
+
+      if (/^ {0,3}[-*+]\\s+/.test(line)) { list(false); continue; }
+      if (/^ {0,3}\\d+[.)]\\s+/.test(line)) { list(true); continue; }
+
+      var para = [];
+      while (i < lines.length && lines[i].trim() && !STARTER.test(lines[i])) {
+        para.push(lines[i]);
+        i++;
+      }
+      // A newline inside a paragraph is a soft break: it is there so the source
+      // could be hard-wrapped, and a reader expects the text to reflow to their
+      // own width. Only the explicit forms — two trailing spaces, or a trailing
+      // backslash — force a line break. The sentinel survives escaping and is
+      // stripped from the input above, so a document cannot forge one.
+      var joined = '';
+      for (var p = 0; p < para.length; p++) {
+        if (p === para.length - 1) { joined += para[p]; break; }
+        joined += /(  |\\\\)$/.test(para[p])
+          ? para[p].replace(/(\\s+|\\\\)$/, '') + '\\u0001'
+          : para[p].replace(/\\s+$/, '') + ' ';
+      }
+      out.push('<p>' + mdInline(joined).replace(/\\u0001/g, '<br>') + '</p>');
+    }
+    return out.join('\\n');
+  }
+
+  function mdToHtml(src) {
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' + MD_CSS +
+      '</style></head><body>' + mdBody(src) + '</body></html>';
+  }
+
   function renderHtml(html) {
     var frame = document.createElement('iframe');
     // allow-scripts WITHOUT allow-same-origin: the frame gets a unique opaque
@@ -1360,23 +1555,17 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
   }
 
 
-  // ── Markdown ──────────────────────────────────────────────────────────
+  // Whether a document *opens* rendered. It decides the default only — the
+  // toggle beside it is always available — so the cost of being wrong is one
+  // click, not a wrong first impression that sticks.
   //
-  // Agents write markdown by default, and it was the one format this viewer
-  // showed as raw text — so the format the main authors produce was the format
-  // that looked worst on arrival.
-  //
-  // Detection is deliberately reluctant. A naive "does it start with # or -"
-  // test misfires on shell scripts, Python, Dockerfiles, nginx configs, diffs
-  // and YAML, all of which open with a comment or a dash; rendering a script as
-  // prose is worse than not rendering markdown at all. So this wants two
-  // independent prose-markup signals and vetoes on any sign of being a source
-  // file, and the reader can override it either way from the header.
-  //
-  // No literal backtick appears below: this whole page lives inside a
-  // TypeScript template literal, where one would end the string.
-  var BT = String.fromCharCode(96);
-
+  // The objection to auto-detection is a fair one: nothing cleanly separates a
+  // markdown document from a shell script whose first line begins with a hash.
+  // So this is written to be reluctant rather than clever. It wants two
+  // independent prose-markup signals, and any sign of being a source file, a
+  // config or a diff vetoes the whole thing. A leading "# comment" specifically
+  // does not excuse the config veto — that is how YAML got through the first
+  // attempt. Measured against twenty-four fixtures in markdown.test.ts.
   function looksLikeMarkdown(input) {
     var text = input.slice(0, 65536);
     if (!text.trim()) return false;
@@ -1384,170 +1573,32 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     if (/^#!/.test(text)) return false;
     if (/^(---|\\+\\+\\+|diff --git|@@ )/m.test(text)) return false;
     if (/^(FROM|RUN|COPY|ENTRYPOINT|CMD)\\s/m.test(text)) return false;
-    // A leading "# comment" in a config file is indistinguishable from an H1,
-    // so a heading must not excuse this check — that is how YAML slips through.
     if ((text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length >= 2) return false;
     if (/^\\s*[\\w.-]+\\s*=\\s*\\S/m.test(text)) return false;
-    if (/[{};]\\s*$/m.test(text) && text.indexOf(BT + BT + BT) === -1) return false;
 
-    var fence = new RegExp('^' + BT + BT + BT, 'm');
+    var tick = String.fromCharCode(96);
+    var fence = new RegExp('^' + tick + tick + tick, 'm');
+    if (/[{};]\\s*$/m.test(text) && !fence.test(text)) return false;
+
     var signals = [
       /^#{1,6}\\s+\\S/m, fence, /^\\s*([-*+]|\\d+\\.)\\s+\\S/m, /\\[[^\\]]+\\]\\([^)]+\\)/,
-      /\\*\\*[^*]+\\*\\*|__[^_]+__/, /^>\\s+\\S/m, /^\\|.+\\|\\s*$/m, /^(-{3,}|\\*{3,}|_{3,})\\s*$/m,
+      /\\*\\*[^*]+\\*\\*|__[^_]+__/, /^>\\s+\\S/m, /^\\|.+\\|\\s*$/m,
+      /^(-{3,}|\\*{3,}|_{3,})\\s*$/m,
     ].filter(function (re) { return re.test(text); }).length;
     return signals >= 2;
   }
 
-  function mdEscape(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  // Only schemes that cannot execute. The frame is sandboxed anyway, but a
-  // renderer that emits javascript: URLs is a bad renderer.
-  function mdSafeHref(url) {
-    var trimmed = url.trim();
-    return /^(https?:\\/\\/|mailto:|#|\\/)/i.test(trimmed) ? trimmed : '';
-  }
-
-  function mdInline(s) {
-    var codes = [];
-    // Code spans win over every other inline rule, so lift them out first.
-    s = s.replace(new RegExp(BT + '([^' + BT + ']+)' + BT, 'g'), function (_, code) {
-      codes.push(code);
-      return '' + (codes.length - 1) + '';
-    });
-    s = s.replace(/!\\[([^\\]]*)\\]\\(([^)\\s]+)[^)]*\\)/g, function (m, alt, url) {
-      var href = mdSafeHref(url);
-      return href ? '<img src="' + href + '" alt="' + alt + '">' : m;
-    });
-    s = s.replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)[^)]*\\)/g, function (m, label, url) {
-      var href = mdSafeHref(url);
-      return href ? '<a href="' + href + '">' + label + '</a>' : m;
-    });
-    s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
-         .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-         .replace(/(^|[^*])\\*([^*\\n]+)\\*/g, '$1<em>$2</em>')
-         .replace(/~~([^~]+)~~/g, '<del>$1</del>');
-    return s.replace(/(\\d+)/g, function (_, i) {
-      return '<code>' + codes[+i] + '</code>';
-    });
-  }
-
-  function mdList(lines) {
-    var ordered = /^\\s*\\d+\\./.test(lines[0]);
-    var out = ordered ? '<ol>' : '<ul>';
-    var buffer = null;
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^\\s*(?:[-*+]|\\d+\\.)\\s+(.*)$/);
-      if (m) {
-        if (buffer !== null) out += '<li>' + mdInline(buffer) + '</li>';
-        buffer = m[1];
-      } else if (buffer !== null) {
-        buffer += ' ' + lines[i].trim();   // lazy continuation
-      }
-    }
-    if (buffer !== null) out += '<li>' + mdInline(buffer) + '</li>';
-    return out + (ordered ? '</ol>' : '</ul>');
-  }
-
-  function mdTable(lines) {
-    var row = function (line) {
-      return line.replace(/^\\||\\|$/g, '').split('|').map(function (c) { return c.trim(); });
-    };
-    var head = row(lines[0]);
-    var out = '<table><thead><tr>';
-    for (var h = 0; h < head.length; h++) out += '<th>' + mdInline(head[h]) + '</th>';
-    out += '</tr></thead><tbody>';
-    for (var i = 2; i < lines.length; i++) {
-      var cells = row(lines[i]);
-      out += '<tr>';
-      for (var c = 0; c < cells.length; c++) out += '<td>' + mdInline(cells[c]) + '</td>';
-      out += '</tr>';
-    }
-    return out + '</tbody></table>';
-  }
-
-  function renderMarkdown(source) {
-    var text = mdEscape(source.replace(/\\r\\n?/g, '\\n'));
-
-    // Fenced code is verbatim, so it comes out before anything else touches it.
-    var blocks = [];
-    var fenced = new RegExp('^' + BT + BT + BT + '[ \\\\t]*([\\\\w+-]*)[ \\\\t]*\\\\n([\\\\s\\\\S]*?)^' + BT + BT + BT + '[ \\\\t]*$', 'gm');
-    text = text.replace(fenced, function (_, lang, code) {
-      blocks.push('<pre class="md-code"' + (lang ? ' data-lang="' + lang + '"' : '') +
-                  '><code>' + code.replace(/\\n$/, '') + '</code></pre>');
-      return '' + (blocks.length - 1) + '';
-    });
-
-    var html = '';
-    var chunks = text.split(/\\n{2,}/);
-    for (var i = 0; i < chunks.length; i++) {
-      var chunk = chunks[i].replace(/\\s+$/, '');
-      if (!chunk.trim()) continue;
-
-      var placeholder = chunk.match(/^(\\d+)$/);
-      if (placeholder) { html += blocks[+placeholder[1]]; continue; }
-
-      var heading = chunk.match(/^(#{1,6})\\s+(.*)$/);
-      if (heading) {
-        var level = heading[1].length;
-        html += '<h' + level + '>' + mdInline(heading[2].replace(/\\s+#+\\s*$/, '')) + '</h' + level + '>';
-        continue;
-      }
-      if (/^(-{3,}|\\*{3,}|_{3,})$/.test(chunk.trim())) { html += '<hr>'; continue; }
-
-      var lines = chunk.split('\\n');
-      if (lines.length >= 2 && /^\\|.*\\|$/.test(lines[0].trim()) && /^\\|[\\s:|-]+\\|$/.test(lines[1].trim())) {
-        html += mdTable(lines.map(function (l) { return l.trim(); }));
-        continue;
-      }
-      if (/^\\s*([-*+]|\\d+\\.)\\s+/.test(lines[0])) { html += mdList(lines); continue; }
-      // The source was escaped before this point, so the marker is &gt; here.
-      if (/^&gt;\\s?/.test(lines[0])) {
-        html += '<blockquote>' + mdInline(lines.map(function (l) {
-          return l.replace(/^&gt;\\s?/, '');
-        }).join(' ')) + '</blockquote>';
-        continue;
-      }
-      html += '<p>' + mdInline(lines.join('\\n')).replace(/\\n/g, '<br>') + '</p>';
-    }
-
-    return html.replace(/(\\d+)/g, function (_, i) { return blocks[+i]; });
-  }
-
-  // Wrapped in a document so it goes through exactly the same sandboxed frame
-  // and injected CSP as any other HTML — no new attack surface, by construction.
-  function markdownDocument(source) {
-    return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
-      'body{margin:0;padding:28px 32px;max-width:70ch;font:16px/1.65 -apple-system,' +
-      'BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;color:#1a1d21;background:#fff;' +
-      '-webkit-font-smoothing:antialiased}' +
-      'h1,h2,h3,h4,h5,h6{line-height:1.25;margin:1.6em 0 .5em;font-weight:640;letter-spacing:-.015em}' +
-      'h1{font-size:1.9em;margin-top:0}h2{font-size:1.4em}h3{font-size:1.15em}' +
-      'p{margin:.85em 0}ul,ol{margin:.85em 0;padding-left:1.5em}li{margin:.3em 0}' +
-      'a{color:#0f766e}code{font:.88em ui-monospace,SFMono-Regular,Menlo,monospace;' +
-      'background:#f1f3f5;padding:.1em .3em;border-radius:4px}' +
-      'pre.md-code{background:#f6f8fa;border:1px solid #e5e7eb;border-radius:8px;' +
-      'padding:14px 16px;overflow-x:auto;margin:1em 0}' +
-      'pre.md-code code{background:none;padding:0;font-size:.86em;line-height:1.5}' +
-      'blockquote{margin:1em 0;padding:.1em 1em;border-left:3px solid #d1d5db;color:#4b5563}' +
-      'table{border-collapse:collapse;margin:1em 0;width:100%;display:block;overflow-x:auto}' +
-      'th,td{border:1px solid #e5e7eb;padding:7px 11px;text-align:left;font-size:.94em}' +
-      'th{background:#f9fafb;font-weight:600}hr{border:0;border-top:1px solid #e5e7eb;margin:2em 0}' +
-      'img{max-width:100%}@media(prefers-color-scheme:dark){' +
-      'body{background:#0e1013;color:#e9ecef}a{color:#22c55e}' +
-      'code{background:#1a1d21}pre.md-code{background:#14171c;border-color:#23272e}' +
-      'blockquote{border-color:#2f353e;color:#a7aeb8}' +
-      'th,td{border-color:#23272e}th{background:#14171c}hr{border-color:#23272e}}' +
-      '</style></head><body>' + renderMarkdown(source) + '</body></html>';
-  }
-
   function render() {
+    // Rendered vs source is one binary choice; only the default differs by
+    // content type. HTML opens rendered because that is what its author wrote it
+    // for. Markdown opens rendered too, because the point of #33 is the screen a
+    // recipient sees first, and defaulting a report to raw source loses exactly
+    // that. Everything else opens as source — for a log or a config the bytes
+    // are the truth. Detection only picks the default; the toggle is always
+    // there, so being wrong either way costs one click.
     if (showingSource) return renderText(plaintext);
     if (looksLikeHtml(plaintext)) return renderHtml(plaintext);
-    if (looksLikeMarkdown(plaintext)) return renderHtml(markdownDocument(plaintext));
-    renderText(plaintext);
+    renderHtml(mdToHtml(plaintext));
   }
 
   async function main() {
@@ -1684,15 +1735,17 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
       URL.revokeObjectURL(a.href);
     };
 
-    var rendersRich = looksLikeHtml(plaintext) || looksLikeMarkdown(plaintext);
-    if (rendersRich) {
-      raw.hidden = false;
-      raw.onclick = function () {
-        showingSource = !showingSource;
-        raw.textContent = showingSource ? 'View rendered' : 'View source';
-        render();
-      };
-    }
+    // Every document can be shown both ways, so the toggle is always offered.
+    var isHtml = looksLikeHtml(plaintext);
+    var renderedLabel = isHtml ? 'View page' : 'View rendered';
+    showingSource = !(isHtml || looksLikeMarkdown(plaintext));
+    raw.hidden = false;
+    raw.textContent = showingSource ? renderedLabel : 'View source';
+    raw.onclick = function () {
+      showingSource = !showingSource;
+      raw.textContent = showingSource ? renderedLabel : 'View source';
+      render();
+    };
 
     render();
   }
