@@ -246,6 +246,28 @@ describe('what the primary host publishes about the split', () => {
     expect(text).toContain('different domain, on purpose');
   });
 
+  /**
+   * A public workspace is addressed two ways and only one of them can be handed
+   * out. /p/{id} carries no fragment, so it cannot carry the write token either
+   * — an implementation that surfaces only the public link has permanently given
+   * up the ability to update its own document, and nothing in the 201 response
+   * says so. Raised in #35 and closed on the claim that it was already covered;
+   * it was not. This is the assertion that would have caught that.
+   */
+  it('says the public link is not the whole address, and names the way back', async () => {
+    const text = await (await call(new Request('https://vnsh.dev/llms.txt'))).text();
+
+    const claim = text.indexOf('only way to write again');
+    expect(claim).toBeGreaterThan(-1);
+
+    // Both shapes have to sit together, or "addressed two ways" is a statement
+    // with no example next to it. The readable one is on the content host; the
+    // writable one is not, and that asymmetry is the whole point.
+    const nearby = text.slice(claim - 400, claim);
+    expect(nearby).toContain(`https://${CONTENT_HOST}/p/{id}`);
+    expect(nearby).toContain('https://vnsh.dev/w/{id}#w=');
+  });
+
   it('keeps advertising its own paths when there is no second domain', async () => {
     const response = await call(new Request('https://vnsh.dev/llms.txt'), {
       CONTENT_HOST: undefined,

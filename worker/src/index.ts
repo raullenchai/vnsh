@@ -3368,7 +3368,7 @@ long context into a reply.
 
   https://vnsh.dev/w/{id}#w=<secret>   encrypted, read + write
   https://vnsh.dev/w/{id}#r=<key>      encrypted, read only
-  https://vnsh.dev/p/{id}              public, readable by anything
+  https://vnsh.dev/p/{id}       public, readable by anything
 
 Both encrypted tiers decrypt every version. #r= cannot write and cannot be
 turned back into an edit link — the read key is a one-way derivation of the
@@ -3388,6 +3388,17 @@ the workspace public:
 No key, no fragment, no decryption step: anything that can make an HTTP request
 can read it, including WebFetch. The link carries no fragment because there is
 no key to carry, which is how you can tell the two apart at a glance.
+
+Public changes how the content is stored, not how writing is authorised. A write
+still needs the token derived from S, and /p/{id} has no fragment to carry it,
+so a public workspace is addressed two ways and only one of them can be handed
+out:
+
+  https://vnsh.dev/p/{id}             share this — no key, nothing to lose
+  https://vnsh.dev/w/{id}#w=<base64url(S)>   keep this — the only way to write again
+
+Surface both when you create one. An implementation that shows only the public
+link has silently given up the ability to update its own document.
 
 ### The public host is a different domain, on purpose
 

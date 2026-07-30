@@ -469,6 +469,38 @@ describe('agent setup prompt', () => {
   });
 
   /**
+   * The document invites an implementer to reimplement the protocol with no vnsh
+   * tooling at all, and the one call that starts a workspace was the one call it
+   * did not write down — discoverable only by sending it and reading the 400.
+   * Someone reimplementing it hit exactly that. From #35.
+   */
+  it('documents creating a workspace, not only reading and writing one', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+
+    expect(llms).toContain('POST https://vnsh.dev/api/workspace');
+    expect(llms).toContain('X-Vnsh-Write-Hash');
+    expect(llms).toContain('vnsh/write/v2');
+
+    // Create answers with the version as an ETag, so a first conditional write
+    // needs no preceding GET. #35 documented the opposite — create sending no
+    // ETag, forcing a round trip — which was true of an earlier server and is
+    // exactly the kind of stale detail that only a test keeps honest.
+    const create = llms.indexOf('POST https://vnsh.dev/api/workspace');
+    expect(create).toBeGreaterThan(-1);
+    expect(llms.slice(create, create + 600)).toMatch(/201[\s\S]{0,200}ETag: "1"/);
+  });
+
+  /**
+   * The edge challenges some libraries' default agent strings and answers 403
+   * with an HTML error page, not a JSON API error — which reads as a broken
+   * request rather than a bot check. One sentence saves the detour. From #35.
+   */
+  it('warns that a default User-Agent can be challenged', async () => {
+    const llms = await (await call(new Request('http://localhost/llms.txt'))).text();
+    expect(llms).toContain('User-Agent');
+  });
+
+  /**
    * Three separate agents, given a workspace link on three separate occasions,
    * refused to act on the version of this that told them to edit their own
    * configuration. They were right to: an external document directing an agent
