@@ -1,6 +1,8 @@
 # Architecture Proposal: x402 Payment Protocol
 
-**Status**: Proposed (future implementation)
+**Status**: Not pursued. The scaffolding this document describes as "current
+state" was removed on 2026-07-29; see [ADR-004](adr/004-payment-protocol.md).
+Kept as a design record, not as a description of the code.
 **Date**: 2025-01-24
 **Author**: @raullenchai + Claude
 

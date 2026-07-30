@@ -80,10 +80,17 @@ describe('vnsh API', () => {
       expect(expiresAt - now).toBeGreaterThan(oneHour - 5000);
     });
 
-    it('accepts price parameter for x402', async () => {
+    /**
+     * `?price=` used to mark a blob paid, and reads of it were gated behind a
+     * 402 that accepted any non-empty `?paymentProof=`. Reported from outside
+     * as a bypass (#6). The paywall is gone rather than fixed, so the parameter
+     * has to be inert both ways: still accepted, since published CLIs send it,
+     * and carrying no consequence on the read.
+     */
+    it('accepts a stale ?price= without gating the read behind it', async () => {
       const request = new Request('http://localhost/api/drop?price=0.01', {
         method: 'POST',
-        body: 'paid-content',
+        body: 'no-longer-paid-content',
         headers: { 'Content-Type': 'application/octet-stream' },
       });
       const ctx = createExecutionContext();
@@ -91,6 +98,16 @@ describe('vnsh API', () => {
       await waitOnExecutionContext(ctx);
 
       expect(response.status).toBe(201);
+      const { id } = await response.json() as { id: string };
+
+      // No proof of anything, and no 402.
+      const readCtx = createExecutionContext();
+      const read = await worker.fetch(new Request(`http://localhost/api/blob/${id}`), env as Env, readCtx);
+      await waitOnExecutionContext(readCtx);
+
+      expect(read.status).toBe(200);
+      expect(read.headers.get('X-Payment-Methods')).toBeNull();
+      expect(await read.text()).toBe('no-longer-paid-content');
     });
 
     it('rejects empty body', async () => {
@@ -158,33 +175,6 @@ describe('vnsh API', () => {
       expect(response.status).toBe(404);
       const body = await response.json() as { error: string };
       expect(body.error).toBe('NOT_FOUND');
-    });
-
-    it('returns 402 for paid blob without payment proof', async () => {
-      // Upload with price
-      const uploadRequest = new Request('http://localhost/api/drop?price=0.01', {
-        method: 'POST',
-        body: 'paid-content',
-        headers: { 'Content-Type': 'application/octet-stream' },
-      });
-      const uploadCtx = createExecutionContext();
-      const uploadResponse = await worker.fetch(uploadRequest, env as Env, uploadCtx);
-      await waitOnExecutionContext(uploadCtx);
-      const { id } = await uploadResponse.json() as { id: string };
-
-      // Try to download without payment
-      const downloadRequest = new Request(`http://localhost/api/blob/${id}`);
-      const downloadCtx = createExecutionContext();
-      const downloadResponse = await worker.fetch(downloadRequest, env as Env, downloadCtx);
-      await waitOnExecutionContext(downloadCtx);
-
-      expect(downloadResponse.status).toBe(402);
-      expect(downloadResponse.headers.get('X-Payment-Price')).toBe('0.01');
-      expect(downloadResponse.headers.get('X-Payment-Currency')).toBe('USD');
-
-      const body = await downloadResponse.json() as { error: string; payment: { price: number } };
-      expect(body.error).toBe('PAYMENT_REQUIRED');
-      expect(body.payment.price).toBe(0.01);
     });
 
     it('includes CORS headers', async () => {

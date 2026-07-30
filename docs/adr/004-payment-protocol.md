@@ -2,7 +2,31 @@
 
 ## Status
 
-Proposed (Not Yet Implemented)
+Rejected (2026-07-29). Superseded by nothing — the scaffolding was removed.
+
+The half of this that shipped was the half with no security: `?price=` marked a
+blob paid and reads of it were gated behind a 402 whose `paymentProof` was never
+verified, so any non-empty string opened it. That was reported from outside as a
+bypass ([#6](https://github.com/raullenchai/vnsh/issues/6)) and sat unanswered
+for 58 days.
+
+It was removed rather than completed, for three reasons:
+
+1. **Nothing could be paid.** `lightning` and `stripe` appeared nowhere in the
+   codebase except as string literals inside the 402 response. There was no
+   invoice, no checkout, no verification, no ledger. A bypass of a toll booth
+   that cannot take money has no victim.
+2. **It never guarded anything.** Blobs are ciphertext; the key in the URL
+   fragment is the only boundary that was ever load-bearing. Whoever defeated
+   the 402 received bytes they still could not read.
+3. **The response asserted rails that did not exist.** Every 402 carried
+   `X-Payment-Methods: lightning,stripe`. For a project whose claim is that its
+   behaviour can be checked from outside, shipping an unverifiable claim in a
+   header is worse than the bug underneath it.
+
+Verifying proofs for payments nobody can make would have been a more convincing
+version of the same lie. If monetization is revisited, it starts from an empty
+file and a payment rail that exists first.
 
 ## Context
 

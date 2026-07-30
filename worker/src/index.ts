@@ -399,11 +399,6 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
     }
   }
 
-  // Check for payment metadata (for x402 support)
-  const priceParam = url.searchParams.get('price');
-  const hasPayment = priceParam !== null && parseFloat(priceParam) > 0;
-  const priceUSD = hasPayment ? parseFloat(priceParam) : undefined;
-
   // Generate unique short ID with collision check
   let id: string = generateShortId();
   let attempts = 0;
@@ -435,18 +430,12 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
 
   try {
     // Store blob in R2. R2 customMetadata is the SINGLE SOURCE OF TRUTH for
-    // expiry and payment info — the core read/write path must not depend on KV,
-    // which on the free plan caps at ~1000 writes/day and throws once exhausted.
+    // expiry — the core read/write path must not depend on KV, which on the
+    // free plan caps at ~1000 writes/day and throws once exhausted.
     const customMetadata: Record<string, string> = {
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(expiresAt).toISOString(),
     };
-    if (hasPayment) {
-      customMetadata.hasPayment = 'true';
-      if (priceUSD !== undefined) {
-        customMetadata.priceUSD = String(priceUSD);
-      }
-    }
     await env.VNSH_STORE.put(id, await readCapped(body, MAX_BLOB_SIZE), { customMetadata });
 
     // Track upload analytics
@@ -478,7 +467,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
   // free plan can hit its daily quota and throw — that previously surfaced as a
   // hard 500 (Cloudflare error 1101) on every request.
   //
-  // Use head() for metadata-only checks (expiry, payment) so we never open a body
+  // Use head() for the metadata-only expiry check so we never open a body
   // stream we don't stream back — an undrained R2 body leaks the storage handle.
   // Only get() the body once we've decided to stream it (the success path).
   const head = await env.VNSH_STORE.head(id);
@@ -498,41 +487,17 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
     return errorResponse('EXPIRED', 'Blob has expired', 410, request);
   }
 
-  // Check for payment requirement (x402)
-  if (md.hasPayment === 'true') {
-    const url = new URL(request.url);
-    const paymentProof = url.searchParams.get('paymentProof');
-
-    if (!paymentProof) {
-      const priceUSD = md.priceUSD ? parseFloat(md.priceUSD) : undefined;
-      // Return 402 Payment Required with payment info
-      return new Response(
-        JSON.stringify({
-          error: 'PAYMENT_REQUIRED',
-          message: 'This blob requires payment',
-          payment: {
-            price: priceUSD,
-            currency: 'USD',
-            methods: ['lightning', 'stripe'],
-          },
-        }),
-        {
-          status: 402,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Payment-Price': String(priceUSD),
-            'X-Payment-Currency': 'USD',
-            'X-Payment-Methods': 'lightning,stripe',
-            ...corsHeaders,
-          },
-        }
-      );
-    }
-
-    // TODO: Validate payment proof (JWT verification)
-    // For now, accept any non-empty proof for testing
-  }
-
+  // There is deliberately no paywall here. An earlier revision gated blobs
+  // carrying a `hasPayment` marker behind a 402 whose proof was never checked —
+  // any non-empty `?paymentProof=` opened it — and answered with
+  // `X-Payment-Methods: lightning,stripe`, two rails that existed nowhere but in
+  // that header. Reported from outside as a bypass (#6), which it was, though
+  // the gate never protected anything: blobs are ciphertext, and the key in the
+  // fragment is the only boundary that was ever load-bearing. Removed rather
+  // than repaired, because verifying proofs for payments nobody can make is a
+  // more convincing lie than the one it replaces. Blobs stored by that revision
+  // still carry the marker and are now read normally; they expire within 24h.
+  //
   // All checks passed — fetch the body to stream it back.
   const object = await env.VNSH_STORE.get(id);
   if (!object) {

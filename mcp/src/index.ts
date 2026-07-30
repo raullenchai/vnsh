@@ -335,18 +335,6 @@ export async function handleRead(args: unknown) {
     },
   });
 
-  if (response.status === 402) {
-    const data = await response.json() as { payment?: { price?: number } };
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Payment required: This content requires payment of $${data.payment?.price || '?'} to access.`,
-        },
-      ],
-    };
-  }
-
   if (response.status === 404) {
     return {
       content: [

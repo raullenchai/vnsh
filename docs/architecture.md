@@ -283,6 +283,5 @@ The server does NOT know:
 
 ### Planned Features
 
-- **x402 Payment**: Pay-per-read with Lightning/Stripe
 - **Burn-on-Read**: Self-destruct after first access
 - **File Type Detection**: Magic byte analysis post-decryption

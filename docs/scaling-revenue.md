@@ -121,9 +121,13 @@ See also: [architecture-x402-payment-proposal.md](architecture-x402-payment-prop
 
 ### 3.1 Complete x402 Payment Flow
 
-The scaffolding exists in `worker/src/index.ts`. The upload endpoint accepts `?price=X` and the read endpoint returns 402 with payment headers. What's missing:
+The scaffolding that used to sit in `worker/src/index.ts` was removed on
+2026-07-29 ([ADR-004](adr/004-payment-protocol.md)): it accepted any non-empty
+`paymentProof`, and advertised Lightning and Stripe in a header while neither
+existed anywhere in the code. This phase therefore starts from nothing, and in
+this order — a payment rail that works before any endpoint mentions one.
 
-1. **JWT verification**: The current code accepts any non-empty `paymentProof` string. Implement HS256 JWT verification with `JWT_SECRET` env var.
+1. **A rail that can actually take money**, end to end, before `402` reappears in a response.
 2. **Stripe Checkout for per-blob payments**: New endpoint `POST /api/pay/:id` creates a one-time Stripe Checkout session.
 3. **Split URL model**: Upload with `?price=1.00` returns both:
    - `payUrl`: `vnsh.dev/pay/{id}` (no encryption key, shareable publicly)

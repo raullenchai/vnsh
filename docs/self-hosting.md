@@ -136,17 +136,6 @@ purpose — a scanner can tag the source of a redirect that leads to bad content
 root page. Set it only once the mailbox actually receives mail: a contact that
 bounces is worse than none, and the GitHub advisory link is always listed anyway.
 
-### Environment Variables (Optional)
-
-Set via Wrangler secrets for x402 payment support:
-
-```bash
-wrangler secret put STRIPE_SECRET_KEY
-wrangler secret put STRIPE_WEBHOOK_SECRET
-wrangler secret put LIGHTNING_API_KEY
-wrangler secret put JWT_SECRET
-```
-
 ## R2 Lifecycle Rules (Optional)
 
 Auto-delete expired blobs:

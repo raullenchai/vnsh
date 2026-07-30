@@ -172,7 +172,6 @@ I can see the content. It appears to be an error log showing...
 
 | Condition | Response |
 |-----------|----------|
-| 402 Payment Required | "Payment required: This content requires payment of $X.XX to access." |
 | 404 Not Found | "Content not found. It may have expired or been deleted." |
 | 410 Expired | "Content has expired and is no longer available." |
 | Decryption Error | "Error: Decryption failed..." |

@@ -361,23 +361,6 @@ describe('handleRead', () => {
     expect(result.metadata?.contentType).toBe('text');
   });
 
-  it('handles 402 payment required response', async () => {
-    const key = generateKey();
-    const iv = generateIV();
-
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 402,
-      json: () => Promise.resolve({ payment: { price: 5 } }),
-    });
-
-    const url = buildVnshUrl('https://vnsh.dev', '12345678-abcd-ef01-2345-6789abcdef01', key, iv);
-    const result = await handleRead({ url });
-
-    expect(result.content[0].text).toContain('Payment required');
-    expect(result.content[0].text).toContain('$5');
-  });
-
   it('handles 404 not found response', async () => {
     const key = generateKey();
     const iv = generateIV();

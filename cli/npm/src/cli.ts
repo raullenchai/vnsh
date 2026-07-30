@@ -55,7 +55,6 @@ function formatBytes(bytes: number): string {
 
 interface UploadOptions {
   ttl?: string;
-  price?: string;
   host?: string;
   local?: boolean;
   blob?: boolean;
@@ -366,9 +365,6 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
     }
     params.set('ttl', options.ttl);
   }
-  if (options.price) {
-    params.set('price', options.price);
-  }
   if (params.toString()) {
     apiUrl += `?${params.toString()}`;
   }
@@ -402,9 +398,6 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
   console.log('');
   if (result.expires) {
     console.log(`${colors.yellow('Expires:')} ${result.expires}`);
-  }
-  if (options.price) {
-    console.log(`${colors.yellow('Price:')} $${options.price} (x402 payment required)`);
   }
 }
 
@@ -461,20 +454,19 @@ program
   .version(VERSION, '-v, --version')
   .argument('[file]', 'File to encrypt and share (default: stdin)')
   .option('-t, --ttl <hours>', 'Expiry in hours, one-shot blobs only (max: 168)')
-  .option('-p, --price <usd>', 'Price in USD for x402 payment, one-shot blobs only')
   .option('-H, --host <url>', 'Override API host', DEFAULT_HOST)
   .option('-l, --local', 'Encrypt locally and print the payload (no upload)')
   .option('-b, --blob', 'Create a v1 one-shot blob instead of a workspace')
   .option('--public', 'Store unencrypted so any agent can read it with no key (vnsh can read it too)')
   .action(async (file: string | undefined, options: UploadOptions) => {
     try {
-      // A custom TTL and a price are properties of the v1 blob API; workspaces
-      // are fixed at 24h from the last write. Rather than silently ignore the
-      // flag, treat asking for one as asking for a blob.
+      // A custom TTL is a property of the v1 blob API; workspaces are fixed at
+      // 24h from the last write. Rather than silently ignore the flag, treat
+      // asking for one as asking for a blob.
       if (options.public && options.blob) {
         error('--public applies to workspaces; it cannot be combined with --blob.');
       }
-      const blobOnly = Boolean(options.blob || options.ttl || options.price);
+      const blobOnly = Boolean(options.blob || options.ttl);
       if (blobOnly) {
         await upload(file, options);
       } else {

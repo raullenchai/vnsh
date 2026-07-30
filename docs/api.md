@@ -60,7 +60,7 @@ Upload an encrypted blob.
 **Request:**
 
 ```http
-POST /api/drop?ttl=24&price=0.01 HTTP/1.1
+POST /api/drop?ttl=24 HTTP/1.1
 Content-Type: application/octet-stream
 Content-Length: 1234
 
@@ -72,7 +72,6 @@ Content-Length: 1234
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ttl` | integer | 24 | Time-to-live in hours (max: 168) |
-| `price` | float | - | Price in USD for x402 payment |
 
 **Response (201 Created):**
 
@@ -104,12 +103,6 @@ Download an encrypted blob.
 GET /api/blob/a1b2c3d4-e5f6-7890-abcd-ef1234567890 HTTP/1.1
 ```
 
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `paymentProof` | string | JWT token proving payment (for paid blobs) |
-
 **Response (200 OK):**
 
 ```http
@@ -127,31 +120,12 @@ X-Opaque-Expires: 2024-01-25T12:00:00.000Z
 
 | Status | Code | Description |
 |--------|------|-------------|
-| 402 | `PAYMENT_REQUIRED` | Blob requires payment |
 | 404 | `NOT_FOUND` | Blob not found or expired |
 | 410 | `EXPIRED` | Blob has expired |
 
-**402 Payment Required Response:**
-
-```json
-{
-  "error": "PAYMENT_REQUIRED",
-  "message": "This blob requires payment",
-  "payment": {
-    "price": 0.01,
-    "currency": "USD",
-    "methods": ["lightning", "stripe"]
-  }
-}
-```
-
-**Headers for 402:**
-
-```http
-X-Payment-Price: 0.01
-X-Payment-Currency: USD
-X-Payment-Methods: lightning,stripe
-```
+There is no paid tier and no 402. An earlier revision had one; see
+[ADR-004](adr/004-payment-protocol.md) for why it was removed rather than
+finished.
 
 ---
 
