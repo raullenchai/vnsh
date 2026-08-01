@@ -146,7 +146,17 @@ Link Hygiene: If the user shares the full URL (w/ hash) in a public channel, the
 - Analytics Engine dataset: `vnsh_events` (binding `VNSH_ANALYTICS`) — usage stats; binding currently commented out in wrangler.toml pending account enablement
 - KV Namespace `VNSH_META` (ID: `67d2bdbe539e4620a20a65be26744a5e`) — DEPRECATED, no longer bound to the worker. The free-plan 1000-writes/day cap on this KV used to 500 the whole site (Cloudflare error 1101) once exhausted; metadata moved to R2, rate-limiting to native bindings, analytics to Analytics Engine. Safe to delete once the new setup is proven.
 
-**Deploy**: `cd worker && CLOUDFLARE_API_TOKEN="token" npx wrangler deploy`
+**Deploy**: `cd worker && CLOUDFLARE_API_TOKEN="token" npm run deploy`
+
+Use `npm run deploy`, not `npx wrangler deploy` — the npm script runs `predeploy`,
+which is the full worker suite. Calling wrangler directly skips it and ships
+untested code, which is how production worked until 2026-08-01.
+
+**Verify**: `node scripts/smoke.mjs` — 27 end-to-end checks against production
+(v1 roundtrip, workspace create/read/write, the content domain, negative
+surfaces). Every static fetch is cache-busted, because a successful deploy has
+three times been masked by the edge still serving the previous asset. CI runs it
+every six hours and after any deploy it performs.
 
 **MCP Config** (`.mcp.json`):
 ```json

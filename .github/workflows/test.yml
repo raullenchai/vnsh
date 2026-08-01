@@ -111,6 +111,24 @@ jobs:
         with:
           node-version: '20'
 
+      # tests/ was a whole package — its own package.json, its own vitest.config,
+      # an E2E suite and cross-implementation crypto vectors — that no npm script
+      # and no job here ever invoked. Nobody noticed until it was found still
+      # asserting a payment path deleted from the product months earlier. A test
+      # that never runs does not decay into a useless test, it decays into a
+      # false claim of coverage, so the orphan itself is what to fail on.
+      - name: Every test file belongs to a suite CI runs
+        run: |
+          orphans=$(git ls-files '*.test.ts' '*.test.js' '*.test.mjs' \
+            | grep -vE '^(worker|mcp|cli/npm|extension)/' || true)
+          if [ -n "$orphans" ]; then
+            echo "::error::these test files are in no suite CI runs:"
+            echo "$orphans"
+            echo "move them under worker/, mcp/, cli/npm/ or extension/, or delete them"
+            exit 1
+          fi
+          echo "ok: every test file is inside a suite this workflow runs"
+
       - name: Check formatting (worker)
         run: cd worker && npm ci && npx tsc --noEmit
 
@@ -122,3 +140,45 @@ jobs:
 
       - name: Check formatting (extension)
         run: cd extension && npm ci && npx tsc --noEmit
+
+  deploy:
+    name: Deploy
+    # The gate that did not exist. Until now `wrangler deploy` only ever ran from
+    # a laptop, which means production never required these jobs to have passed —
+    # or to have run at all. Every suite above must be green before this starts.
+    needs: [test-worker, test-mcp, test-cli, test-extension, lint]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: worker/package-lock.json
+
+      # Inert until CLOUDFLARE_API_TOKEN is added in Settings > Secrets. Without
+      # it this skips with a notice instead of failing, so adding this file
+      # changes nothing about how the project ships until that is a deliberate
+      # choice. Deploys keep working from a laptop in the meantime.
+      - name: Deploy worker
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN is not set, so nothing was deployed. Add the secret to gate production on this workflow."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cd worker && npm ci && npx wrangler deploy
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+      # A deploy reporting success is not the same as the change being live: the
+      # edge has served the previous asset past a successful deploy three times
+      # in this project. smoke.mjs busts the cache on every static fetch.
+      - name: Smoke test what was just deployed
+        if: steps.deploy.outputs.deployed == 'true'
+        run: node scripts/smoke.mjs https://vnsh.dev

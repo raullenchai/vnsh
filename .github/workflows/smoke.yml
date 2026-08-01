@@ -1,0 +1,41 @@
+name: smoke
+
+# The unit suites run the worker in a local pool against a fake bucket, so every
+# outage this project has actually had was invisible to them: the KV write cap
+# that turned every route into a 1101, three deploys where the edge kept serving
+# the previous asset, a route that existed in tests and 404ed in production.
+# This job is the one that talks to the real thing.
+#
+# On a schedule because those failures do not arrive with a commit — the KV cap
+# was reached by traffic, hours after the last push.
+
+on:
+  schedule:
+    # Every six hours, off the hour: scheduled runs cluster at :00 and get queued.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      host:
+        description: 'Host to smoke test'
+        required: false
+        default: 'https://vnsh.dev'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Production smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No npm ci: the script is dependency-free on purpose, so this stays a
+      # check on production rather than a check on our lockfiles.
+      - name: Smoke test
+        run: node scripts/smoke.mjs "${{ inputs.host || 'https://vnsh.dev' }}"
