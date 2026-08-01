@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
+// The workspace route now content-negotiates: anything not asking for HTML
+// gets the agent guide as plain text. A suite asserting the browser page has to
+// ask for the browser page.
+const BROWSER = { headers: { Accept: 'text/html' } };
+
 type Env = { VNSH_STORE: R2Bucket };
 
 // The write token is any 64 hex chars; the server only ever stores its SHA-256.
@@ -217,7 +222,7 @@ describe('Workspaces', () => {
 
 describe('GET /w/:id viewer', () => {
   it('serves the viewer page', async () => {
-    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
+    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER));
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toContain('text/html');
     const html = await response.text();
@@ -229,7 +234,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('renders workspace content only inside a sandboxed frame', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     // allow-same-origin alongside allow-scripts would defeat the sandbox entirely:
     // the frame could then read parent.location.hash, which is the key.
@@ -242,7 +247,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('injects a network-blocking CSP into the framed content', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
     // Without default-src 'none' the content could fetch the plaintext back out
     // to an attacker, which would break the host-blind guarantee from the inside.
     expect(html).toContain("default-src 'none'");
@@ -250,7 +255,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('places the CSP by parsing the document, not by pattern-matching it', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     // The first version injected the policy after the first /<head[^>]*>/ match,
     // so content containing an HTML comment holding a fake head tag swallowed the
@@ -262,7 +267,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('surfaces sharing and vnsh itself instead of a bare warning', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     // "untrusted content" read as an alarm to someone opening their own report,
     // while the real anti-phishing controls (form-action 'none', no network) do
@@ -281,7 +286,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('offers both share tiers and can never hand out more than it holds', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     expect(html).toContain('Copy view-only link');
     expect(html).toContain('Copy edit link');
@@ -295,7 +300,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('routes links out of the sandbox instead of letting content open windows', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     // A link inside the frame would otherwise navigate the frame itself, and the
     // target would inherit the sandbox — so every link in every document looked
@@ -317,7 +322,7 @@ describe('GET /w/:id viewer', () => {
   });
 
   it('does not advertise commands that do not exist', async () => {
-    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
     // An earlier draft told recipients to run `npx vnsh workspace read`, which the
     // npm CLI has never implemented.
     expect(html).not.toContain('vnsh workspace read');
@@ -438,7 +443,7 @@ describe('agent setup prompt', () => {
 
   it('is the first thing on the page, and offered on the viewer too', async () => {
     const home = await (await call(new Request('http://localhost/'))).text();
-    const viewer = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    const viewer = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
 
     expect(home.indexOf('cta-block')).toBeLessThan(home.indexOf('id="dropzone"'));
     expect(viewer).toContain('Get this in your own agent');
@@ -654,7 +659,7 @@ describe('homepage onboarding order', () => {
  */
 describe('workspace page explains itself to agents', () => {
   async function page(): Promise<string> {
-    return (await call(new Request('http://localhost/w/aBcDeFgHiJkL'))).text();
+    return (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
   }
 
   it('heads off the two things an agent would otherwise try', async () => {
@@ -737,7 +742,7 @@ describe('workspace page explains itself to agents', () => {
   });
 
   it('advertises the protocol description in a header too', async () => {
-    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL'));
+    const response = await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER));
     await response.text();
     expect(response.headers.get('Link')).toContain('rel="describedby"');
     expect(response.headers.get('Link')).toContain('/llms.txt');
@@ -756,5 +761,66 @@ describe('workspace page explains itself to agents', () => {
     expect(html).not.toContain('left:-9999px');
     expect(html).toContain('<details class="agent-guide">');
     expect(html).toMatch(/<summary>For automated readers/);
+  });
+});
+
+/**
+ * Reported from the field: an agent was given a workspace URL, fetched it, read
+ * the crawler comment in <head> saying the workspace could not be seen, and told
+ * its user the content was unreadable — then guessed at it from their prose. It
+ * held the key the whole time; the fragment was in the URL it had been handed.
+ *
+ * Two things were wrong and both are load-bearing. The page opened with a true
+ * statement about crawlers that reads as a false statement about agents, and the
+ * procedure that contradicts it sat 7KB further down a 40KB document.
+ */
+describe('an automated reader is told it can read this, not that it cannot', () => {
+  const CURL = { headers: { 'User-Agent': 'curl/8.4.0', Accept: '*/*' } };
+
+  it('answers a non-HTML client with the procedure alone', async () => {
+    const res = await call(new Request('http://localhost/w/aBcDeFgHiJkL', CURL));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/plain');
+    const body = await res.text();
+    // The sentence that turns "impossible" into "here is how".
+    expect(body).toContain('you already hold the key');
+    expect(body).toContain('vnsh/enc/v2');
+    expect(body).toContain('vnsh_workspace_read');
+    // Small enough to be read in full rather than skimmed.
+    expect(body.length).toBeLessThan(6000);
+  });
+
+  it('gives a browser the application, not the procedure', async () => {
+    const res = await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER));
+    expect(res.headers.get('Content-Type')).toContain('text/html');
+    expect(await res.text()).toContain('<!DOCTYPE html>');
+  });
+
+  it('keeps the link-preview card for crawlers that ask for */*', async () => {
+    // The card is the one surface every recipient of a shared link sees, and
+    // several preview fetchers do not ask for text/html. Negotiating on Accept
+    // alone would have traded it away silently.
+    for (const ua of ['Twitterbot/1.0', 'facebookexternalhit/1.1', 'Slackbot-LinkExpanding 1.0']) {
+      const res = await call(new Request('http://localhost/w/aBcDeFgHiJkL', {
+        headers: { 'User-Agent': ua, Accept: '*/*' },
+      }));
+      expect(res.headers.get('Content-Type'), ua).toContain('text/html');
+      expect(await res.text(), ua).toContain('og:image');
+    }
+  });
+
+  it('serves one guide, not two that can drift', async () => {
+    const plain = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', CURL))).text();
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
+    expect(html).toContain(plain);
+  });
+
+  it('no longer opens by telling the reader the workspace cannot be seen', async () => {
+    const html = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
+    const head = html.slice(0, html.indexOf('</head>'));
+    expect(head).not.toContain('it cannot see\n     the workspace');
+    // and it must actively correct the inference that sank the reported case
+    expect(head).toContain('fragment is in the text you were given');
+    expect(head).toContain('https://vnsh.dev/llms.txt');
   });
 });

@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
+// The workspace route now content-negotiates: anything not asking for HTML
+// gets the agent guide as plain text. A suite asserting the browser page has to
+// ask for the browser page.
+const BROWSER = { headers: { Accept: 'text/html' } };
+
 type Env = { VNSH_STORE: R2Bucket };
 
 /**
@@ -17,7 +22,7 @@ type Env = { VNSH_STORE: R2Bucket };
  */
 async function scriptsOn(path: string): Promise<string[]> {
   const ctx = createExecutionContext();
-  const response = await worker.fetch(new Request('http://localhost' + path), env as Env, ctx);
+  const response = await worker.fetch(new Request('http://localhost' + path, BROWSER), env as Env, ctx);
   await waitOnExecutionContext(ctx);
   expect(response.status).toBe(200);
   const html = await response.text();
@@ -112,7 +117,7 @@ describe('the zero-install decrypt path stays runnable', () => {
   async function snippet(): Promise<string> {
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request('http://localhost/w/aBcDeFgHiJkL'),
+      new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER),
       env as Env,
       ctx,
     );

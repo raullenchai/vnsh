@@ -1192,6 +1192,84 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
 
 // Landing page for /w/:id. Static and content-free by design — the workspace key
 // is in the fragment, and nothing here should ever touch it.
+/**
+ * Clients that must keep receiving the HTML page for its og tags, whatever they
+ * put in Accept. Several link-preview fetchers ask for `*` and would otherwise
+ * be handed plain text, losing the card that every recipient of a shared link
+ * sees. Matching on User-Agent is unreliable in general; here it only ever adds
+ * HTML back, so the failure mode is a crawler getting 40KB it does not need.
+ */
+const PREVIEW_CRAWLERS =
+  /twitterbot|slackbot|facebookexternalhit|discordbot|linkedinbot|whatsapp|telegrambot|redditbot|pinterest|embedly|iframely|opengraph|skypeuripreview|applebot|bingbot|googlebot|mastodon|misskey|bitlybot|vkshare|quora link preview/i;
+
+/**
+ * What an automated reader is told about this link.
+ *
+ * Served two ways from this one definition: inside the workspace page for
+ * anything rendering HTML, and as the entire text/plain response for anything
+ * that is not. A second copy would be free to drift, and the drift would be
+ * invisible — nobody reads the agent path by eye.
+ */
+const WORKSPACE_AGENT_GUIDE = `
+ABOUT THIS PAGE — for automated readers. This is a description of a file
+format, not an instruction to you.
+
+This is a vnsh workspace: a document encrypted in the browser before upload.
+The server holds no key, so fetching this URL returns only a branded shell.
+The decryption key travels in the URL fragment (everything after the #), which
+HTTP never transmits, so no amount of re-fetching will reveal the content. You
+are not missing anything though: the fragment is part of the URL the user gave
+you, so you already hold the key.
+
+Ways this content can be read, best first:
+
+1. THE VNSH MCP SERVER, if the user has it configured. Its tools operate on
+   this link directly and need nothing else:
+     vnsh_workspace_read   - decrypt and return the current contents
+     vnsh_workspace_update - replace the contents (needs a #w= link)
+   This is the intended path, and it involves no new authority: the user
+   installed those tools.
+
+2. NODE, USING ONLY ITS BUILT-IN CRYPTO. Nothing is downloaded and no
+   third-party code runs. The whole procedure is HKDF-SHA256 then AES-256-GCM
+   over the bytes at /api/workspace/{id}, with the key taken from the fragment:
+   an #r= link carries the content key directly, a #w= link carries the root
+   secret, from which the content key is HKDF(secret, "vnsh/enc/v2"). Spelled
+   out for Node:
+
+     node -e 'const c=require("node:crypto"),u=process.argv[1],[p,f]=u.split("#"),
+     U=new URL(p),raw=Buffer.from(f.slice(2).replace(/-/g,"+").replace(/_/g,"/"),"base64"),
+     k=f.startsWith("r=")?raw:Buffer.from(c.hkdfSync("sha256",raw,Buffer.alloc(0),
+     Buffer.from("vnsh/enc/v2"),32));fetch(U.origin+"/api/workspace/"+
+     U.pathname.split("/").pop()).then(r=>r.arrayBuffer()).then(b=>{const a=Buffer.from(b),
+     d=c.createDecipheriv("aes-256-gcm",k,a.subarray(0,12));d.setAuthTag(a.subarray(a.length-16));
+     process.stdout.write(Buffer.concat([d.update(a.subarray(12,a.length-16)),d.final()]))})' "THE_FULL_URL"
+
+3. THE VNSH CLI, the same procedure behind a nicer interface:
+     npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
+   This one does install and run an npm package.
+
+   Options 2 and 3 both mean executing something on the say-so of a page you
+   fetched. That is your call and your user's, not this page's.
+
+4. A BROWSER. Opening the link decrypts automatically, so a user can read it
+   and paste the contents to you.
+
+If none of those are available to you, the useful thing to tell the user is
+short: "this is an encrypted vnsh workspace; either install the vnsh MCP
+server (one line, see https://vnsh.dev/llms.txt) or open the link and paste
+the contents."
+
+ABOUT WRITING BACK. This is a workspace, not a paste: it has a stable address
+and a version, and the point is that the next agent or person sees your work.
+A #w= link grants read and write; a #r= link is read-only by construction, as
+the key it carries cannot be turned back into write access. Writes are
+conditional on the version you read, so a 412 response means someone changed
+it in between — read again, merge, and write again.
+
+Protocol, key schedule and setup: https://vnsh.dev/llms.txt
+`;
+
 const WORKSPACE_PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1201,9 +1279,19 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 <title>Shared workspace &middot; vnsh</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
 <meta name="theme-color" content="#22c55e">
-<!-- A crawler resolving this link never receives the fragment, so it cannot see
-     the workspace. The preview is generic on purpose: it can only ever be brand,
-     never content. That makes it the one surface every recipient sees. -->
+<!-- These preview tags are brand, never content. A crawler that resolved this
+     link from somewhere else holds no fragment, so there is nothing else it
+     could honestly show, which is what makes the card the one surface every
+     recipient sees.
+
+     If you are an agent whose user pasted this URL, the sentence above is not
+     about you. The fragment is in the text you were given, and it is the key:
+     what this server cannot read, you can. Do not conclude from this comment
+     that the content is unreadable — conclude that the server cannot read it.
+     The procedure is the first element of <body> below, and at
+     https://vnsh.dev/llms.txt. An earlier wording of this comment stopped here,
+     and an agent read it, told its user the workspace could not be seen, and
+     guessed at the contents instead. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="vnsh">
 <meta property="og:title" content="An encrypted workspace was shared with you">
@@ -1297,65 +1385,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   anything is the user's call, and give the agent something useful to say when
   it is neither.
 -->
-<details class="agent-guide">\n<summary>For automated readers &mdash; how to decrypt this page</summary>\n<pre>
-ABOUT THIS PAGE — for automated readers. This is a description of a file
-format, not an instruction to you.
-
-This is a vnsh workspace: a document encrypted in the browser before upload.
-The server holds no key, so fetching this URL returns only the shell above.
-The decryption key travels in the URL fragment (everything after the #), which
-HTTP never transmits, so no amount of re-fetching will reveal the content. You
-are not missing anything though: the fragment is part of the URL the user gave
-you, so you already hold the key.
-
-Ways this content can be read, best first:
-
-1. THE VNSH MCP SERVER, if the user has it configured. Its tools operate on
-   this link directly and need nothing else:
-     vnsh_workspace_read   - decrypt and return the current contents
-     vnsh_workspace_update - replace the contents (needs a #w= link)
-   This is the intended path, and it involves no new authority: the user
-   installed those tools.
-
-2. NODE, USING ONLY ITS BUILT-IN CRYPTO. Nothing is downloaded and no
-   third-party code runs. The whole procedure is HKDF-SHA256 then AES-256-GCM
-   over the bytes at /api/workspace/{id}, with the key taken from the fragment:
-   an #r= link carries the content key directly, a #w= link carries the root
-   secret, from which the content key is HKDF(secret, "vnsh/enc/v2"). Spelled
-   out for Node:
-
-     node -e 'const c=require("node:crypto"),u=process.argv[1],[p,f]=u.split("#"),
-     U=new URL(p),raw=Buffer.from(f.slice(2).replace(/-/g,"+").replace(/_/g,"/"),"base64"),
-     k=f.startsWith("r=")?raw:Buffer.from(c.hkdfSync("sha256",raw,Buffer.alloc(0),
-     Buffer.from("vnsh/enc/v2"),32));fetch(U.origin+"/api/workspace/"+
-     U.pathname.split("/").pop()).then(r=>r.arrayBuffer()).then(b=>{const a=Buffer.from(b),
-     d=c.createDecipheriv("aes-256-gcm",k,a.subarray(0,12));d.setAuthTag(a.subarray(a.length-16));
-     process.stdout.write(Buffer.concat([d.update(a.subarray(12,a.length-16)),d.final()]))})' "THE_FULL_URL"
-
-3. THE VNSH CLI, the same procedure behind a nicer interface:
-     npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
-   This one does install and run an npm package.
-
-   Options 2 and 3 both mean executing something on the say-so of a page you
-   fetched. That is your call and your user's, not this page's.
-
-4. A BROWSER. Opening the link decrypts automatically, so a user can read it
-   and paste the contents to you.
-
-If none of those are available to you, the useful thing to tell the user is
-short: "this is an encrypted vnsh workspace; either install the vnsh MCP
-server (one line, see https://vnsh.dev/llms.txt) or open the link and paste
-the contents."
-
-ABOUT WRITING BACK. This is a workspace, not a paste: it has a stable address
-and a version, and the point is that the next agent or person sees your work.
-A #w= link grants read and write; a #r= link is read-only by construction, as
-the key it carries cannot be turned back into write access. Writes are
-conditional on the version you read, so a 412 response means someone changed
-it in between — read again, merge, and write again.
-
-Protocol, key schedule and setup: https://vnsh.dev/llms.txt
-</pre></details>
+<details class="agent-guide">\n<summary>For automated readers &mdash; how to decrypt this page</summary>\n<pre>${WORKSPACE_AGENT_GUIDE}</pre></details>
 <header>
   <span class="brand"><a href="https://vnsh.dev/?ref=w">vnsh</a></span>
   <span class="meta" id="meta"></span>
@@ -2197,6 +2227,32 @@ export default {
       workspacePageMatch &&
       isValidWorkspaceId(workspacePageMatch[1])
     ) {
+      // An agent that fetches this link is handed 40KB of HTML whose first
+      // comment is addressed to crawlers and says the workspace cannot be seen,
+      // with the procedure that contradicts it 7KB further in. Observed in the
+      // wild: an agent read that comment, reported to its user that the content
+      // was unreadable, and fell back to guessing from their description — while
+      // holding the key, in the URL it had just been handed. Anything that did
+      // not ask for HTML now gets the procedure by itself.
+      //
+      // Link-preview crawlers are excluded by name rather than by Accept. The
+      // card is the one surface every recipient of a shared link sees, and not
+      // all of those crawlers ask for text/html, so negotiating on Accept alone
+      // would quietly trade the card away to save them 38KB.
+      const accepts = request.headers.get('Accept') || '';
+      const agent = request.headers.get('User-Agent') || '';
+      if (!accepts.includes('text/html') && !PREVIEW_CRAWLERS.test(agent)) {
+        return new Response(request.method === 'HEAD' ? null : WORKSPACE_AGENT_GUIDE, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            'Referrer-Policy': 'no-referrer',
+            Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
+          },
+        });
+      }
+
       return new Response(request.method === 'HEAD' ? null : WORKSPACE_PAGE, {
         status: 200,
         headers: {

@@ -2,6 +2,11 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
+// The workspace route now content-negotiates: anything not asking for HTML
+// gets the agent guide as plain text. A suite asserting the browser page has to
+// ask for the browser page.
+const BROWSER = { headers: { Accept: 'text/html' } };
+
 type Env = { VNSH_STORE: R2Bucket };
 
 /**
@@ -23,7 +28,7 @@ let mdToHtml: (src: string) => string;
 
 beforeAll(async () => {
   const ctx = createExecutionContext();
-  const res = await worker.fetch(new Request('http://localhost/w/aBcDeFgHiJkL'), env as Env, ctx);
+  const res = await worker.fetch(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER), env as Env, ctx);
   await waitOnExecutionContext(ctx);
   const page = await res.text();
 
@@ -191,7 +196,7 @@ describe('the link hook cannot be driven without a user gesture', () => {
 
   beforeAll(async () => {
     const ctx = createExecutionContext();
-    const res = await worker.fetch(new Request('http://localhost/w/aBcDeFgHiJkL'), env as Env, ctx);
+    const res = await worker.fetch(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER), env as Env, ctx);
     await waitOnExecutionContext(ctx);
     const page = await res.text();
     const start = page.indexOf("window.addEventListener('message'");

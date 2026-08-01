@@ -163,6 +163,38 @@ async function main() {
       `got ${forged.status}`);
   }
 
+  // ---- what an automated reader is handed -----------------------------------
+  // A reported failure: an agent fetched a workspace URL, read a comment in the
+  // HTML addressed to crawlers, concluded the content was unreadable, and told
+  // its user so — while holding the key. Non-HTML clients now get the procedure
+  // by itself. Verified end-to-end by a subagent with no vnsh code available,
+  // which read the guide and wrote its own decryption from it.
+  console.log('\nagent-facing surface');
+  if (wsId) {
+    const asAgent = await fetch(`${HOST}/w/${wsId}`, {
+      headers: { 'User-Agent': 'curl/8.4.0', Accept: '*/*' },
+    });
+    const guide = await asAgent.text();
+    check('a non-HTML client gets text, not the app',
+      (asAgent.headers.get('content-type') || '').includes('text/plain'),
+      asAgent.headers.get('content-type') || 'none');
+    check('the guide says the reader already holds the key',
+      guide.includes('you already hold the key'));
+    check('the guide names the key derivation', guide.includes('vnsh/enc/v2'));
+
+    const asBrowser = await fetch(`${HOST}/w/${wsId}`, { headers: { Accept: 'text/html' } });
+    check('a browser still gets the application',
+      (asBrowser.headers.get('content-type') || '').includes('text/html'));
+
+    // The card is the one surface every recipient of a shared link sees, and
+    // several preview fetchers ask for */*.
+    const asCrawler = await fetch(`${HOST}/w/${wsId}`, {
+      headers: { 'User-Agent': 'Twitterbot/1.0', Accept: '*/*' },
+    });
+    check('a link-preview crawler still gets the card',
+      (await asCrawler.text()).includes('og:image'));
+  }
+
   // ---- the public content domain -------------------------------------------
   console.log('\npublic content domain');
   const pub = workspaceKeys();
