@@ -1790,21 +1790,32 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     // Diff markers carry a filename or a hunk header; a horizontal rule does not.
     if (/^(--- |\\+\\+\\+ |diff --git |@@ )/m.test(text)) return false;
     if (/^(FROM|RUN|COPY|ENTRYPOINT|CMD)\\s/m.test(text)) return false;
-    // A config file is *made of* "key: value" lines. A prose document merely
-    // contains one now and then — whenever a sentence wraps so that a word
-    // ending in a colon lands at the start of a line. Counting to two could not
-    // tell those apart, and rejected a 250-line report carrying seven of the
-    // eight signals below over "Concretely:" and "before:". So the veto asks for
-    // a share of the document instead of an absolute count: a third of the
-    // non-blank lines, which real YAML clears easily and prose never approaches.
+    // The three vetoes below look for a pattern that a machine-readable file is
+    // *made of* and a prose document merely contains: "key: value" lines,
+    // "KEY=value" lines, and lines closing on a brace or semicolon. Presence was
+    // the wrong test for all three, and wrong in a way that got worse with
+    // length. Hard-wrapped prose puts a word at the start and the end of every
+    // line, so given enough lines it produces all three by accident — which made
+    // these vetoes likelier to fire the longer and more markdown-like a document
+    // became. One real report was rejected over "Concretely:" and "before:"; the
+    // property test that followed found the other two the same afternoon.
+    //
+    // Proportion is the honest test. A config file is built out of these lines;
+    // a report contains a couple by accident. A third of the non-blank lines is
+    // a threshold every config and source file in the corpus clears with room to
+    // spare — YAML 50%, docker-compose 75%, a workflow 73%, dotenv 100% — and
+    // that prose never approaches: the report that started this scores 1%.
     var body = text.split(/\\r?\\n/).filter(function (l) { return l.trim(); }).length;
-    var pairs = (text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length;
-    if (pairs >= 2 && pairs * 3 >= body) return false;
-    if (/^\\s*[\\w.-]+\\s*=\\s*\\S/m.test(text)) return false;
+    function madeOf(re) {
+      var n = (text.match(re) || []).length;
+      return n >= 2 && n * 3 >= body;
+    }
+    if (madeOf(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm)) return false;
+    if (madeOf(/^[ \\t]*[\\w.-]+[ \\t]*=[ \\t]*\\S/gm)) return false;
 
     var tick = String.fromCharCode(96);
     var fence = new RegExp('^' + tick + tick + tick, 'm');
-    if (/[{};]\\s*$/m.test(text) && !fence.test(text)) return false;
+    if (!fence.test(text) && madeOf(/[{};][ \\t]*$/gm)) return false;
 
     var signals = [
       /^#{1,6}\\s+\\S/m, fence, /^\\s*([-*+]|\\d+\\.)\\s+\\S/m, /\\[[^\\]]+\\]\\([^)]+\\)/,
