@@ -312,3 +312,96 @@ describe('a horizontal rule is not front matter', () => {
     ).toBe(false);
   });
 });
+
+/**
+ * The second real document to open as source instead of rendered. Same shape of
+ * mistake as the horizontal rule above: a veto meant for config files matched
+ * two lines of ordinary English. Hard-wrapped prose puts a word at the start of
+ * every line, and sooner or later one of them ends in a colon — here
+ * "Concretely:" and "before:", eleven pages apart. Two was the whole threshold.
+ *
+ * What separates the two cases is proportion, not the presence of the pattern:
+ * a config file is made of key-value lines, a report contains a couple by
+ * accident. So these fixtures pin both directions of that ratio.
+ */
+describe('a colon in wrapped prose is not a config file', () => {
+  let looksLikeMarkdown: (s: string) => boolean;
+
+  beforeAll(() => {
+    const start = page.indexOf('function looksLikeMarkdown(input)');
+    const end = page.indexOf('function render(', start);
+    expect(start).toBeGreaterThan(-1);
+    looksLikeMarkdown = new Function(
+      `${page.slice(start, end)};return looksLikeMarkdown;`,
+    )() as typeof looksLikeMarkdown;
+  });
+
+  // Trimmed from the reported workspace, keeping the two lines that tripped the
+  // veto at the column the author's wrapping put them in.
+  const report = [
+    '# QuickSilver Pro — zero-friction trial',
+    '',
+    '**Goal:** a registered user tries the product without configuring anything.',
+    '',
+    '---',
+    '',
+    '## 1. The problem, measured',
+    '',
+    '| Stage | July | June |',
+    '|---|---|---|',
+    '| Registered, never created a key | 28 | 30 |',
+    '| Paid | 4 | 7 |',
+    '',
+    'The first screen after signup is written for engineers, and its most prominent',
+    'elements are a leak warning and a red danger zone.',
+    '',
+    'Concretely: **a non-technical buyer cannot become our customer today.** Every',
+    'call requires a key, and the only path to a key is that screen.',
+    '',
+    '## 2. Preventing farming',
+    '',
+    '> **Do not try to win by detecting bots.**',
+    '',
+    'This is the part that decides whether the whole thing is safe to ship. We were',
+    'burned in the week of ~05-11, when 373 Sybil accounts burned $507 of credits',
+    'before: the response was a hard zero, which still holds in production today.',
+    '',
+    '- Denominated in tokens, never dollars',
+    '- One cheap model only',
+  ].join('\n');
+
+  it('renders a wrapped report whose lines happen to start with a colon word', () => {
+    expect(looksLikeMarkdown(report)).toBe(true);
+  });
+
+  it('renders it no matter how many such lines the wrapping produces', () => {
+    // The old test was an absolute count, so a longer document was strictly
+    // more likely to be rejected — exactly backwards for a signal that scales
+    // with length by accident.
+    expect(looksLikeMarkdown(report + '\n\nFinally: one more wrapped sentence.\n')).toBe(true);
+  });
+
+  // The veto still has a job, and a config file clears the ratio comfortably.
+  it('still declines YAML that opens with a comment', () => {
+    expect(looksLikeMarkdown('# deploy\nname: ci\non:\n  - push\n')).toBe(false);
+  });
+
+  it('still declines docker-compose', () => {
+    expect(looksLikeMarkdown('# stack\nservices:\n  web:\n    image: nginx\n')).toBe(false);
+  });
+
+  it('still declines a workflow file, which is nearly all key lines', () => {
+    const workflow = [
+      '# CI',
+      'name: test',
+      'on:',
+      '  push:',
+      '    branches:',
+      '      - main',
+      'jobs:',
+      '  build:',
+      '    runs-on: ubuntu-latest',
+    ].join('\n');
+    expect(looksLikeMarkdown(workflow)).toBe(false);
+  });
+});

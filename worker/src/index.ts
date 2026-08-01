@@ -1790,7 +1790,16 @@ Protocol, key schedule and setup: https://vnsh.dev/llms.txt
     // Diff markers carry a filename or a hunk header; a horizontal rule does not.
     if (/^(--- |\\+\\+\\+ |diff --git |@@ )/m.test(text)) return false;
     if (/^(FROM|RUN|COPY|ENTRYPOINT|CMD)\\s/m.test(text)) return false;
-    if ((text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length >= 2) return false;
+    // A config file is *made of* "key: value" lines. A prose document merely
+    // contains one now and then — whenever a sentence wraps so that a word
+    // ending in a colon lands at the start of a line. Counting to two could not
+    // tell those apart, and rejected a 250-line report carrying seven of the
+    // eight signals below over "Concretely:" and "before:". So the veto asks for
+    // a share of the document instead of an absolute count: a third of the
+    // non-blank lines, which real YAML clears easily and prose never approaches.
+    var body = text.split(/\\r?\\n/).filter(function (l) { return l.trim(); }).length;
+    var pairs = (text.match(/^[ \\t]*[\\w.-]+:(?:[ \\t]|$)/gm) || []).length;
+    if (pairs >= 2 && pairs * 3 >= body) return false;
     if (/^\\s*[\\w.-]+\\s*=\\s*\\S/m.test(text)) return false;
 
     var tick = String.fromCharCode(96);
