@@ -1303,7 +1303,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
 <meta name="twitter:title" content="An encrypted workspace was shared with you">
 <meta name="twitter:description" content="Decrypts in your browser. vnsh cannot read it. Gone 24h after the last edit.">
 <meta name="twitter:image" content="https://vnsh.dev/og-workspace.png">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src data:; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src data:; img-src data: blob:">
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --line:#21262d;
@@ -1354,6 +1354,9 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   code{font-family:ui-monospace,'SF Mono',Menlo,monospace;background:#21262d;border:1px solid var(--line);
     border-radius:4px;padding:.1em .35em;font-size:.86em}
   a{color:var(--accent)}
+  .binary{padding:16px;display:flex;justify-content:center}
+  .binary img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px}
+  .binary p{color:var(--ink-2);font-size:14px}
   .agent-guide{order:99;flex:0 0 auto;border-top:1px solid var(--line);
     background:var(--bg);font-size:.72rem}
   .agent-guide>summary{cursor:pointer;padding:6px 14px;color:var(--ink-3);
@@ -1422,6 +1425,11 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   var metaEl = document.getElementById('meta');
   var mainEl = document.querySelector('main');
   var plaintext = null, fileName = 'workspace', showingSource = false;
+  // The bytes as they were decrypted. plaintext is a TextDecoder view of
+  // them and is lossy for anything that is not UTF-8 — a 53KB screenshot
+  // became 93KB of U+FFFD, and the download button then re-encoded that
+  // string, handing the reader a corrupt file instead of their image.
+  var plainBytes = null, fileKind = null, objectUrl = null;
   var canWrite = false, rootSecret = null, contentKey = null;
 
   function fail(title, detail) {
@@ -1794,6 +1802,55 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     mainEl.appendChild(pre);
   }
 
+  // What the first bytes say the content is. A workspace holds whatever was put
+  // in it, and the Chrome extension puts JPEG screenshots in, so "it is text"
+  // was never a safe assumption — it was just the only one this page made.
+  function detectFileType(b) {
+    if (!b || b.length < 4) return null;
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
+      return { ext: 'png', mime: 'image/png', image: true };
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff)
+      return { ext: 'jpg', mime: 'image/jpeg', image: true };
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46)
+      return { ext: 'gif', mime: 'image/gif', image: true };
+    if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+        b.length >= 12 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50)
+      return { ext: 'webp', mime: 'image/webp', image: true };
+    if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46)
+      return { ext: 'pdf', mime: 'application/pdf', image: false };
+    return null;
+  }
+
+  function blobUrl() {
+    if (!objectUrl) {
+      objectUrl = URL.createObjectURL(
+        new Blob([plainBytes], { type: fileKind ? fileKind.mime : 'application/octet-stream' }));
+    }
+    return objectUrl;
+  }
+
+  // An <img> is the one safe way to show a stranger's bytes without a sandbox:
+  // a browser will not execute a raster image. SVG would be a different matter,
+  // which is why it is not sniffed here — it is text and stays on the text path.
+  function renderBinary() {
+    mainEl.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'binary';
+    if (fileKind && fileKind.image) {
+      var img = document.createElement('img');
+      img.src = blobUrl();
+      img.alt = 'The decrypted image in this workspace';
+      wrap.appendChild(img);
+    } else {
+      var note = document.createElement('p');
+      note.textContent = (fileKind ? fileKind.mime : 'Binary content') +
+        ' · ' + plainBytes.length.toLocaleString() + ' bytes. ' +
+        'Use Download to save it unchanged.';
+      wrap.appendChild(note);
+    }
+    mainEl.appendChild(wrap);
+  }
+
 
   // Whether a document *opens* rendered. It decides the default only — the
   // toggle beside it is always available — so the cost of being wrong is one
@@ -1856,6 +1913,9 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   }
 
   function render() {
+    // Before any of the text heuristics: a screenshot is not a document that
+    // happens to render badly, it is not text at all.
+    if (fileKind) return renderBinary();
     // Rendered vs source is one binary choice; only the default differs by
     // content type. HTML opens rendered because that is what its author wrote it
     // for. Markdown opens rendered too, because the point of #33 is the screen a
@@ -1919,6 +1979,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       // canWrite was already decided by which link tier was used; the write
       // token is derived from the secret and is unaffected by how content is
       // stored.
+      plainBytes = payload;
       plaintext = new TextDecoder().decode(payload);
     } else
     try {
@@ -1927,14 +1988,16 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       contentKey = raw;
       var buf = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: payload.slice(0, 12) }, key, payload.slice(12));
+      plainBytes = new Uint8Array(buf);
       plaintext = new TextDecoder().decode(buf);
     } catch (e) {
       return fail('Could not decrypt this workspace',
         'The key in the link does not match, or the content was altered.');
     }
 
-    fileName = 'vnsh-' + id + '-v' + version +
-      (looksLikeHtml(plaintext) ? '.html' : looksLikeMarkdown(plaintext) ? '.md' : '.txt');
+    fileKind = detectFileType(plainBytes);
+    fileName = 'vnsh-' + id + '-v' + version + (fileKind ? '.' + fileKind.ext :
+      looksLikeHtml(plaintext) ? '.html' : looksLikeMarkdown(plaintext) ? '.md' : '.txt');
 
     function humanLeft(iso) {
       if (!iso) return '';
@@ -1996,17 +2059,21 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     dl.hidden = false;
     dl.onclick = function () {
       var a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([plaintext], { type: 'application/octet-stream' }));
+      a.href = fileKind ? blobUrl() : URL.createObjectURL(
+        new Blob([plaintext], { type: 'application/octet-stream' }));
       a.download = fileName;
       a.click();
-      URL.revokeObjectURL(a.href);
+      // Only throw away a URL we minted for this click. The binary path
+      // reuses the one the <img> is displaying; revoking it blanks the page.
+      if (!fileKind) URL.revokeObjectURL(a.href);
     };
 
     // Every document can be shown both ways, so the toggle is always offered.
-    var isHtml = looksLikeHtml(plaintext);
+    var isHtml = !fileKind && looksLikeHtml(plaintext);
     var renderedLabel = isHtml ? 'View page' : 'View rendered';
-    showingSource = !(isHtml || looksLikeMarkdown(plaintext));
-    raw.hidden = false;
+    showingSource = !fileKind && !(isHtml || looksLikeMarkdown(plaintext));
+    // Nothing to toggle between when the content is an image or a PDF.
+    raw.hidden = Boolean(fileKind);
     raw.textContent = showingSource ? renderedLabel : 'View source';
     raw.onclick = function () {
       showingSource = !showingSource;

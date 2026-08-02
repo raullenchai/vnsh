@@ -8,6 +8,7 @@
 import { program } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import {
   encrypt,
   decrypt,
@@ -282,18 +283,65 @@ async function readWorkspace(url: string): Promise<void> {
 
   const payload = Buffer.from(await response.arrayBuffer());
 
+/**
+ * Binary going to a terminal reads as a failure, whatever the exit code.
+ *
+ * `vn read` on a workspace holding a screenshot was byte-perfect when redirected
+ * to a file, and 53KB of mojibake when it was not. An agent ran it, saw the
+ * mojibake, and reported that the CLI "does not accept /w/ workspaces" — a wrong
+ * conclusion from a fair observation, and it then advised its user to switch
+ * formats to work around a bug that did not exist.
+ *
+ * Piped or redirected output is unchanged: exactly the bytes, so `vn read ... >
+ * shot.jpg` and every existing script keep working.
+ */
+function writeOut(bytes: Buffer, label: string): void {
+  const kind = detectFileType(bytes);
+  if (!process.stdout.isTTY || !(kind || looksBinary(bytes))) {
+    process.stdout.write(bytes);
+    return;
+  }
+  const ext = kind ? kind.ext : 'bin';
+  const file = path.join(os.tmpdir(), `vnsh-${label}.${ext}`);
+  fs.writeFileSync(file, bytes);
+  info(`${kind ? kind.mime : 'Binary content'} (${formatBytes(bytes.length)}) — not printed to a terminal.`);
+  info(`Saved unmodified to: ${file}`);
+}
+
+/** First-bytes identification, matching the MCP server and the web viewer. */
+function detectFileType(b: Buffer): { ext: string; mime: string } | null {
+  if (b.length < 4) return null;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { ext: 'png', mime: 'image/png' };
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: 'jpg', mime: 'image/jpeg' };
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return { ext: 'gif', mime: 'image/gif' };
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b.length >= 12 &&
+      b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return { ext: 'webp', mime: 'image/webp' };
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return { ext: 'pdf', mime: 'application/pdf' };
+  return null;
+}
+
+function looksBinary(b: Buffer): boolean {
+  const n = Math.min(b.length, 1024);
+  let odd = 0;
+  for (let i = 0; i < n; i++) {
+    if (b[i] === 0) return true;
+    if (b[i] < 32 && b[i] !== 9 && b[i] !== 10 && b[i] !== 13) odd++;
+  }
+  return n > 0 && odd / n > 0.1;
+}
+
   // A public workspace has an edit link too, and it is a /w/ link — so this
   // path has to expect plaintext, or holding your own edit link looks like
   // corruption.
   if (response.headers.get('X-Vnsh-Public') === '1') {
     info(`Public workspace v${response.headers.get('ETag') || '?'} — no decryption needed`);
-    process.stdout.write(payload);
+    writeOut(payload, `${link.id}-public`);
     return;
   }
 
   info(`Decrypting workspace v${response.headers.get('ETag') || '?'} (${formatBytes(payload.length)})...`);
   try {
-    process.stdout.write(decryptWorkspace(payload, link.key));
+    writeOut(decryptWorkspace(payload, link.key), link.id);
   } catch {
     error('Decryption failed. The link may be truncated or the key incorrect.');
   }

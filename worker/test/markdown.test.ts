@@ -157,7 +157,9 @@ describe('markdown rendering', () => {
       // Previously the button was revealed inside an `if (looksLikeHtml(...))`,
       // which left plain-text documents with no way to ask for a rendered view.
       expect(page).toContain("var renderedLabel = isHtml ? 'View page' : 'View rendered';");
-      expect(page).toContain('raw.hidden = false;');
+      // Offered for every *text* document. An image or a PDF has no source view
+      // to toggle to, so the button is hidden for those rather than lying.
+      expect(page).toContain('raw.hidden = Boolean(fileKind);');
     });
 
     it('routes markdown through the same hardened frame as HTML', () => {
@@ -176,7 +178,7 @@ describe('markdown rendering', () => {
       // default is chosen rather than always falling back to source. Detection
       // decides only that; the toggle above is always present, so being wrong
       // costs one click in either direction.
-      expect(page).toContain('showingSource = !(isHtml || looksLikeMarkdown(plaintext));');
+      expect(page).toContain('showingSource = !fileKind && !(isHtml || looksLikeMarkdown(plaintext));');
       expect(page).toContain('function looksLikeMarkdown(input)');
     });
   });

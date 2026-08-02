@@ -16,6 +16,7 @@ import {
   handleRead,
   handleShare,
   handleWorkspaceCreate,
+  detectFileType,
 } from './index.js';
 
 describe('detectImageType', () => {
@@ -929,5 +930,53 @@ describe('creating a public workspace', () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('#r=');
     expect(text).not.toContain('/p/');
+  });
+});
+
+/**
+ * vnsh_read has detected binary since the beginning and saved it to a file.
+ * vnsh_workspace_read, 350 lines below it in the same file, ran
+ * plaintext.toString('utf-8') unconditionally. A 53,635-byte screenshot came
+ * back as 93,230 bytes holding 20,179 U+FFFD, with the original bytes gone —
+ * and an agent reported, correctly, that the image could not be retrieved.
+ */
+describe('detectFileType', () => {
+  const pad = (...b: number[]) => Buffer.from([...b, ...new Array(16).fill(0)]);
+
+  it.each([
+    ['PNG', pad(0x89, 0x50, 0x4e, 0x47), 'png', true],
+    ['JPEG', pad(0xff, 0xd8, 0xff, 0xe0), 'jpg', true],
+    ['GIF', pad(0x47, 0x49, 0x46, 0x38), 'gif', true],
+    ['PDF', pad(0x25, 0x50, 0x44, 0x46), 'pdf', false],
+  ])('names %s and says whether it is an image', (_n, buf, ext, image) => {
+    expect(detectFileType(buf)).toEqual({ ext, mime: expect.any(String), image });
+  });
+
+  it('needs the WEBP marker, not just RIFF', () => {
+    const riff = [0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4];
+    expect(detectFileType(Buffer.from([...riff, 0x57, 0x45, 0x42, 0x50]))?.ext).toBe('webp');
+    expect(detectFileType(Buffer.from([...riff, 0x41, 0x56, 0x49, 0x20]))).toBeNull();
+  });
+
+  it('leaves text alone', () => {
+    expect(detectFileType(Buffer.from('# A report\n\n- one', 'utf-8'))).toBeNull();
+    expect(detectFileType(Buffer.from('<svg xmlns="...">', 'utf-8'))).toBeNull();
+    expect(detectFileType(Buffer.from([1, 2]))).toBeNull();
+  });
+
+  it('agrees with detectImageType, which now delegates to it', () => {
+    expect(detectImageType(pad(0xff, 0xd8, 0xff, 0xe0))).toEqual({ ext: 'jpg', mime: 'image/jpeg' });
+    // A PDF is a known type but not an image, and the older question must still
+    // answer "no" so the v1 path keeps behaving exactly as it did.
+    expect(detectImageType(pad(0x25, 0x50, 0x44, 0x46))).toBeNull();
+  });
+
+  it('would have caught the reported corruption', () => {
+    // The exact shape of the bug: a JPEG through toString('utf-8') and back is
+    // neither the same length nor a JPEG any more.
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 0x9f)]);
+    const roundTripped = Buffer.from(jpeg.toString('utf-8'), 'utf-8');
+    expect(roundTripped.length).not.toBe(jpeg.length);
+    expect(detectFileType(jpeg)?.mime).toBe('image/jpeg');
   });
 });

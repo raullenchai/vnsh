@@ -142,21 +142,21 @@ async function handleShareText(
 
   // A public workspace is stored as plaintext, which is the only way an agent's
   // fetch reads it with no key and no runtime. Never the default.
-  const { editUrl: url, expires } = await createWorkspace(new TextEncoder().encode(text), {
+  const { editUrl, viewUrl, expires } = await createWorkspace(new TextEncoder().encode(text), {
     public: isPublic,
   });
 
   await addToHistory({
-    url,
+    url: editUrl,
     label: text.slice(0, 80),
     type: 'text',
     sharedAt: new Date().toISOString(),
     expiresAt: expires,
   });
 
-  await copyToClipboard(url, tab);
+  await copyToClipboard(viewUrl, tab);
   showNotification('Shared!', 'Link copied to clipboard');
-  return url;
+  return viewUrl;
 }
 
 async function handleShareBinary(
@@ -164,17 +164,17 @@ async function handleShareBinary(
   filename?: string,
   isPublic?: boolean,
 ): Promise<string> {
-  const { editUrl: url, expires } = await createWorkspace(data, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(data, { public: isPublic });
 
   await addToHistory({
-    url,
+    url: editUrl,
     label: filename || 'File',
     type: 'image',
     sharedAt: new Date().toISOString(),
     expiresAt: expires,
   });
 
-  return url;
+  return viewUrl;
 }
 
 async function handleShareImage(
@@ -188,19 +188,19 @@ async function handleShareImage(
   // Context-menu shares have nowhere to express the choice, so they stay
   // encrypted. Defaulting the other way would publish something on a right
   // click, which is not a decision to make on someone's behalf.
-  const { editUrl: url, expires } = await createWorkspace(data);
+  const { editUrl, viewUrl, expires } = await createWorkspace(data);
 
   await addToHistory({
-    url,
+    url: editUrl,
     label: 'Image',
     type: 'image',
     sharedAt: new Date().toISOString(),
     expiresAt: expires,
   });
 
-  await copyToClipboard(url, tab);
+  await copyToClipboard(viewUrl, tab);
   showNotification('Image shared!', 'Link copied to clipboard');
-  return url;
+  return viewUrl;
 }
 
 async function handleSaveSnippet(
@@ -240,19 +240,19 @@ async function handleScreenshot(
     bytes[i] = binary.charCodeAt(i);
   }
 
-  const { editUrl: url, expires } = await createWorkspace(bytes, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(bytes, { public: isPublic });
 
   await addToHistory({
-    url,
+    url: editUrl,
     label: `Screenshot: ${currentTab.title || 'Page'}`,
     type: 'image',
     sharedAt: new Date().toISOString(),
     expiresAt: expires,
   });
 
-  await copyToClipboard(url, currentTab);
+  await copyToClipboard(viewUrl, currentTab);
   showNotification('Screenshot shared!', 'Link copied to clipboard');
-  return url;
+  return viewUrl;
 }
 
 async function handleDebugBundle(
@@ -348,12 +348,15 @@ async function handleDebugBundle(
   const bundleJson = buildBundle(bundleInput);
   const bundleBytes = new TextEncoder().encode(bundleJson);
 
-  const { editUrl: url, expires } = await createWorkspace(bundleBytes, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(bundleBytes, { public: isPublic });
 
-  const aiUrl = `${AI_PROMPT_PREFIX}${url}${AI_PROMPT_SUFFIX}`;
+  // The prompt handed to an AI needs read access, not write. Pasting the
+  // edit link into a chat gave whatever read it the ability to overwrite the
+  // bundle it was asked to analyse.
+  const aiUrl = `${AI_PROMPT_PREFIX}${viewUrl}${AI_PROMPT_SUFFIX}`;
 
   await addToHistory({
-    url,
+    url: editUrl,
     label: `Debug Bundle: ${currentTab.title || 'Page'}`,
     type: 'bundle',
     sharedAt: new Date().toISOString(),
@@ -362,7 +365,7 @@ async function handleDebugBundle(
 
   await copyToClipboard(aiUrl, currentTab);
   showNotification('Debug Bundle created!', 'AI-ready link copied to clipboard');
-  return url;
+  return viewUrl;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

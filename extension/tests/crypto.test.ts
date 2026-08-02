@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   generateKey,
   generateIV,
@@ -149,5 +150,40 @@ describe('crypto encrypt/decrypt', () => {
     await expect(
       decryptToText(ciphertext, wrongKey, iv),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Every share path used to copy `editUrl` — the `#w=` root secret — to the
+ * clipboard. `viewUrl` was computed on the same line and discarded, so the
+ * read-only link the codebase already knew how to build had never once been
+ * used. Sharing a screenshot handed the recipient the ability to overwrite it,
+ * and pasting a debug bundle into a chat gave the model write access to the
+ * evidence it was asked to look at. Three separate agents flagged it unprompted.
+ */
+describe('what the extension puts on the clipboard', () => {
+  const source = readFileSync(
+    new URL('../src/background/service-worker.ts', import.meta.url), 'utf-8',
+  );
+
+  it('never copies the edit link', () => {
+    expect(source).not.toMatch(/copyToClipboard\(\s*editUrl/);
+  });
+
+  it('copies the read-only link from every share path', () => {
+    const copies = [...source.matchAll(/await copyToClipboard\(\s*(\w+)/g)].map((m) => m[1]);
+    expect(copies.length).toBeGreaterThanOrEqual(3);
+    for (const name of copies) expect(['viewUrl', 'aiUrl']).toContain(name);
+  });
+
+  it('builds the AI prompt around the read link', () => {
+    expect(source).toMatch(/AI_PROMPT_PREFIX\}\$\{viewUrl\}/);
+  });
+
+  it('still keeps the edit link for whoever created it', () => {
+    // Read-only sharing must not cost the author the ability to update.
+    const entries = [...source.matchAll(/addToHistory\(\{\s*url: (\w+)/g)].map((m) => m[1]);
+    expect(entries.length).toBeGreaterThanOrEqual(4);
+    for (const name of entries) expect(name).toBe('editUrl');
   });
 });

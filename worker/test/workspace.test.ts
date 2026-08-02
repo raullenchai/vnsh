@@ -824,3 +824,79 @@ describe('an automated reader is told it can read this, not that it cannot', () 
     expect(head).toContain('https://vnsh.dev/llms.txt');
   });
 });
+
+/**
+ * A workspace holds whatever was put in it, and the Chrome extension's
+ * Screenshot button puts JPEG bytes in. The viewer ran TextDecoder over them
+ * unconditionally, which is lossy in exactly the direction that matters: a
+ * 53,635-byte screenshot became 93,230 bytes containing 20,179 U+FFFD, and the
+ * download button re-encoded that string — so the reader was handed a corrupt
+ * file, not their image. The bytes were destroyed in the browser and could not
+ * be recovered through the UI.
+ */
+describe('binary content survives the viewer', () => {
+  let page = '';
+  let detectFileType: (b: Uint8Array) => { ext: string; mime: string; image: boolean } | null;
+
+  beforeAll(async () => {
+    page = await (await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER))).text();
+    const start = page.indexOf('function detectFileType(b)');
+    const end = page.indexOf('function blobUrl(', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    detectFileType = new Function(
+      `${page.slice(start, end)};return detectFileType;`,
+    )() as typeof detectFileType;
+  });
+
+  const bytes = (...b: number[]) => new Uint8Array([...b, ...new Array(16).fill(0)]);
+
+  it.each([
+    ['PNG', bytes(0x89, 0x50, 0x4e, 0x47), 'png', true],
+    ['JPEG', bytes(0xff, 0xd8, 0xff, 0xe0), 'jpg', true],
+    ['GIF', bytes(0x47, 0x49, 0x46, 0x38), 'gif', true],
+    ['PDF', bytes(0x25, 0x50, 0x44, 0x46), 'pdf', false],
+  ])('recognises %s', (_n, b, ext, image) => {
+    expect(detectFileType(b)).toEqual({ ext, mime: expect.any(String), image });
+  });
+
+  it('recognises WebP only with the full RIFF/WEBP pair', () => {
+    const riff = [0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4];
+    expect(detectFileType(new Uint8Array([...riff, 0x57, 0x45, 0x42, 0x50]))?.ext).toBe('webp');
+    // RIFF alone is also WAV and AVI; claiming webp would mislabel the download.
+    expect(detectFileType(new Uint8Array([...riff, 0x41, 0x56, 0x49, 0x20]))).toBeNull();
+  });
+
+  it('leaves text alone, including markdown that starts with punctuation', () => {
+    const utf8 = (s: string) => new TextEncoder().encode(s);
+    expect(detectFileType(utf8('# A report\n\n- one\n- two'))).toBeNull();
+    expect(detectFileType(utf8('---\ntitle: x\n---'))).toBeNull();
+    expect(detectFileType(utf8('<!DOCTYPE html>'))).toBeNull();
+    // SVG is text and must stay on the text path: rendering it as an image
+    // would put a scriptable document in an <img> outside the sandbox.
+    expect(detectFileType(utf8('<svg xmlns="http://www.w3.org/2000/svg">'))).toBeNull();
+    expect(detectFileType(new Uint8Array([1, 2]))).toBeNull();
+  });
+
+  it('keeps the decrypted bytes rather than only a decoded string', () => {
+    expect(page).toContain('plainBytes = new Uint8Array(buf);');
+    expect(page).toContain('var plainBytes = null, fileKind = null, objectUrl = null;');
+  });
+
+  it('sends binary down its own path before any text heuristic runs', () => {
+    const render = page.slice(page.indexOf('function render() {'));
+    expect(render.slice(0, 400)).toContain('if (fileKind) return renderBinary();');
+  });
+
+  it('downloads the original bytes under the real extension', () => {
+    expect(page).toContain("fileName = 'vnsh-' + id + '-v' + version + (fileKind ? '.' + fileKind.ext :");
+    expect(page).toContain('a.href = fileKind ? blobUrl()');
+    // Revoking the shared URL would blank the <img> that is displaying it.
+    expect(page).toContain('if (!fileKind) URL.revokeObjectURL(a.href);');
+  });
+
+  it('permits the blob: URL an image needs, and nothing more', () => {
+    expect(page).toContain('img-src data: blob:');
+    expect(page).not.toContain("script-src 'unsafe-inline' blob:");
+  });
+});

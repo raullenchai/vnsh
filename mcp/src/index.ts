@@ -478,32 +478,46 @@ export async function handleRead(args: unknown) {
 /**
  * Detect image type from magic bytes
  */
-export function detectImageType(buffer: Buffer): { ext: string; mime: string } | null {
+/**
+ * Everything we can name from its first bytes, images and documents alike.
+ *
+ * detectImageType below is the older, narrower question and now delegates here,
+ * because the workspace path needs to recognise a PDF as well — a report shared
+ * into a workspace is as likely to be a PDF as a screenshot, and answering "not
+ * an image" for one used to mean sending it through toString('utf-8').
+ */
+export function detectFileType(buffer: Buffer): { ext: string; mime: string; image: boolean } | null {
   if (buffer.length < 4) return null;
 
-  // PNG: 89 50 4E 47
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-    return { ext: 'png', mime: 'image/png' };
+  const b = buffer;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+    return { ext: 'png', mime: 'image/png', image: true };
   }
-
-  // JPEG: FF D8 FF
-  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
-    return { ext: 'jpg', mime: 'image/jpeg' };
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+    return { ext: 'jpg', mime: 'image/jpeg', image: true };
   }
-
-  // GIF: 47 49 46
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
-    return { ext: 'gif', mime: 'image/gif' };
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) {
+    return { ext: 'gif', mime: 'image/gif', image: true };
   }
-
-  // WebP: 52 49 46 46 ... 57 45 42 50
-  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-      buffer.length >= 12 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
-    return { ext: 'webp', mime: 'image/webp' };
+  if (
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b.length >= 12 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
+  ) {
+    return { ext: 'webp', mime: 'image/webp', image: true };
   }
-
+  // %PDF
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) {
+    return { ext: 'pdf', mime: 'application/pdf', image: false };
+  }
   return null;
 }
+
+export function detectImageType(buffer: Buffer): { ext: string; mime: string } | null {
+  const found = detectFileType(buffer);
+  if (!found || !found.image) return null;
+  return { ext: found.ext, mime: found.mime };
+}
+
 
 /**
  * Detect if buffer contains binary content
@@ -803,7 +817,6 @@ async function fetchWorkspace(url: string) {
 export async function handleWorkspaceRead(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
   const { host, id, version, secret, canWrite, plaintext } = await fetchWorkspace(url);
-  const text = plaintext.toString('utf-8');
   const viewUrl = secret ? buildReadOnlyWorkspaceUrl(host, id, secret) : url;
 
   const header = canWrite
@@ -812,8 +825,41 @@ export async function handleWorkspaceRead(args: unknown) {
       `To let someone read it without being able to change it, share:\n${viewUrl}\n\n`
     : `Workspace ${id} — version ${version}. This is a view-only link; it cannot be written to.\n\n`;
 
+  // A workspace holds whatever was put in it, and the Chrome extension puts
+  // screenshots in — JPEG bytes, not text. This used to run toString('utf-8')
+  // unconditionally, which is lossy in the one direction that matters: a 53KB
+  // screenshot came back as 93KB of text containing 20,179 U+FFFD, and the
+  // original bytes were gone. An agent reported it as "the image cannot be
+  // retrieved", and it was right.
+  //
+  // vnsh_read has done this correctly for v1 blobs since the beginning, 350
+  // lines above. The workspace path simply never learned. Same treatment: write
+  // the bytes out untouched and hand back a path, which is also the only form a
+  // vision tool can use.
+  const kind = detectFileType(plaintext);
+  if (kind || detectBinary(plaintext)) {
+    const ext = kind ? kind.ext : 'bin';
+    const mime = kind ? kind.mime : 'application/octet-stream';
+    const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
+    fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
+    const hint = kind && kind.image
+      ? '\n\nUse the Read tool on that path to view the image.'
+      : '\n\nRead that path to work with the file.';
+    return {
+      content: [{
+        type: 'text',
+        text: `${header}This workspace holds ${mime} (${plaintext.length} bytes), not text. ` +
+          `Saved unmodified to: ${filePath}${hint}`,
+      }],
+      metadata: {
+        workspaceId: id, version, canWrite, viewUrl,
+        size: plaintext.length, contentType: mime, filePath,
+      },
+    };
+  }
+
   return {
-    content: [{ type: 'text', text: header + text }],
+    content: [{ type: 'text', text: header + plaintext.toString('utf-8') }],
     metadata: { workspaceId: id, version, canWrite, viewUrl, size: plaintext.length },
   };
 }
