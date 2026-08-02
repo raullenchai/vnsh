@@ -27,7 +27,17 @@ import {
   isWorkspaceUrl,
 } from './crypto.js';
 
-const VERSION = '2.3.1';
+// Read from the manifest npm publishes rather than a constant maintained by
+// hand. The constant had drifted twice — it said 2.3.1 while 2.3.3 was on the
+// registry, so `vn --version` lied to users and the analytics header reported a
+// release that had not existed for two versions.
+const VERSION: string = (() => {
+  try {
+    return String(require('../package.json').version || '0.0.0');
+  } catch {
+    return '0.0.0';
+  }
+})();
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 

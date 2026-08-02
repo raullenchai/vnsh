@@ -82,3 +82,34 @@ describe('the social card says one thing, not two', () => {
     expect(description.length).toBeLessThanOrEqual(160);
   });
 });
+
+/**
+ * The version was a hand-written constant in two packages and drifted in both:
+ * the CLI said 2.3.1 while 2.3.3 was on the registry, so `vn --version` lied and
+ * every analytics header reported a release two versions old. The server keeps
+ * only what the client sends, so a wrong constant makes a rollout unobservable —
+ * "did anyone pick up the fix" had no answer.
+ */
+describe('the version is derived, not typed', () => {
+  const cliSource = readFileSync(new URL('./cli.ts', import.meta.url), 'utf-8');
+  const mcpSource = readFileSync(new URL('../../../mcp/src/index.ts', import.meta.url), 'utf-8');
+
+  it('has no hardcoded version literal in the CLI', () => {
+    expect(cliSource).not.toMatch(/const VERSION\s*(:\s*string\s*)?=\s*['"]\d/);
+    expect(cliSource).toContain("require('../package.json')");
+  });
+
+  it('has no hardcoded version literal in the MCP server', () => {
+    expect(mcpSource).not.toMatch(/CLIENT_VERSION\s*=\s*['"]mcp\/\d/);
+    expect(mcpSource).toContain("createRequire(import.meta.url)('../package.json')");
+  });
+
+  it('publishes a version the derivation can actually find', () => {
+    // Importing cli.ts to read VERSION would run commander and start encrypting
+    // stdin, so assert the file it reads instead of executing the reader.
+    const pkg = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
+    ) as { version: string };
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});

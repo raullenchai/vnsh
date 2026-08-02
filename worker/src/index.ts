@@ -266,6 +266,23 @@ function getClientSource(request: Request): string {
   return valid.includes(source) ? source : 'unknown';
 }
 
+/**
+ * The version half of the same header, which used to be split off and dropped.
+ *
+ * Keeping only the name makes a rollout unobservable: "mcp called us 400 times"
+ * reads identically before and after a fix ships, so there is no way to tell a
+ * fixed client from a broken one still in the field. That mattered the first
+ * time a real bug was fixed in the MCP server and the question "did anyone pick
+ * it up" had no answer.
+ *
+ * Client-controlled, so it is constrained rather than stored verbatim.
+ */
+function getClientVersion(request: Request): string {
+  const header = request.headers.get('X-Vnsh-Client') || '';
+  const version = header.split('/')[1] || '';
+  return version.replace(/[^0-9A-Za-z.\-]/g, '').slice(0, 24);
+}
+
 // Usage analytics via Workers Analytics Engine. writeDataPoint is non-blocking and
 // fire-and-forget (no await / waitUntil needed) with a high write allowance, so it
 // replaces the racy read-modify-write KV counters. Schema:
@@ -319,15 +336,16 @@ interface EventDimensions {
 function trackEvent(
   env: Env,
   event: TrackedEvent,
-  source: string,
+  request: Request,
   dims: EventDimensions = {},
 ): void {
+  const source = getClientSource(request);
   if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
   try {
     // Fixed slot layout so blob positions stay stable as dimensions are added:
     // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer,
-    // blob6 visibility. Append only — renumbering would silently reinterpret
-    // every row already written.
+    // blob6 visibility, blob7 client version. Append only — renumbering would
+    // silently reinterpret every row already written.
     env.VNSH_ANALYTICS.writeDataPoint({
       blobs: [
         event,
@@ -336,6 +354,7 @@ function trackEvent(
         dims.agent || '',
         dims.ref || '',
         dims.visibility || '',
+        getClientVersion(request),
       ],
       doubles: [1],
       indexes: [event],
@@ -359,7 +378,7 @@ async function handleEvent(request: Request, env: Env): Promise<Response> {
     const body = (await request.json()) as { event?: string; ref?: string };
     const event = body?.event as TrackedEvent;
     if (!BEACON_EVENTS.includes(event)) return noContent;
-    trackEvent(env, event, getClientSource(request), { ref: getClientRef(body?.ref ?? null) });
+    trackEvent(env, event, request, { ref: getClientRef(body?.ref ?? null) });
   } catch {
     // Malformed body: count nothing, tell the caller nothing.
   }
@@ -439,7 +458,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
     await env.VNSH_STORE.put(id, await readCapped(body, MAX_BLOB_SIZE), { customMetadata });
 
     // Track upload analytics
-    trackEvent(env, 'upload', getClientSource(request));
+    trackEvent(env, 'upload', request);
 
     return new Response(
       JSON.stringify({
@@ -506,7 +525,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
   }
 
   // Track read analytics
-  trackEvent(env, 'read', getClientSource(request));
+  trackEvent(env, 'read', request);
 
   // Stream response with proper headers
   return new Response(object.body, {
@@ -906,7 +925,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     return errorResponse('STORAGE_ERROR', 'Failed to create workspace', 500);
   }
 
-  trackEvent(env, 'workspace_create', getClientSource(request), {
+  trackEvent(env, 'workspace_create', request, {
     workspaceId: id,
     agent: getClientAgent(request),
     ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
@@ -963,7 +982,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
   }
 
-  trackEvent(env, 'workspace_read', getClientSource(request), {
+  trackEvent(env, 'workspace_read', request, {
     workspaceId: id,
     agent: getClientAgent(request),
     visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
@@ -1025,7 +1044,7 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
   }
 
   const body = await object.text();
-  trackEvent(env, 'workspace_read', getClientSource(request), {
+  trackEvent(env, 'workspace_read', request, {
     workspaceId: id,
     agent: getClientAgent(request),
     // Reached only via /p/, which by definition serves a public workspace.
@@ -1166,7 +1185,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     return errorResponse('STORAGE_ERROR', 'Failed to update workspace', 500);
   }
 
-  trackEvent(env, 'workspace_update', getClientSource(request), {
+  trackEvent(env, 'workspace_update', request, {
     workspaceId: id,
     agent: getClientAgent(request),
     visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',

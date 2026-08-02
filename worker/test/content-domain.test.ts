@@ -342,8 +342,18 @@ describe('the two tiers are distinguishable in the numbers', () => {
   it('puts visibility in slot 6 and leaves the earlier slots alone', async () => {
     await createPublic();
     const point = written.find((p) => p.blobs?.[0] === 'workspace_create');
-    expect(point?.blobs?.length).toBe(6);
+    // Slots are append-only: renumbering would silently reinterpret every row
+    // already written. Assert the position, not the length, so appending the
+    // next dimension does not require editing this test to keep its meaning.
     expect(point?.blobs?.[1]).toBe('unknown');
     expect(point?.blobs?.[5]).toBe('public');
+  });
+
+  it('appends the client version after visibility, without disturbing it', async () => {
+    await createPublic();
+    const point = written.find((p) => p.blobs?.[0] === 'workspace_create');
+    expect(point?.blobs?.length).toBe(7);
+    expect(point?.blobs?.[5]).toBe('public');
+    expect(point?.blobs?.[6]).toBe('');
   });
 });

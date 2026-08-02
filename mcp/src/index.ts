@@ -21,6 +21,7 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { createRequire } from 'node:module';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -44,7 +45,17 @@ import {
 // Configuration
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
 const MAX_CONTENT_SIZE = 50 * 1024 * 1024; // 50MB limit to prevent OOM
-const CLIENT_VERSION = 'mcp/1.3.0';
+// Derived, not hand-written. This constant sat at 1.3.0 while the package went
+// to 1.4.3, so every request reported a version four releases stale and there
+// was no way to see from the server whether a fix had reached anyone.
+const PKG_VERSION: string = (() => {
+  try {
+    return String(createRequire(import.meta.url)('../package.json').version || '0.0.0');
+  } catch {
+    return '0.0.0';
+  }
+})();
+const CLIENT_VERSION = `mcp/${PKG_VERSION}`;
 
 // Every MCP client — Claude Code, Cursor, OpenHands — speaks through this same
 // server, so a fixed header reports them all as "mcp". That makes the one metric

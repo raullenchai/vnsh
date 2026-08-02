@@ -50,7 +50,10 @@ describe('POST /api/event', () => {
     // Slot layout is load-bearing: queries read positions, and rows already
     // written cannot be migrated, so slots may only ever be appended.
     // blob6 is visibility, which a beacon event has no notion of.
-    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w', '']);
+    // blob7 is the client version, appended after blob6. A beacon from the page
+    // sends 'web' with no version, so it is empty here — the slot existing at
+    // all is what makes a client rollout observable.
+    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w', '', '']);
     expect(point.indexes).toEqual(['prompt_copy']);
   });
 
@@ -153,5 +156,59 @@ describe('the setup funnel can distinguish unseen from declined', () => {
     // Inferred events must not be forgeable through the beacon, or the funnel
     // could be inflated by anyone with curl.
     expect(eventsNamed('workspace_create')).toHaveLength(0);
+  });
+});
+
+/**
+ * Keeping only the client name made a rollout unobservable: "mcp called 400
+ * times" reads identically before and after a fix ships. When the MCP server's
+ * image corruption was finally fixed, the question "did anyone pick it up" had
+ * no answer, because the version half of X-Vnsh-Client was split off and thrown
+ * away — and both clients had hardcoded it stale anyway.
+ */
+describe('the client version reaches the analytics row', () => {
+  it('records the version alongside the source', async () => {
+    written.length = 0;
+    await call(new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Vnsh-Client': 'mcp/1.4.4' },
+      body: JSON.stringify({ event: 'page_view' }),
+    }));
+    const point = written.find((p) => p.blobs?.[0] === 'page_view');
+    expect(point?.blobs?.[1]).toBe('mcp');
+    expect(point?.blobs?.[6]).toBe('1.4.4');
+  });
+
+  it('does not let a client write arbitrary bytes into the row', async () => {
+    written.length = 0;
+    await call(new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // A newline is rejected by the platform before this code sees it, so the
+        // interesting case is junk that is a legal header value.
+        'X-Vnsh-Client': 'cli-npm/2.3.4<script>alert(1)</script>' + 'x'.repeat(200),
+      },
+      body: JSON.stringify({ event: 'page_view' }),
+    }));
+    const point = written.find((p) => p.blobs?.[0] === 'page_view');
+    // Assert the property, not the exact mangling: the version is whatever
+    // survives, but it can never carry markup, be unbounded, or contain a
+    // separator. (`</script>` holds a '/', so the split already stops there —
+    // which is why pinning the mangled string would be testing an accident.)
+    const version = point?.blobs?.[6] as string;
+    expect(version).toMatch(/^[0-9A-Za-z.\-]*$/);
+    expect(version.length).toBeLessThanOrEqual(24);
+    expect(version.startsWith('2.3.4')).toBe(true);
+  });
+
+  it('leaves the slot empty when a client sends no version', async () => {
+    written.length = 0;
+    await call(new Request('http://localhost/api/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Vnsh-Client': 'web' },
+      body: JSON.stringify({ event: 'page_view' }),
+    }));
+    expect(written.find((p) => p.blobs?.[0] === 'page_view')?.blobs?.[6]).toBe('');
   });
 });
