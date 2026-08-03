@@ -414,4 +414,27 @@ select {
 .opt-public em { display: block; font-style: normal; font-size: 11px; color: #737373; margin-top: 1px; }
 .opt-public:has(input:checked) { border-color: #f0a13a; background: rgba(240, 161, 58, 0.06); }
 .opt-public:has(input:checked) strong { color: #f0a13a; }
+/* Retention is an ordinary preference, not a warning, so it gets none of the
+   framing above — one row, no border, sitting where the fixed "24 hours" note
+   used to state a fact nobody could change. */
+.opt-retention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 2px;
+  font-size: 12px;
+  color: #a3a3a3;
+}
+.opt-retention select {
+  background: #1a1a1a;
+  color: #e5e5e5;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.opt-retention select:hover { border-color: #3a3a3a; }
 .opt-note { font-size: 10.5px; color: #525252; margin: 6px 2px 0; }

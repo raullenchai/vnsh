@@ -299,6 +299,10 @@ type TrackedEvent =
   | 'workspace_create'
   | 'workspace_read'
   | 'workspace_update'
+  // Separate from workspace_update on purpose: both push the expiry out, but a
+  // renew is someone saying "this still matters" about content they did not
+  // change. That is the signal for whether 24h was ever the right default.
+  | 'workspace_renew'
   // Client-side-only conversions. These produce no other request, so the page
   // reports them explicitly via POST /api/event.
   | 'page_view'
@@ -409,14 +413,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
 
   // Parse optional TTL from query string
   const url = new URL(request.url);
-  const ttlParam = url.searchParams.get('ttl');
-  let ttlHours = DEFAULT_TTL_HOURS;
-  if (ttlParam) {
-    const parsed = parseInt(ttlParam);
-    if (!isNaN(parsed) && parsed > 0 && parsed <= MAX_TTL_HOURS) {
-      ttlHours = parsed;
-    }
-  }
+  const ttlHours = parseTtlHours(url.searchParams.get('ttl'));
 
   // Generate unique short ID with collision check
   let id: string = generateShortId();
@@ -734,7 +731,7 @@ function securityTxt(env: Env): string {
     '# Reports about content published on the public tier are welcome at the',
     '# same address. We can read a public document and will remove it. We cannot',
     '# read an encrypted workspace at all, so we cannot act on its contents and',
-    '# do not claim to; every workspace is deleted 24h after its last write.',
+    '# do not claim to; every workspace is deleted within 7 days of its last write.',
     ...(env.CONTENT_HOST
       ? [
           '#',
@@ -779,7 +776,7 @@ const CONTENT_HOST_ROOT_HTML = `<!DOCTYPE html>
   <h1>This domain serves documents published by vnsh users</h1>
   <p>Pages here live at <code>/p/{id}</code>. They are written by whoever created
      them, not by vnsh, and they are not reviewed or endorsed. Every one of them
-     is deleted 24 hours after its last edit.</p>
+     is deleted within 7 days of its last edit, most within 24 hours.</p>
   <p>They are served from a domain of their own precisely so that nothing
      published here reflects on the service itself, or on the software people
      have installed.</p>
@@ -868,9 +865,29 @@ function isValidWriteHash(value: string | null): value is string {
   return !!value && /^[a-f0-9]{64}$/.test(value);
 }
 
-function workspaceExpiry(): { expiresAt: number; iso: string } {
-  const expiresAt = Date.now() + DEFAULT_TTL_HOURS * 60 * 60 * 1000;
+// An out-of-range or unparseable `ttl` falls back to the default rather than
+// failing the request. Clients have been sending this parameter since v2.0 and
+// a 400 here would break uploads over a preference, not an error.
+function parseTtlHours(raw: string | null): number {
+  if (!raw) return DEFAULT_TTL_HOURS;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed) || parsed <= 0 || parsed > MAX_TTL_HOURS) return DEFAULT_TTL_HOURS;
+  return parsed;
+}
+
+function workspaceExpiry(ttlHours: number = DEFAULT_TTL_HOURS): {
+  expiresAt: number;
+  iso: string;
+} {
+  const expiresAt = Date.now() + ttlHours * 60 * 60 * 1000;
   return { expiresAt, iso: new Date(expiresAt).toISOString() };
+}
+
+// The lifetime chosen at creation, recovered from stored metadata. Workspaces
+// created before this field existed carry no value and read back as the default,
+// which is the lifetime they were actually given.
+function workspaceTtlHours(md: Record<string, string>): number {
+  return parseTtlHours(md.ttlHours || null);
 }
 
 // POST /api/workspace — create a workspace and return its ID.
@@ -908,7 +925,12 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
   // it is a header the caller sets, never a default and never inferred.
   const isPublic = request.headers.get('X-Vnsh-Public') === '1';
 
-  const { iso } = workspaceExpiry();
+  // Blobs have accepted `?ttl=` up to a week since v2.0. Workspaces did not,
+  // which meant the one surface every extension entry point uses was capped at
+  // a day with no way to ask for more. Same parameter, same cap, same parser.
+  const ttlHours = parseTtlHours(new URL(request.url).searchParams.get('ttl'));
+
+  const { iso } = workspaceExpiry(ttlHours);
   try {
     await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, await readCapped(body, MAX_BLOB_SIZE), {
       customMetadata: {
@@ -916,6 +938,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
         version: '1',
         createdAt: new Date().toISOString(),
         expiresAt: iso,
+        ttlHours: String(ttlHours),
         ...(isPublic ? { public: '1' } : {}),
       },
     });
@@ -1150,7 +1173,11 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   }
 
   const nextVersion = String(parseInt(currentVersion, 10) + 1);
-  const { iso } = workspaceExpiry();
+  // Renew for the lifetime this workspace was created with, not the default. A
+  // seven-day workspace that quietly became a one-day workspace the first time
+  // anyone edited it would be worse than not offering seven days at all.
+  const ttlHours = workspaceTtlHours(md);
+  const { iso } = workspaceExpiry(ttlHours);
 
   try {
     // etagMatches makes this a genuine compare-and-swap: two agents that both read
@@ -1162,6 +1189,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
         version: nextVersion,
         createdAt: md.createdAt || new Date().toISOString(),
         expiresAt: iso,
+        ttlHours: String(ttlHours),
         // Visibility is fixed when the workspace is created and carried
         // forward verbatim. A write must not be able to change the guarantee
         // the author advertised when they handed the link out — neither by
@@ -1209,6 +1237,105 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   );
 }
 
+/**
+ * POST /api/workspace/:id/renew — push the expiry out without touching content.
+ *
+ * Until this existed the only way to keep a document alive was to write it
+ * again, which every client implements as "decrypt, re-encrypt, upload" and
+ * which bumps the version for a change nobody made. Someone who wants their
+ * colleague to still be able to open the link on Monday should not have to
+ * fabricate an edit.
+ *
+ * Authenticated by the write token, same as PUT: whoever can change the document
+ * can decide how long it lives. A `#r=` reader cannot, by construction.
+ */
+async function handleWorkspaceRenew(id: string, request: Request, env: Env): Promise<Response> {
+  const key = WORKSPACE_PREFIX + id;
+
+  const writeToken = request.headers.get('X-Vnsh-Write');
+  if (!isValidWriteHash(writeToken)) {
+    return errorResponse(
+      'INVALID_WRITE_TOKEN',
+      'X-Vnsh-Write must be the write token, as 64 hex chars',
+      401,
+    );
+  }
+
+  const head = await env.VNSH_STORE.head(key);
+  if (!head) {
+    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  }
+
+  const md = head.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    // Renewing something already gone would be resurrection, not renewal. The
+    // bytes are unreachable by policy the moment the clock passes.
+    await env.VNSH_STORE.delete(key);
+    return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
+  }
+
+  const presentedHash = await sha256Hex(writeToken);
+  if (!timingSafeEqual(presentedHash, md.writeHash || '')) {
+    return errorResponse(
+      'FORBIDDEN',
+      'Invalid write token. Renewing a workspace needs the #w= link, which only ' +
+        'the author has; a #r= fragment carries a read key that no write token ' +
+        'can be derived from.',
+      403,
+      request,
+    );
+  }
+
+  // A renew may also change the lifetime, so "give me a week from now" is one
+  // call rather than a re-upload. Absent the parameter, the workspace keeps the
+  // lifetime it was created with.
+  const requested = new URL(request.url).searchParams.get('ttl');
+  const ttlHours = requested ? parseTtlHours(requested) : workspaceTtlHours(md);
+  const { iso } = workspaceExpiry(ttlHours);
+
+  const obj = await env.VNSH_STORE.get(key);
+  if (!obj) {
+    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  }
+
+  try {
+    // R2 has no metadata-only update, so the object is rewritten with identical
+    // bytes. The version is deliberately NOT bumped: no content changed, and an
+    // editor holding version 7 must not be handed a conflict because someone
+    // pressed "keep this alive".
+    const written = await env.VNSH_STORE.put(key, await obj.arrayBuffer(), {
+      onlyIf: { etagMatches: head.etag },
+      customMetadata: { ...md, expiresAt: iso, ttlHours: String(ttlHours) },
+    });
+    if (!written) {
+      // Lost the race to a concurrent write — which renewed the expiry itself,
+      // so the caller's goal is already met.
+      return errorResponse(
+        'VERSION_CONFLICT',
+        'Workspace was written during this renew, which renewed its expiry anyway; re-read it',
+        412,
+        request,
+      );
+    }
+  } catch (err) {
+    console.error('Failed to renew workspace:', err);
+    return errorResponse('STORAGE_ERROR', 'Failed to renew workspace', 500);
+  }
+
+  trackEvent(env, 'workspace_renew', request, {
+    workspaceId: id,
+    agent: getClientAgent(request),
+    visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
+  });
+
+  const version = md.version || '1';
+  return new Response(JSON.stringify({ id, version: parseInt(version, 10), expires: iso }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ETag: `"${version}"`, ...corsHeaders },
+  });
+}
+
 // Landing page for /w/:id. Static and content-free by design — the workspace key
 // is in the fragment, and nothing here should ever touch it.
 /**
@@ -1246,6 +1373,7 @@ Ways this content can be read, best first:
    this link directly and need nothing else:
      vnsh_workspace_read   - decrypt and return the current contents
      vnsh_workspace_update - replace the contents (needs a #w= link)
+     vnsh_workspace_renew  - keep it alive longer, unchanged (needs a #w= link)
    This is the intended path, and it involves no new authority: the user
    installed those tools.
 
@@ -1982,7 +2110,8 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     }
     if (res.status === 404 || res.status === 410) {
       return fail('This workspace is gone',
-        'Workspaces are deleted 24 hours after their last update.');
+        'Workspaces are deleted when their lifetime runs out \u2014 24 hours after ' +
+        'the last update by default, up to 7 days if the author asked for longer.');
     }
     if (!res.ok) return fail('Could not load this workspace', 'Server returned ' + res.status + '.');
 
@@ -2259,6 +2388,17 @@ export default {
         return handleEvent(request, env);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to report an event', 405);
+    }
+
+    // Route: POST /api/workspace/:id/renew - extend the expiry, content untouched
+    const renewMatch = path.match(/^\/api\/workspace\/([a-zA-Z0-9]+)\/renew$/);
+    if (renewMatch && isValidWorkspaceId(renewMatch[1])) {
+      if (request.method === 'POST') {
+        const ip = getClientIp(request);
+        if (!(await checkRateLimit(env.UPLOAD_LIMITER, ip))) return rateLimitResponse();
+        return handleWorkspaceRenew(renewMatch[1], request, env);
+      }
+      return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to renew a workspace', 405);
     }
 
     // Route: GET/PUT /api/workspace/:id
@@ -3479,10 +3619,11 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
      thing that should need their word rather than ours. If they decline,
      install the tools and stop there; that is a perfectly good outcome.
 
-3. Confirm vnsh_workspace_create, _read, _update and _open are listed, and say so.
+3. Confirm vnsh_workspace_create, _read, _update, _renew and _open are listed, and say so.
 
 Tools: vnsh_workspace_create, vnsh_workspace_read, vnsh_workspace_update,
-vnsh_workspace_open, plus vnsh_read / vnsh_share / vnsh_share_file for one-shot blobs.
+vnsh_workspace_renew, vnsh_workspace_open, plus vnsh_read / vnsh_share /
+vnsh_share_file for one-shot blobs.
 
 ## When to reach for a workspace
 
@@ -3501,7 +3642,10 @@ Both encrypted tiers decrypt every version. #r= cannot write and cannot be
 turned back into an edit link — the read key is a one-way derivation of the
 root secret.
 
-Workspaces are deleted 24 hours after their last write. Each write renews that.
+Workspaces are deleted 24 hours after their last write by default. Each write
+renews that. An author can ask for up to 7 days at creation (?ttl= in hours, max
+168), or extend an existing one with vnsh_workspace_renew, which changes the
+expiry without touching the content or the version.
 
 ## Public workspaces — no key, no runtime, no setup
 
@@ -3541,7 +3685,7 @@ Do not assemble a public URL yourself. The create response returns the exact one
 in its "url" field, which is also what keeps a self-hosted instance working.
 
 What is traded away is stated plainly: vnsh can read a public workspace. The
-24-hour deletion still applies, and writing still requires the write token, so
+same lifetime applies, and writing still requires the write token, so
 only the author can change it. Visibility is fixed when the workspace is created
 and cannot be changed by a later write.
 
@@ -4774,7 +4918,7 @@ const APP_HTML = `<!DOCTYPE html>
       "Host-blind architecture - the server never sees your data",
       "End-to-end encryption (AES-256-GCM for workspaces, AES-256-CBC for one-shot blobs)",
       "Optimistic concurrency so two agents cannot silently overwrite each other",
-      "Deleted 24 hours after the last edit",
+      "Deleted 24 hours after the last edit, or up to 7 days if you ask",
       "Native MCP integration",
       "CLI tool for terminal workflows",
       "Supports screenshots, logs, git diffs, PDFs, binaries"

@@ -39,9 +39,28 @@ The installer automatically detects your shell and adds `vn` to the appropriate 
 vn [FILE]              Encrypt and upload a file
 command | vn           Encrypt and upload from stdin
 vn read <URL>          Decrypt and display content from a vnsh URL
-vn --version           Show version (v1.1.0)
+vn write <URL> [FILE]  Replace a workspace's contents (needs the edit link)
+vn renew <URL>         Keep a workspace alive longer without changing it
+vn --version           Show version
 vn --help              Show help
 ```
+
+### How long it lives
+
+```bash
+vn plan.md             # 24 hours, the default
+vn -t 168 plan.md      # 7 days, the maximum
+vn renew <edit-url>            # another lifetime, starting now
+vn renew <edit-url> -t 168     # and make it a week while you are at it
+```
+
+`-t` is in hours and caps at 168. It used to force the one-shot blob path,
+because workspaces were fixed at 24 hours; they now take the same parameter, so
+asking for a longer life no longer costs you the ability to edit.
+
+`renew` needs the edit link (`#w=`). A view-only `#r=` link can read a workspace
+but not decide how long it lives. Renewing does not bump the version, so an
+agent part-way through an edit is unaffected.
 
 ## Examples
 

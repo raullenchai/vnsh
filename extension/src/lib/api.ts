@@ -92,7 +92,7 @@ export async function downloadBlob(
  */
 export async function createWorkspace(
   plaintext: Uint8Array,
-  options: { public?: boolean; host?: string } = {},
+  options: { public?: boolean; host?: string; ttl?: number } = {},
 ): Promise<{ id: string; editUrl: string; viewUrl: string; expires: string }> {
   const host = options.host || VNSH_HOST;
   const secret = generateRootSecret();
@@ -100,7 +100,13 @@ export async function createWorkspace(
 
   const body = options.public ? plaintext : await encryptWorkspace(plaintext, key);
 
-  const response = await fetch(`${host}/api/workspace`, {
+  // Everything this extension shares is a workspace, and until the server took
+  // `?ttl=` on that route there was no lifetime to choose. A screenshot handed
+  // to a colleague on Friday was gone before Monday, with no setting anywhere
+  // that could have prevented it.
+  const query = options.ttl ? `?ttl=${options.ttl}` : '';
+
+  const response = await fetch(`${host}/api/workspace${query}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',

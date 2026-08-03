@@ -3,7 +3,14 @@
  * 3 tabs: Share / Saved / History
  */
 
-import { getHistory, getSnippets, deleteSnippet, pruneExpiredHistory } from '../lib/storage';
+import {
+  getHistory,
+  getSnippets,
+  deleteSnippet,
+  pruneExpiredHistory,
+  getRetentionHours,
+  setRetentionHours,
+} from '../lib/storage';
 import type { ShareRecord, SavedSnippet } from '../lib/storage';
 
 // ── DOM Elements ───────────────────────────────────────────────────
@@ -14,6 +21,7 @@ const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
 const shareText = document.getElementById('share-text') as HTMLTextAreaElement;
 const dropZone = document.getElementById('drop-zone') as HTMLDivElement;
 const publicToggle = document.getElementById('public-toggle') as HTMLInputElement;
+const retentionSelect = document.getElementById('retention-select') as HTMLSelectElement;
 const btnShare = document.getElementById('btn-share') as HTMLButtonElement;
 const btnDebugBundle = document.getElementById('btn-debug-bundle') as HTMLButtonElement;
 const btnScreenshot = document.getElementById('btn-screenshot') as HTMLButtonElement;
@@ -234,6 +242,20 @@ function renderSnippetItem(s: SavedSnippet): string {
     </li>
   `;
 }
+
+// ── Retention ──────────────────────────────────────────────────────
+
+/**
+ * The preference is read by the service worker at share time, not passed in the
+ * message, so every entry point — popup, context menu, screenshot, debug bundle
+ * — picks it up without four message shapes having to agree.
+ */
+void (async () => {
+  retentionSelect.value = String(await getRetentionHours());
+  retentionSelect.addEventListener('change', () => {
+    void setRetentionHours(parseInt(retentionSelect.value, 10));
+  });
+})();
 
 // ── History Tab ────────────────────────────────────────────────────
 

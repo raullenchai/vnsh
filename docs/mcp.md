@@ -239,6 +239,35 @@ The link expires in 24 hours.
 }
 ```
 
+### vnsh_workspace_renew
+
+Extends a workspace's expiry without changing its content.
+
+**When to Use:**
+
+- The user says a link is about to expire, or asks to keep something alive
+- A shared plan or handoff document still matters past its lifetime
+
+**Input Schema:**
+
+```json
+{
+  "url":  { "type": "string", "description": "The workspace edit URL, including #w=" },
+  "ttl":  { "type": "number", "description": "New lifetime in hours from now (max: 168)" },
+  "host": { "type": "string", "description": "Override the vnsh host URL" }
+}
+```
+
+Needs the edit link. A view-only `#r=` link can decrypt a workspace but not
+decide how long it lives, and the tool refuses one without calling the server.
+
+The version is **not** bumped, so a `base_version` you are already holding stays
+valid — renewing will not cost you a pending `vnsh_workspace_update`. Omitting
+`ttl` reuses the lifetime the workspace was created with.
+
+An expired workspace answers `410` and the tool says so plainly: expiry is
+deletion, not archival, and there is nothing to bring back.
+
 ## Environment Variables
 
 | Variable | Default | Description |

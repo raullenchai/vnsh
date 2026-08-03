@@ -200,12 +200,32 @@ describe('the publish choice reaches every share the popup offers', () => {
     }
   });
 
+  it('applies the retention preference on every path that creates one', () => {
+    // The publish choice travels in the message; retention deliberately does
+    // not, because four message shapes agreeing is four chances to forget. It
+    // is read at the point of creation instead — so the invariant to guard is
+    // that no createWorkspace call is missing it.
+    const calls = [...worker.matchAll(/createWorkspace\([^;]*?\);/gs)].map((m) => m[0]);
+    expect(calls.length).toBeGreaterThan(3);
+    for (const call of calls) {
+      expect(call, `a share path creates a workspace without a lifetime: ${call}`).toContain(
+        'getRetentionHours()',
+      );
+    }
+  });
+
   it('keeps context-menu shares encrypted, having no way to ask', () => {
     // Publishing something on a right click is not a decision to make for
     // someone, so this path must not inherit the popup's toggle.
     const start = worker.indexOf('async function handleShareImage(');
     const body = worker.slice(start, worker.indexOf('\n}\n', start));
-    expect(body).toContain('await createWorkspace(data)');
-    expect(body).not.toContain('public: isPublic');
+    // Asserted as an absence, not as the exact text of the call. The previous
+    // version pinned `createWorkspace(data)` character for character and broke
+    // the first time an unrelated option was added to it, which says nothing
+    // about whether this path publishes.
+    expect(body).toContain('createWorkspace(');
+    expect(body).not.toContain('isPublic');
+    expect(body).not.toContain('public:');
+    expect(body).not.toContain("'X-Vnsh-Public'");
   });
 });

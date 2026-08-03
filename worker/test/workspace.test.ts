@@ -731,6 +731,7 @@ describe('workspace page explains itself to agents', () => {
       'vnsh_workspace_create',
       'vnsh_workspace_open',
       'vnsh_workspace_read',
+      'vnsh_workspace_renew',
       'vnsh_workspace_update',
     ];
     const html = await page();

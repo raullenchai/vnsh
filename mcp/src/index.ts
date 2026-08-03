@@ -108,6 +108,13 @@ const WorkspaceCreateSchema = z.object({
     .boolean()
     .optional()
     .describe('Store unencrypted so any agent can read it with no key. vnsh can read it too.'),
+  ttl: z.number().optional().describe('How long it lives, in hours (default: 24, max: 168)'),
+  host: z.string().optional(),
+});
+
+const WorkspaceRenewSchema = z.object({
+  url: z.string().describe('The workspace edit URL, including its #w= fragment'),
+  ttl: z.number().optional().describe('New lifetime in hours from now (max: 168)'),
   host: z.string().optional(),
 });
 
@@ -216,7 +223,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'says they will pick this up in a different tool. Unlike vnsh_share (a one-shot ' +
           'snapshot), a workspace keeps the same URL as its content evolves. ' +
           'Content is encrypted locally; the server never sees the key. Expires 24h after ' +
-          'the last write.',
+          'the last write, or set ttl for longer — up to a week.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -232,9 +239,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'the content is not sensitive: vnsh can read a public workspace. Defaults ' +
                 'to false; ask the user before setting it.',
             },
+            ttl: {
+              type: 'number',
+              description:
+                'How long the workspace lives, in hours (default: 24, max: 168). Set this ' +
+                'when the recipient may not look at it today — a plan handed to a colleague ' +
+                'is the case that keeps expiring before it is read.',
+            },
             host: { type: 'string', description: 'Override the vnsh host URL' },
           },
           required: ['content'],
+        },
+      },
+      {
+        name: 'vnsh_workspace_renew',
+        description:
+          'Extends the expiry of a vnsh workspace without changing its content. Use this ' +
+          'when the user says a link is about to expire, or asks to keep something alive ' +
+          'longer. Needs the edit link (a #w= fragment); a view-only #r= link cannot renew. ' +
+          'The version is not bumped, so any pending edit still applies.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The workspace edit URL, including #w=' },
+            ttl: {
+              type: 'number',
+              description:
+                'New lifetime in hours measured from now (max: 168). Omit to reuse the ' +
+                'lifetime the workspace was created with.',
+            },
+            host: { type: 'string', description: 'Override the vnsh host URL' },
+          },
+          required: ['url'],
         },
       },
       {
@@ -306,6 +342,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await handleShareFile(args);
     } else if (name === 'vnsh_workspace_create') {
       return await handleWorkspaceCreate(args);
+    } else if (name === 'vnsh_workspace_renew') {
+      return await handleWorkspaceRenew(args);
     } else if (name === 'vnsh_workspace_read') {
       return await handleWorkspaceRead(args);
     } else if (name === 'vnsh_workspace_update') {
@@ -705,7 +743,7 @@ export async function handleShareFile(args: unknown) {
  * @internal Exported for testing
  */
 export async function handleWorkspaceCreate(args: unknown) {
-  const { content, public: isPublic, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const { content, public: isPublic, ttl, host: hostOverride } = WorkspaceCreateSchema.parse(args);
   const host = hostOverride || DEFAULT_HOST;
 
   const secret = generateRootSecret();
@@ -715,7 +753,7 @@ export async function handleWorkspaceCreate(args: unknown) {
   // and discarded, so there is no pretence of a guarantee that is not there.
   const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
 
-  const response = await fetch(`${host}/api/workspace`, {
+  const response = await fetch(`${host}/api/workspace${ttl ? `?ttl=${ttl}` : ''}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -879,6 +917,66 @@ export async function handleWorkspaceRead(args: unknown) {
  * Handle vnsh_workspace_update tool call
  * @internal Exported for testing
  */
+/**
+ * Handle vnsh_workspace_renew tool call — push the expiry out, content untouched.
+ *
+ * The alternative an agent would otherwise reach for is read-then-write-the-same-
+ * bytes, which burns a version for a change nobody made and can lose a race
+ * against a real edit.
+ *
+ * @internal Exported for testing
+ */
+export async function handleWorkspaceRenew(args: unknown) {
+  const { url, ttl, host: hostOverride } = WorkspaceRenewSchema.parse(args);
+  const { host: linkHost, id, writeToken, canWrite } = parseWorkspaceUrl(url);
+  const host = hostOverride || linkHost;
+
+  if (!canWrite || !writeToken) {
+    throw new Error(
+      'This is a view-only link (#r=). Renewing changes how long the workspace lives, ' +
+        'which is the author\'s decision, so it needs the edit link (#w=).',
+    );
+  }
+
+  const response = await fetch(`${host}/api/workspace/${id}/renew${ttl ? `?ttl=${ttl}` : ''}`, {
+    method: 'POST',
+    headers: { 'X-Vnsh-Write': writeToken, ...clientHeaders() },
+  });
+
+  if (response.status === 404 || response.status === 410) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            `This workspace is already gone, so there is nothing left to extend. ` +
+            `Expiry is deletion, not archival — the bytes are unrecoverable, including ` +
+            `by vnsh. If the content still exists somewhere locally, create a new ` +
+            `workspace with a longer ttl.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(`Renew failed: HTTP ${response.status} - ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { id: string; version: number; expires: string };
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Renewed. This workspace now expires ${data.expires}, and its content and ` +
+          `version (${data.version}) are unchanged, so any edit already in flight still applies.`,
+      },
+    ],
+    metadata: { workspaceId: data.id, version: data.version, expires: data.expires },
+  };
+}
+
 export async function handleWorkspaceUpdate(args: unknown) {
   const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
   const { host, id, key, writeToken, canWrite } = parseWorkspaceUrl(url);
