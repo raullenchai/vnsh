@@ -9,15 +9,23 @@ const dec = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 type ArtifactInput = {
   title?: unknown;
+  summary?: unknown;
+  artifactType?: unknown;
   content?: unknown;
   contentType?: unknown;
   changeSummary?: unknown;
+  sourceRef?: unknown;
+  evidence?: unknown;
+  harness?: unknown;
+  model?: unknown;
 };
 
 type ArtifactRow = {
   id: string;
   owner_id: string;
   title: string;
+  summary: string | null;
+  artifact_type: string;
   content_type: string;
   status: string;
   visibility: string;
@@ -44,6 +52,8 @@ function present(row: ArtifactRow, user: AccountUser) {
   return {
     id: row.id,
     title: row.title,
+    summary: row.summary,
+    artifactType: row.artifact_type,
     contentType: row.content_type,
     status: row.status,
     visibility: row.visibility,
@@ -66,8 +76,16 @@ async function parseInput(request: Request): Promise<ArtifactInput | Response> {
   }
 }
 
+function shortString(value: unknown, field: string, limit: number): string | undefined | Response {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.length > limit) {
+    return jsonError(`INVALID_${field.toUpperCase()}`, `${field} must be a string of at most ${limit} characters`, 400);
+  }
+  return value.trim();
+}
+
 function validated(input: ArtifactInput, creating: boolean):
-  | { title?: string; content: string; contentType?: string; changeSummary?: string }
+  | { title?: string; summary?: string; artifactType?: string; content: string; contentType?: string; changeSummary?: string; sourceRef?: string; evidence: string[]; harness?: string; model?: string }
   | Response {
   if (creating && (typeof input.title !== 'string' || !input.title.trim())) {
     return jsonError('INVALID_TITLE', 'title is required', 400);
@@ -84,11 +102,33 @@ function validated(input: ArtifactInput, creating: boolean):
       (typeof input.changeSummary !== 'string' || input.changeSummary.length > 1000)) {
     return jsonError('INVALID_CHANGE_SUMMARY', 'changeSummary must be at most 1000 characters', 400);
   }
+  const summary = shortString(input.summary, 'summary', 500);
+  if (summary instanceof Response) return summary;
+  const sourceRef = shortString(input.sourceRef, 'source_ref', 1000);
+  if (sourceRef instanceof Response) return sourceRef;
+  const harness = shortString(input.harness, 'harness', 120);
+  if (harness instanceof Response) return harness;
+  const model = shortString(input.model, 'model', 120);
+  if (model instanceof Response) return model;
+  const artifactType = input.artifactType === undefined ? undefined : String(input.artifactType);
+  if (artifactType !== undefined && !['document', 'report', 'code', 'app', 'handoff'].includes(artifactType)) {
+    return jsonError('INVALID_ARTIFACT_TYPE', 'artifactType must be document, report, code, app, or handoff', 400);
+  }
+  if (input.evidence !== undefined &&
+      (!Array.isArray(input.evidence) || input.evidence.length > 20 || input.evidence.some((item) => typeof item !== 'string' || item.length > 1000))) {
+    return jsonError('INVALID_EVIDENCE', 'evidence must be an array of at most 20 strings, each at most 1000 characters', 400);
+  }
   return {
     ...(typeof input.title === 'string' ? { title: input.title.trim() } : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    ...(artifactType !== undefined ? { artifactType } : {}),
     content: input.content,
     ...(typeof input.contentType === 'string' ? { contentType: input.contentType } : {}),
     ...(typeof input.changeSummary === 'string' ? { changeSummary: input.changeSummary.trim() } : {}),
+    ...(sourceRef !== undefined ? { sourceRef } : {}),
+    evidence: (input.evidence as string[] | undefined) || [],
+    ...(harness !== undefined ? { harness } : {}),
+    ...(model !== undefined ? { model } : {}),
   };
 }
 
@@ -117,10 +157,10 @@ async function createArtifact(request: Request, env: AccountEnv, user: AccountUs
   await env.VNSH_STORE.put(objectKey, bytes, { httpMetadata: { contentType: input.contentType || 'text/html; charset=utf-8' } });
   try {
     await env.ACCOUNTS.batch([
-      env.ACCOUNTS.prepare('INSERT INTO artifacts(id,owner_id,title,content_type,status,visibility,current_version,current_object_key,current_size,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-        .bind(id, user.id, input.title, input.contentType || 'text/html; charset=utf-8', 'draft', 'private', 1, objectKey, bytes.byteLength, now, now),
-      env.ACCOUNTS.prepare('INSERT INTO artifact_versions(artifact_id,version,object_key,size,author_principal_id,author_kind,change_summary,created_at) VALUES(?,?,?,?,?,?,?,?)')
-        .bind(id, 1, objectKey, bytes.byteLength, user.sessionId, authorKind(user), input.changeSummary || 'Initial version', now),
+      env.ACCOUNTS.prepare('INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, user.id, input.title, input.summary || null, input.artifactType || 'document', input.contentType || 'text/html; charset=utf-8', 'draft', 'private', 1, objectKey, bytes.byteLength, now, now),
+      env.ACCOUNTS.prepare('INSERT INTO artifact_versions(artifact_id,version,object_key,size,author_principal_id,author_kind,change_summary,source_ref,evidence_json,client_harness,client_model,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, 1, objectKey, bytes.byteLength, user.sessionId, authorKind(user), input.changeSummary || 'Initial version', input.sourceRef || null, JSON.stringify(input.evidence), input.harness || null, input.model || null, now),
       env.ACCOUNTS.prepare('INSERT INTO artifact_access(artifact_id,principal_type,principal_id,role,created_at) VALUES(?,?,?,?,?)')
         .bind(id, 'user', user.id, 'owner', now),
     ]);
@@ -146,6 +186,29 @@ async function getArtifact(id: string, env: AccountEnv, user: AccountUser): Prom
   if (!object) return jsonError('STORAGE_ERROR', 'Artifact content is temporarily unavailable', 503);
   const content = await object.text();
   return Response.json({ artifact: present(row, user), content }, { headers: { ETag: `"${row.current_version}"`, 'Cache-Control': 'private, no-store' } });
+}
+
+async function listVersions(id: string, env: AccountEnv, user: AccountUser): Promise<Response> {
+  const artifact = await ownedArtifact(env, id, user.id);
+  if (!artifact) return jsonError('NOT_FOUND', 'Artifact not found', 404);
+  const result = await env.ACCOUNTS.prepare(`SELECT version,size,author_principal_id,author_kind,change_summary,source_ref,evidence_json,client_harness,client_model,created_at
+    FROM artifact_versions WHERE artifact_id=? ORDER BY version DESC LIMIT 100`).bind(id).all<{
+      version: number; size: number; author_principal_id: string; author_kind: string; change_summary: string | null;
+      source_ref: string | null; evidence_json: string; client_harness: string | null; client_model: string | null; created_at: string;
+    }>();
+  return Response.json({
+    artifact: present(artifact, user),
+    versions: result.results.map((version) => ({
+      version: version.version,
+      size: version.size,
+      author: { kind: version.author_kind, principalId: version.author_principal_id },
+      changeSummary: version.change_summary,
+      sourceRef: version.source_ref,
+      evidence: JSON.parse(version.evidence_json || '[]'),
+      clientAnnotations: { harness: version.client_harness, model: version.client_model, verified: false },
+      createdAt: version.created_at,
+    })),
+  }, { headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 function claimedVersion(request: Request): number | Response {
@@ -177,12 +240,12 @@ async function updateArtifact(id: string, request: Request, env: AccountEnv, use
   await env.VNSH_STORE.put(objectKey, bytes, { httpMetadata: { contentType: input.contentType || current.content_type } });
   try {
     const results = await env.ACCOUNTS.batch([
-      env.ACCOUNTS.prepare(`INSERT INTO artifact_versions(artifact_id,version,object_key,size,author_principal_id,author_kind,change_summary,created_at)
-        SELECT id,?,?,?,?,?,?,? FROM artifacts WHERE id=? AND owner_id=? AND current_version=?`)
-        .bind(next, objectKey, bytes.byteLength, user.sessionId, authorKind(user), input.changeSummary || null, now, id, user.id, expected),
-      env.ACCOUNTS.prepare(`UPDATE artifacts SET title=COALESCE(?,title),content_type=COALESCE(?,content_type),current_version=?,current_object_key=?,current_size=?,history_size=history_size+?,history_versions=history_versions+1,updated_at=?
+      env.ACCOUNTS.prepare(`INSERT INTO artifact_versions(artifact_id,version,object_key,size,author_principal_id,author_kind,change_summary,source_ref,evidence_json,client_harness,client_model,created_at)
+        SELECT id,?,?,?,?,?,?,?,?,?,?,? FROM artifacts WHERE id=? AND owner_id=? AND current_version=?`)
+        .bind(next, objectKey, bytes.byteLength, user.sessionId, authorKind(user), input.changeSummary || null, input.sourceRef || null, JSON.stringify(input.evidence), input.harness || null, input.model || null, now, id, user.id, expected),
+      env.ACCOUNTS.prepare(`UPDATE artifacts SET title=COALESCE(?,title),summary=COALESCE(?,summary),artifact_type=COALESCE(?,artifact_type),content_type=COALESCE(?,content_type),current_version=?,current_object_key=?,current_size=?,history_size=history_size+?,history_versions=history_versions+1,updated_at=?
         WHERE id=? AND owner_id=? AND current_version=?`)
-        .bind(input.title || null, input.contentType || null, next, objectKey, bytes.byteLength, current.current_size, now, id, user.id, expected),
+        .bind(input.title || null, input.summary ?? null, input.artifactType || null, input.contentType || null, next, objectKey, bytes.byteLength, current.current_size, now, id, user.id, expected),
     ]);
     if (results[0].meta.changes !== 1 || results[1].meta.changes !== 1) {
       await env.VNSH_STORE.delete(objectKey);
@@ -218,11 +281,14 @@ async function deleteArtifact(id: string, env: AccountEnv, user: AccountUser): P
 export async function handleArtifacts(request: Request, env: AccountEnv, url: URL): Promise<Response | null> {
   const collection = url.pathname === '/api/artifacts';
   const match = url.pathname.match(/^\/api\/artifacts\/([0-9a-f-]{36})$/i);
-  if (!collection && !match) return null;
+  const versions = url.pathname.match(/^\/api\/artifacts\/([0-9a-f-]{36})\/versions$/i);
+  if (!collection && !match && !versions) return null;
   const user = await currentUser(request, env);
   if (!user) return jsonError('UNAUTHORIZED', 'Sign in or connect an Agent token', 401);
   if (collection && request.method === 'GET') return listArtifacts(env, user);
   if (collection && request.method === 'POST') return createArtifact(request, env, user);
+  if (versions && request.method === 'GET') return listVersions(versions[1], env, user);
+  if (versions) return jsonError('METHOD_NOT_ALLOWED', 'Use GET to list Artifact versions', 405);
   if (match && request.method === 'GET') return getArtifact(match[1], env, user);
   if (match && request.method === 'PUT') return updateArtifact(match[1], request, env, user);
   if (match && request.method === 'DELETE') return deleteArtifact(match[1], env, user);

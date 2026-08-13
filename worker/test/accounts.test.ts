@@ -40,7 +40,7 @@ beforeAll(async () => {
         "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE magic_links (token_hash TEXT PRIMARY KEY,email TEXT,expires_at TEXT,used_at TEXT,created_at TEXT)",
         "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
-        "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT,title TEXT,content_type TEXT,status TEXT,visibility TEXT,current_version INTEGER,current_object_key TEXT,current_size INTEGER,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,created_at TEXT,updated_at TEXT)",
+        "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT,title TEXT,summary TEXT,artifact_type TEXT DEFAULT 'document',content_type TEXT,status TEXT,visibility TEXT,current_version INTEGER,current_object_key TEXT,current_size INTEGER,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,created_at TEXT,updated_at TEXT)",
       ],
     },
   ]);
