@@ -219,6 +219,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+          # Least-privilege D1 tokens cannot enumerate accounts. Supplying the
+          # non-secret account identifier avoids that unrelated discovery call.
+          CLOUDFLARE_ACCOUNT_ID: f25478810829faf5ccc86f4ed9a96ef1
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN is not set, so nothing was deployed. Add the secret to gate production on this workflow."
