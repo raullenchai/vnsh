@@ -10,6 +10,7 @@ workers_dev = true
 routes = [
   { pattern = "vnsh.dev", custom_domain = true },
   { pattern = "vnshcontent.dev", custom_domain = true },
+  { pattern = "account.vnsh.dev", custom_domain = true },
 ]
 
 # Public workspaces are served from their own registrable domain. They are
@@ -39,6 +40,16 @@ CF_ACCOUNT_ID = "f25478810829faf5ccc86f4ed9a96ef1"
 [[r2_buckets]]
 binding = "VNSH_STORE"
 bucket_name = "vnsh-store"
+
+[[d1_databases]]
+binding = "ACCOUNTS"
+database_name = "vnsh-accounts"
+database_id = "75cdfa36-d2e4-4489-ab8e-8fb06c0dfcd6"
+migrations_dir = "migrations"
+
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["login@vnsh.dev"]
 
 # Native edge rate limiters (in-colo, no storage writes). The binding only allows
 # 10s or 60s windows, so limits are per-minute. namespace_id is an arbitrary unique

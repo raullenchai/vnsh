@@ -21,6 +21,13 @@ The vnsh.dev server receives only:
 
 Encrypted blobs are stored temporarily on vnsh.dev servers with a default retention of 24 hours. After expiration, data is permanently deleted and mathematically irretrievable.
 
+Signed-in accounts are an explicit exception to temporary retention. For an
+account, vnsh stores the email address, session records, and the opaque IDs,
+sizes, versions, and timestamps of workspaces and artifacts created while
+signed in. Those objects are retained until the account owner deletes them.
+Their content remains client-side encrypted unless the owner deliberately uses
+the public, unencrypted publishing option.
+
 ## Local Storage
 
 The extension uses `chrome.storage.local` for:

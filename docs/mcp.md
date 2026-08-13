@@ -8,14 +8,14 @@ encrypts and decrypts before content crosses the vnsh service boundary.
 Pin the reviewed release:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1
+claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0
 ```
 
 For Cursor, OpenHands, Cline, Windsurf, or another MCP client, use this server
 entry in the client's project configuration:
 
 ```json
-{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.5.1"]}}
+{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.6.0"]}}
 ```
 
 An unpinned `npx -y vnsh-mcp` tracks new releases. That is convenient, but the
@@ -37,6 +37,12 @@ MCP process handles plaintext, so pin or build from source if you review it.
 Workspace content is accepted as a string document. For images and other binary
 files use `vnsh_share_file`; reads save binary bytes to a mode-0600 temporary file
 and return a client-neutral local path.
+
+To retain newly created workspaces and artifacts until deletion, sign in at
+`https://account.vnsh.dev`, create a CLI / agent token, and expose it to the MCP
+process as `VNSH_TOKEN`. Set `artifact: true` on `vnsh_workspace_create` for a
+rendered `/artifact/` URL. The account stores ownership metadata but never the
+URL fragment, so retain the returned link.
 
 ## Permissions and URLs
 

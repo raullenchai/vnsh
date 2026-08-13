@@ -8,7 +8,7 @@ export default defineConfig({
       // config: Miniflare implements their shared counters, which would make a
       // unit suite rate-limit itself instead of exercising route behavior.
       wrangler: { configPath: './wrangler.test.toml' },
-      miniflare: { r2Buckets: ['VNSH_STORE'] },
+      miniflare: { r2Buckets: ['VNSH_STORE'], d1Databases: ['ACCOUNTS'] },
     }),
   ],
   test: {

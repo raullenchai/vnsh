@@ -941,6 +941,7 @@ describe('creating a public workspace', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    delete process.env.VNSH_TOKEN;
   });
 
   it('sends the content as written, and says so', async () => {
@@ -971,6 +972,25 @@ describe('creating a public workspace', () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('#r=');
     expect(text).not.toContain('/p/');
+  });
+
+  it('creates permanent rendered artifacts with the account token', async () => {
+    process.env.VNSH_TOKEN = 'account-token';
+    const seen = captureRequest();
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => (headers[k.toLowerCase()] = v));
+      seen.push({ url: String(input), headers, body: '' });
+      return new Response(JSON.stringify({ id: 'aBcDeFgHiJkL', version: 1, permanent: true }), {
+        status: 201, headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const result = await handleWorkspaceCreate({ content: '<h1>Report</h1>', artifact: true });
+    expect(seen[0].headers.authorization).toBe('Bearer account-token');
+    expect(seen[0].headers['x-vnsh-kind']).toBe('artifact');
+    expect(result.metadata?.url).toContain('/artifact/aBcDeFgHiJkL#w=');
+    expect((result.content[0] as { text: string }).text).toMatch(/saved permanently/i);
   });
 });
 

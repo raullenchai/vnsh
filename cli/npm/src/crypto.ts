@@ -260,7 +260,7 @@ export function buildReadOnlyWorkspaceUrl(host: string, id: string, secret: Buff
 /** True for a /w/ link, so callers can route without try/catch. */
 export function isWorkspaceUrl(url: string): boolean {
   try {
-    return /^\/w\/[0-9A-Za-z]{12}$/.test(new URL(url.split('#')[0]).pathname);
+    return /^\/(?:w|artifact)\/[0-9A-Za-z]{12}$/.test(new URL(url.split('#')[0]).pathname);
   } catch {
     return false;
   }
@@ -273,9 +273,9 @@ export function parseWorkspaceUrl(url: string): WorkspaceLink {
   }
 
   const urlObj = new URL(urlPart);
-  const pathMatch = urlObj.pathname.match(/^\/w\/([0-9A-Za-z]{12})$/);
+  const pathMatch = urlObj.pathname.match(/^\/(?:w|artifact)\/([0-9A-Za-z]{12})$/);
   if (!pathMatch) {
-    throw new Error('Invalid workspace URL: expected a /w/{id} path');
+    throw new Error('Invalid workspace URL: expected a /w/{id} or /artifact/{id} path');
   }
   const host = urlObj.origin;
   const id = pathMatch[1];

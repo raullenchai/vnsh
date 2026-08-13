@@ -62,6 +62,15 @@ asking for a longer life no longer costs you the ability to edit.
 but not decide how long it lives. Renewing does not bump the version, so an
 agent part-way through an edit is unaffected.
 
+Sign in at `https://account.vnsh.dev`, create a CLI / agent token, then set
+`VNSH_TOKEN` to make new workspaces permanent. Use `--artifact` for a rendered
+`/artifact/` link. The account never stores the link fragment, so retain the URL.
+
+```bash
+export VNSH_TOKEN='...'
+vn --artifact report.html
+```
+
 ## Examples
 
 ### Basic Usage

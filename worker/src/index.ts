@@ -1,3 +1,5 @@
+import { currentUser, handleAccount, type AccountEnv } from './accounts';
+
 /**
  * vnsh Worker - Host-Blind Data Tunnel API
  *
@@ -13,7 +15,7 @@
  * - GET /api/blob/:id - Download encrypted blob
  */
 
-interface Env {
+interface Env extends AccountEnv {
   VNSH_STORE: R2Bucket;
   // Native edge rate limiters (no storage writes — replaces the old KV counters
   // that exhausted the free-plan 1000-writes/day cap and 500'd the whole site).
@@ -105,10 +107,10 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash',
+    'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
-  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public',
+  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -944,20 +946,31 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
   // Blobs have accepted `?ttl=` up to a week since v2.0. Workspaces did not,
   // which meant the one surface every extension entry point uses was capped at
   // a day with no way to ask for more. Same parameter, same cap, same parser.
+  const owner = await currentUser(request, env);
   const ttlHours = parseTtlHours(new URL(request.url).searchParams.get('ttl'));
-
-  const { iso } = workspaceExpiry(ttlHours);
+  const iso = owner ? null : workspaceExpiry(ttlHours).iso;
+  const createdAt = new Date().toISOString();
   try {
-    await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, await readCapped(body, MAX_BLOB_SIZE), {
+    const bytes = await readCapped(body, MAX_BLOB_SIZE);
+    await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, bytes, {
       customMetadata: {
         writeHash,
         version: '1',
-        createdAt: new Date().toISOString(),
-        expiresAt: iso,
-        ttlHours: String(ttlHours),
+        createdAt,
+        ...(iso ? { expiresAt: iso, ttlHours: String(ttlHours) } : { permanent: '1', ownerId: owner!.id }),
         ...(isPublic ? { public: '1' } : {}),
       },
     });
+    if (owner) {
+      const kind = request.headers.get('X-Vnsh-Kind') === 'artifact' ? 'artifact' : 'workspace';
+      try {
+        await env.ACCOUNTS.prepare('INSERT INTO documents(id,user_id,kind,visibility,size,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)')
+          .bind(id, owner.id, kind, isPublic ? 'public' : 'encrypted', bytes.byteLength, 1, createdAt, createdAt).run();
+      } catch (error) {
+        await env.VNSH_STORE.delete(WORKSPACE_PREFIX + id);
+        throw error;
+      }
+    }
   } catch (err) {
     if (isTooLarge(err)) return tooLargeResponse();
     console.error('Failed to create workspace:', err);
@@ -983,7 +996,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     JSON.stringify({
       id,
       version: 1,
-      expires: iso,
+      ...(iso ? { expires: iso } : { permanent: true }),
       public: isPublic,
       ...(publicUrl ? { url: publicUrl } : {}),
     }),
@@ -1044,6 +1057,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
       // failure as corruption.
       ...(isPublicWorkspace(md) ? { 'X-Vnsh-Public': '1' } : {}),
       ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      ...(md.permanent === '1' ? { 'X-Vnsh-Permanent': '1' } : {}),
       ...corsHeaders,
     },
   });
@@ -1205,19 +1219,20 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   // seven-day workspace that quietly became a one-day workspace the first time
   // anyone edited it would be worse than not offering seven days at all.
   const ttlHours = workspaceTtlHours(md);
-  const { iso } = workspaceExpiry(ttlHours);
+  const permanent = md.permanent === '1';
+  const iso = permanent ? null : workspaceExpiry(ttlHours).iso;
 
   try {
+    const newContent = await readCapped(body, MAX_BLOB_SIZE);
     // etagMatches makes this a genuine compare-and-swap: two agents that both read
     // version 7 cannot both land a version 8.
-    const written = await env.VNSH_STORE.put(key, await readCapped(body, MAX_BLOB_SIZE), {
+    const written = await env.VNSH_STORE.put(key, newContent, {
       onlyIf: { etagMatches: head.etag },
       customMetadata: {
         writeHash: expectedHash,
         version: nextVersion,
         createdAt: md.createdAt || new Date().toISOString(),
-        expiresAt: iso,
-        ttlHours: String(ttlHours),
+        ...(iso ? { expiresAt: iso, ttlHours: String(ttlHours) } : { permanent: '1', ownerId: md.ownerId || md.ownerid || '' }),
         // Visibility is fixed when the workspace is created and carried
         // forward verbatim. A write must not be able to change the guarantee
         // the author advertised when they handed the link out — neither by
@@ -1235,6 +1250,17 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
         request,
       );
     }
+    if (permanent) {
+      // R2 is the source of truth for versioned content. A transient D1 outage
+      // must not turn a successful CAS write into an apparent failure that the
+      // caller retries as a conflict. The index is repairable metadata.
+      try {
+        await env.ACCOUNTS.prepare('UPDATE documents SET size=?,version=?,updated_at=? WHERE id=?')
+          .bind(newContent.byteLength, Number(nextVersion), new Date().toISOString(), id).run();
+      } catch (error) {
+        console.error('Failed to update account document index:', error);
+      }
+    }
   } catch (err) {
     if (isTooLarge(err)) return tooLargeResponse();
     console.error('Failed to update workspace:', err);
@@ -1251,7 +1277,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     JSON.stringify({
       id,
       version: parseInt(nextVersion, 10),
-      expires: iso,
+      ...(iso ? { expires: iso } : { permanent: true }),
       // Same reason as on create: a client echoing the link back after a write
       // must not have to know which domain public documents live on.
       ...(isPublicWorkspace(md)
@@ -1319,6 +1345,13 @@ async function handleWorkspaceRenew(id: string, request: Request, env: Env): Pro
   // call rather than a re-upload. Absent the parameter, the workspace keeps the
   // lifetime it was created with.
   const requested = new URL(request.url).searchParams.get('ttl');
+  if (md.permanent === '1') {
+    const version = md.version || '1';
+    return new Response(JSON.stringify({ id, version: parseInt(version, 10), permanent: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ETag: `"${version}"`, ...corsHeaders },
+    });
+  }
   const ttlHours = requested ? parseTtlHours(requested) : workspaceTtlHours(md);
   const { iso } = workspaceExpiry(ttlHours);
 
@@ -2110,7 +2143,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   }
 
   async function main() {
-    var m = location.pathname.match(/^\\/w\\/([0-9A-Za-z]{12})$/);
+    var m = location.pathname.match(/^\\/(?:w|artifact)\\/([0-9A-Za-z]{12})$/);
     if (!m) return fail('Not a workspace URL', '');
     var id = m[1];
 
@@ -2348,6 +2381,11 @@ export default {
       return handleContentHost(request, env, url, path);
     }
 
+    if (url.hostname === 'account.vnsh.dev' || url.hostname.startsWith('account.')) {
+      if (path === '/api/auth/request' && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
+      return handleAccount(request, env, url);
+    }
+
     if (request.method === 'OPTIONS') {
       return handleOptions();
     }
@@ -2481,7 +2519,7 @@ export default {
     // This page ships no workspace content: it fetches and decrypts client-side,
     // then renders into a sandboxed frame (see WORKSPACE_PAGE). Content never runs
     // on the vnsh.dev origin, so it cannot read the key out of location.hash.
-    const workspacePageMatch = path.match(/^\/w\/([a-zA-Z0-9]+)$/);
+    const workspacePageMatch = path.match(/^\/(?:w|artifact)\/([a-zA-Z0-9]+)$/);
     if (
       (request.method === 'GET' || request.method === 'HEAD') &&
       workspacePageMatch &&
@@ -2779,7 +2817,7 @@ export default {
         if (expiresAt && now > new Date(expiresAt).getTime()) {
           await env.VNSH_STORE.delete(obj.key);
           deleted++;
-        } else if (!expiresAt) {
+        } else if (!expiresAt && obj.customMetadata?.permanent !== '1') {
           // Legacy objects without expiresAt metadata: delete if older than 8 days
           const age = now - obj.uploaded.getTime();
           if (age > 8 * 24 * 60 * 60 * 1000) {
@@ -2793,6 +2831,17 @@ export default {
     } while (cursor);
 
     console.log(`R2 cleanup: checked ${checked}, deleted ${deleted}`);
+    try {
+      const cutoff = new Date(now).toISOString();
+      const results = await env.ACCOUNTS.batch([
+        env.ACCOUNTS.prepare('DELETE FROM sessions WHERE expires_at<=?').bind(cutoff),
+        env.ACCOUNTS.prepare('DELETE FROM magic_links WHERE expires_at<=?').bind(cutoff),
+      ]);
+      console.log(`Account cleanup: deleted ${results.reduce((n, r) => n + (r.meta.changes || 0), 0)} expired records`);
+    } catch (error) {
+      // Account bookkeeping must not mask a successful R2 retention sweep.
+      console.error('Account cleanup failed:', error);
+    }
   },
 };
 
@@ -3613,9 +3662,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.5.1"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.5.1
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.6.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.6.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3673,6 +3722,7 @@ long context into a reply.
 
   https://vnsh.dev/w/{id}#w=<secret>   encrypted, read + write
   https://vnsh.dev/w/{id}#r=<key>      encrypted, read only
+  https://vnsh.dev/artifact/{id}#w=... rendered artifact, read + write
   https://vnsh.dev/p/{id}       public, readable by anything
 
 Both encrypted tiers decrypt every version. #r= cannot write and cannot be
@@ -3683,6 +3733,14 @@ Workspaces are deleted 24 hours after their last write by default. Each write
 renews that. An author can ask for up to 7 days at creation (?ttl= in hours, max
 168), or extend an existing one with vnsh_workspace_renew, which changes the
 expiry without touching the content or the version.
+
+Signed-in creates are kept until their owner deletes them. Sign in at
+https://account.vnsh.dev, create a CLI / agent token, and set VNSH_TOKEN for the
+client process. The create request then carries Authorization: Bearer <token>
+and returns "permanent": true instead of "expires". Add X-Vnsh-Kind: artifact
+or set artifact=true in the MCP create tool for a rendered /artifact/{id} URL.
+The account stores ownership metadata, never the URL fragment or content key,
+so keep the returned link; a lost encrypted link cannot be recovered by vnsh.
 
 ## Public workspaces — no key, no runtime, no setup
 
@@ -3742,6 +3800,8 @@ Encrypted remains the default everywhere; public is never inferred.
   POST https://vnsh.dev/api/workspace
     X-Vnsh-Write-Hash: <H>            required; 400 without it
     X-Vnsh-Public: 1                  optional; stores plaintext, see below
+    Authorization: Bearer <token>     optional; signed-in creates are permanent
+    X-Vnsh-Kind: artifact             optional; indexes a rendered artifact
     body: nonce(12) || ciphertext || tag(16)      AES-256-GCM under K
 
   201 -> {"id": "...", "version": 1, "expires": "...", "public": false}
@@ -3783,8 +3843,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1        pin the version
-  npm i -g vnsh-mcp@1.5.1 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0        pin the version
+  npm i -g vnsh-mcp@1.6.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code
@@ -5792,6 +5852,7 @@ const APP_HTML = `<!DOCTYPE html>
     <nav class="nav">
       <div class="wordmark">vnsh<span>_</span></div>
       <div class="nav-links">
+        <a href="https://account.vnsh.dev">Account</a>
         <a href="#start">Get started</a>
         <a href="#security">Security</a>
         <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="github-star-btn">
@@ -5948,7 +6009,7 @@ const APP_HTML = `<!DOCTYPE html>
           <ul class="then" id="what-you-get">
             <li><span class="n">1</span><span>You get back an <b>edit link</b> and a <b>view-only link</b>.</span></li>
             <li><span class="n">2</span><span>Anyone holding the edit link can <b>change the document</b> &mdash; agents included.</span></li>
-            <li><span class="n">3</span><span>It <b>deletes itself</b> 24 hours after the last edit.</span></li>
+            <li><span class="n">3</span><span>Anonymous workspaces delete themselves; <a href="https://account.vnsh.dev">signed-in workspaces stay until you delete them</a>.</span></li>
           </ul>
 
           <div class="progress-container" id="progress">
@@ -5961,7 +6022,7 @@ const APP_HTML = `<!DOCTYPE html>
           <div class="result-box" id="result">
             <div class="result-head">
               <div class="result-header"><span class="tick">&#10003;</span> Workspace created</div>
-              <div class="result-expiry">&#9711; 24h after last edit</div>
+              <div class="result-expiry" id="result-expiry">&#9711; 24h after last edit</div>
             </div>
 
             <div class="link-card primary">
@@ -6394,6 +6455,7 @@ const APP_HTML = `<!DOCTYPE html>
           ? data.url || location.origin + '/p/' + data.id
           : location.origin + '/w/' + data.id + '#r=' + bytesToBase64url(K),
         isPublic: Boolean(data.public),
+        permanent: Boolean(data.permanent),
       };
     }
 
@@ -6419,6 +6481,9 @@ const APP_HTML = `<!DOCTYPE html>
         resultUrlFull.textContent = generatedUrl;
         document.getElementById('result-view-url').textContent = viewOnlyUrl;
         document.getElementById('result-view').classList.add('show');
+        document.getElementById('result-expiry').textContent = links.permanent
+          ? '\u221e saved until you delete it'
+          : '\u25ef 24h after last edit';
         const viewCard = document.getElementById('result-view');
         const nameEl = viewCard.querySelector('.link-name');
         const roleEl = viewCard.querySelector('.link-role');

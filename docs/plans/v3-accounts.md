@@ -1,6 +1,8 @@
 # v3: Accounts, retention, and what that costs the guarantee
 
-Status: design accepted 2026-08-02, foundation landing in stages.
+Status: implementation in progress 2026-08-13. The product decision below
+supersedes the earlier 7-day signed-in free tier: signed-in documents are kept
+until the owner deletes them during the free preview.
 
 ## The problem, stated exactly
 
@@ -81,8 +83,8 @@ derive one from.
 
 | | Anonymous | Signed in (free) | Paid |
 |---|---|---|---|
-| Default retention | 24h | 7 days | 30 days |
-| Maximum retention | 7 days | 7 days | 90 days |
+| Default retention | 24h | Permanent | To be priced |
+| Maximum retention | 7 days | Permanent | To be priced |
 | Extend before expiry | needs the write token | one click | one click |
 | Find it again | local history only | any device | any device |
 | Delete on demand | needs the write token | one click | one click |

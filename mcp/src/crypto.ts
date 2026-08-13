@@ -285,9 +285,9 @@ export function parseWorkspaceUrl(url: string): WorkspaceLink {
   }
 
   const urlObj = new URL(urlPart);
-  const pathMatch = urlObj.pathname.match(/^\/w\/([0-9A-Za-z]{12})$/);
+  const pathMatch = urlObj.pathname.match(/^\/(?:w|artifact)\/([0-9A-Za-z]{12})$/);
   if (!pathMatch) {
-    throw new Error('Invalid workspace URL: expected a /w/{id} path');
+    throw new Error('Invalid workspace URL: expected a /w/{id} or /artifact/{id} path');
   }
   const host = urlObj.origin;
   const id = pathMatch[1];

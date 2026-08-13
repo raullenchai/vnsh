@@ -39,6 +39,7 @@ const VERSION: string = (() => {
   }
 })();
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
+const ACCOUNT_TOKEN = process.env.VNSH_TOKEN;
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 
 // Colors for terminal output
@@ -70,12 +71,14 @@ interface UploadOptions {
   local?: boolean;
   blob?: boolean;
   public?: boolean;
+  artifact?: boolean;
 }
 
 interface WorkspaceResponse {
   id: string;
   version: number;
-  expires: string;
+  expires?: string;
+  permanent?: boolean;
   public?: boolean;
   /** Present for public workspaces: the full link, on whichever domain this
    *  instance publishes from. Absent on older servers, hence the fallback. */
@@ -179,8 +182,10 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      ...(ACCOUNT_TOKEN ? { Authorization: `Bearer ${ACCOUNT_TOKEN}` } : {}),
       'X-Vnsh-Write-Hash': keys.writeHash,
       ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
+      ...(options.artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
     },
     body: payload,
   });
@@ -201,14 +206,14 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     console.log(result.url || `${host}/p/${result.id}`);
     console.log(`${colors.yellow('  public')}     any agent or person can read it, no key needed`);
     console.log('');
-    console.log(buildWorkspaceUrl(host, result.id, secret));
+    console.log(buildWorkspaceUrl(host, result.id, secret).replace('/w/', options.artifact ? '/artifact/' : '/w/'));
     console.log(`${colors.yellow('  edit')}       keep this one; it is what lets you change it`);
     console.log('');
   } else {
-    console.log(buildWorkspaceUrl(host, result.id, secret));
+    console.log(buildWorkspaceUrl(host, result.id, secret).replace('/w/', options.artifact ? '/artifact/' : '/w/'));
     console.log(`${colors.yellow('  edit')}       anyone with this link can change it`);
     console.log('');
-    console.log(buildReadOnlyWorkspaceUrl(host, result.id, secret));
+    console.log(buildReadOnlyWorkspaceUrl(host, result.id, secret).replace('/w/', options.artifact ? '/artifact/' : '/w/'));
     console.log(`${colors.yellow('  view-only')}  they can read it, never write it`);
     console.log('');
   }
@@ -222,6 +227,7 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
       console.log(`         ${colors.cyan('-t 168 for a week, or vn renew <edit-url> to extend it later')}`);
     }
   }
+  if (result.permanent) console.log(`${colors.yellow('Retention:')} permanent — delete it from your account`);
   console.log(`${colors.yellow('Update:')}  vn write <edit-url> [file]`);
 }
 
@@ -588,6 +594,7 @@ program
   .option('-l, --local', 'Encrypt locally and print the payload (no upload)')
   .option('-b, --blob', 'Create a v1 one-shot blob instead of a workspace')
   .option('--public', 'Store unencrypted so any agent can read it with no key (vnsh can read it too)')
+  .option('--artifact', 'Create a rendered artifact URL (signed-in accounts keep it permanently)')
   .action(async (file: string | undefined, options: UploadOptions) => {
     try {
       // `-t` used to force the v1 blob path, because workspaces were fixed at
