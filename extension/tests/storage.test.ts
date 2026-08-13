@@ -56,6 +56,27 @@ describe('history', () => {
     expect(history[0].label).toBe('Test share');
   });
 
+  it('migrates legacy workspace owner links to recipient-safe read links', async () => {
+    const secret = new Uint8Array(32).fill(7);
+    const encoded = btoa(String.fromCharCode(...secret))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    const editUrl = `https://vnsh.dev/w/AbCdEf123456#w=${encoded}`;
+    store.vnsh_history = [{
+      url: editUrl,
+      label: 'Legacy share',
+      type: 'text',
+      sharedAt: '2026-02-14T00:00:00Z',
+    }];
+
+    const [record] = await getHistory();
+
+    expect(record.url).toMatch(/^https:\/\/vnsh\.dev\/w\/AbCdEf123456#r=/);
+    expect(record.editUrl).toBe(editUrl);
+    expect(mockStorage.set).toHaveBeenCalled();
+  });
+
   it('prepends new records (newest first)', async () => {
     await addToHistory({
       url: 'https://vnsh.dev/v/a#k', label: 'First', type: 'text', sharedAt: '2026-02-14T01:00:00Z',

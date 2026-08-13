@@ -186,6 +186,7 @@ describe('link detection on a page', () => {
  */
 describe('the publish choice reaches every share the popup offers', () => {
   const popup = readFileSync(new URL('../src/popup/popup.ts', import.meta.url), 'utf-8');
+  const popupHtml = readFileSync(new URL('../src/popup/popup.html', import.meta.url), 'utf-8');
   const worker = readFileSync(
     new URL('../src/background/service-worker.ts', import.meta.url),
     'utf-8',
@@ -199,6 +200,22 @@ describe('the publish choice reaches every share the popup offers', () => {
       const upToClose = payload.slice(0, payload.indexOf('})'));
       expect(upToClose, `${action} does not carry the publish choice`).toContain('isPublic');
     }
+  });
+
+  it('defaults popup shares to Agent-ready with an explicit encryption alternative', () => {
+    expect(popupHtml).toMatch(/id="mode-agent-ready"[^>]*checked/);
+    expect(popupHtml).toContain('Any Agent or person can open it');
+    expect(popupHtml).toContain('Not encrypted; vnsh can read it');
+    expect(popupHtml).toContain('recipient needs vnsh or local code execution');
+    expect(popup).toContain('vnsh_agent_ready_confirmed');
+    expect(popup).toContain('Agent-ready links are not encrypted');
+  });
+
+  it('labels the copied result with the capability the recipient actually gets', () => {
+    expect(popup).toContain('Agent-ready link copied — opens without vnsh');
+    expect(popup).toContain('Encrypted link copied — recipient needs vnsh');
+    expect(worker).toContain('await copyToClipboard(viewUrl');
+    expect(worker).not.toContain('await copyToClipboard(editUrl');
   });
 
   it('is honoured by every handler those actions reach', () => {

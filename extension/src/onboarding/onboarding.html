@@ -16,16 +16,17 @@
     <!-- Step 1 -->
     <section class="step active" id="step-1">
       <div class="step-number">01</div>
-      <h2>Share anything, encrypted</h2>
+      <h2>Choose how recipients open it</h2>
       <p>
-        vnsh encrypts your data <strong>before</strong> it leaves your browser.
-        The server never sees your content. Links auto-expire in 24 hours.
+        The popup defaults to <strong>Agent-ready</strong>: any Agent or person can
+        open the unguessable link directly. Choose <strong>Encrypted</strong> when
+        host-blind storage matters and the recipient has vnsh.
       </p>
       <div class="visual">
         <div class="flow-diagram">
           <span class="flow-node">Your text</span>
           <span class="flow-arrow">&rarr;</span>
-          <span class="flow-node highlight">Encrypted here</span>
+          <span class="flow-node highlight">Choose visibility</span>
           <span class="flow-arrow">&rarr;</span>
           <span class="flow-node">One workspace</span>
           <span class="flow-arrow">&rarr;</span>
@@ -47,7 +48,7 @@ const server = http.createServer((req, res) => {
   res.end('Hello from vnsh!');
 });
 server.listen(3000);</div>
-      <p class="hint">The encrypted link is automatically copied to your clipboard.</p>
+      <p class="hint">Right-click shares are encrypted. Use the popup for an Agent-ready link.</p>
       <button class="btn-next" data-next="3">Next &rarr;</button>
     </section>
 
@@ -56,9 +57,10 @@ server.listen(3000);</div>
       <div class="step-number">03</div>
       <h2>AI Debug Bundle</h2>
       <p>
-        The killer feature: <strong>one click</strong> to package your current page's
+        One click packages your current page's
         debug context (screenshot + console errors + selected text) into a single
-        encrypted link. Paste it to any AI assistant.
+        link. Shortcuts are encrypted; the popup can create an Agent-ready version
+        that any AI assistant can fetch.
       </p>
       <div class="shortcut-box">
         <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd>
@@ -84,8 +86,8 @@ server.listen(3000);</div>
         <li>Click the <strong>extension icon</strong> for the popup panel</li>
       </ul>
       <div class="privacy-note">
-        <strong>Privacy promise:</strong> All encryption happens in your browser.
-        The vnsh server is mathematically blind to your data.
+        <strong>Know what you share:</strong> Agent-ready is frictionless plaintext.
+        Encrypted is host-blind but requires vnsh on the receiving side.
       </div>
       <a href="https://vnsh.dev" class="btn-final" target="_blank">Visit vnsh.dev &rarr;</a>
     </section>

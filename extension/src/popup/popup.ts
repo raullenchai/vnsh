@@ -20,13 +20,15 @@ const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
 
 const shareText = document.getElementById('share-text') as HTMLTextAreaElement;
 const dropZone = document.getElementById('drop-zone') as HTMLDivElement;
-const publicToggle = document.getElementById('public-toggle') as HTMLInputElement;
+const agentReadyRadio = document.getElementById('mode-agent-ready') as HTMLInputElement;
+const encryptedRadio = document.getElementById('mode-encrypted') as HTMLInputElement;
 const retentionSelect = document.getElementById('retention-select') as HTMLSelectElement;
 const btnShare = document.getElementById('btn-share') as HTMLButtonElement;
 const btnDebugBundle = document.getElementById('btn-debug-bundle') as HTMLButtonElement;
 const btnScreenshot = document.getElementById('btn-screenshot') as HTMLButtonElement;
 const shareResult = document.getElementById('share-result') as HTMLDivElement;
 const resultUrl = document.getElementById('result-url') as HTMLInputElement;
+const resultLabel = document.getElementById('result-label') as HTMLDivElement;
 const btnCopy = document.getElementById('btn-copy') as HTMLButtonElement;
 const shareStatus = document.getElementById('share-status') as HTMLDivElement;
 
@@ -54,6 +56,36 @@ tabs.forEach((tab) => {
 
 let pendingFile: File | null = null;
 
+const SHARE_MODE_KEY = 'vnsh_share_mode';
+
+void (async () => {
+  const state = await chrome.storage.local.get(SHARE_MODE_KEY);
+  if (state[SHARE_MODE_KEY] === 'encrypted') encryptedRadio.checked = true;
+})();
+
+[agentReadyRadio, encryptedRadio].forEach((radio) => {
+  radio.addEventListener('change', () => {
+    void chrome.storage.local.set({
+      [SHARE_MODE_KEY]: agentReadyRadio.checked ? 'agent-ready' : 'encrypted',
+    });
+  });
+});
+
+function isAgentReady(): boolean {
+  return agentReadyRadio.checked;
+}
+
+async function confirmAgentReady(): Promise<boolean> {
+  if (!isAgentReady()) return true;
+  const state = await chrome.storage.local.get('vnsh_agent_ready_confirmed');
+  if (state.vnsh_agent_ready_confirmed === true) return true;
+  const accepted = confirm(
+    'Agent-ready links are not encrypted. Anyone with the unguessable link can open the content, and vnsh can read it. Continue?',
+  );
+  if (accepted) await chrome.storage.local.set({ vnsh_agent_ready_confirmed: true });
+  return accepted;
+}
+
 btnShare.addEventListener('click', async () => {
   const text = shareText.value.trim();
 
@@ -71,18 +103,19 @@ btnShare.addEventListener('click', async () => {
 });
 
 btnDebugBundle.addEventListener('click', async () => {
+  if (!(await confirmAgentReady())) return;
   setLoading(true);
   showStatus('Building debug bundle...', 'loading');
 
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'debug-bundle-from-popup',
-      isPublic: publicToggle.checked,
+      isPublic: isAgentReady(),
       userNote: shareText.value.trim() || undefined,
     });
 
     if (response.error) throw new Error(response.error);
-    showResult(response.url);
+    showResult(response.url, isAgentReady());
     showStatus('Debug bundle created!', 'success');
   } catch (err) {
     showStatus((err as Error).message, 'error');
@@ -92,16 +125,17 @@ btnDebugBundle.addEventListener('click', async () => {
 });
 
 btnScreenshot.addEventListener('click', async () => {
+  if (!(await confirmAgentReady())) return;
   setLoading(true);
   showStatus('Capturing screenshot...', 'loading');
 
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'screenshot',
-      isPublic: publicToggle.checked,
+      isPublic: isAgentReady(),
     });
     if (response.error) throw new Error(response.error);
-    showResult(response.url);
+    showResult(response.url, isAgentReady());
     showStatus('Screenshot shared!', 'success');
   } catch (err) {
     showStatus((err as Error).message, 'error');
@@ -118,18 +152,19 @@ btnCopy.addEventListener('click', () => {
 });
 
 async function shareTextContent(text: string): Promise<void> {
+  if (!(await confirmAgentReady())) return;
   setLoading(true);
-  showStatus(publicToggle.checked ? 'Uploading...' : 'Encrypting & uploading...', 'loading');
+  showStatus(isAgentReady() ? 'Creating Agent-ready link...' : 'Encrypting & uploading...', 'loading');
 
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'share-text',
       text,
-      isPublic: publicToggle.checked,
+      isPublic: isAgentReady(),
     });
 
     if (response.error) throw new Error(response.error);
-    showResult(response.url);
+    showResult(response.url, isAgentReady());
     showStatus('Shared! Link copied.', 'success');
   } catch (err) {
     showStatus((err as Error).message, 'error');
@@ -139,20 +174,24 @@ async function shareTextContent(text: string): Promise<void> {
 }
 
 async function shareFile(file: File): Promise<void> {
+  if (!(await confirmAgentReady())) return;
   setLoading(true);
-  showStatus(`Encrypting ${file.name}...`, 'loading');
+  showStatus(
+    isAgentReady() ? `Creating Agent-ready link for ${file.name}...` : `Encrypting ${file.name}...`,
+    'loading',
+  );
 
   try {
     const buffer = await file.arrayBuffer();
     const response = await chrome.runtime.sendMessage({
       action: 'share-file',
-      isPublic: publicToggle.checked,
+      isPublic: isAgentReady(),
       data: Array.from(new Uint8Array(buffer)),
       filename: file.name,
     });
 
     if (response.error) throw new Error(response.error);
-    showResult(response.url);
+    showResult(response.url, isAgentReady());
     showStatus('File shared!', 'success');
     pendingFile = null;
   } catch (err) {
@@ -281,6 +320,14 @@ async function loadHistory(): Promise<void> {
       setTimeout(() => ((e.currentTarget as HTMLElement).textContent = 'Copy'), 1500);
     });
   });
+
+  historyList.querySelectorAll('[data-action="copy-edit-url"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const url = (e.currentTarget as HTMLElement).dataset.url!;
+      navigator.clipboard.writeText(url);
+      (e.currentTarget as HTMLElement).textContent = 'Edit link copied!';
+    });
+  });
 }
 
 function renderHistoryItem(r: ShareRecord): string {
@@ -299,7 +346,8 @@ function renderHistoryItem(r: ShareRecord): string {
         ${expiryText ? `<span class="expiry ${isExpired ? 'expired' : ''}">${expiryText}</span>` : ''}
       </div>
       <div class="item-actions">
-        <button class="btn small" data-action="copy-url" data-url="${escapeAttr(r.url)}">Copy</button>
+        <button class="btn small" data-action="copy-url" data-url="${escapeAttr(r.url)}">Copy share link</button>
+        ${r.editUrl ? `<button class="btn small secondary" data-action="copy-edit-url" data-url="${escapeAttr(r.editUrl)}">Copy edit link</button>` : ''}
       </div>
     </li>
   `;
@@ -307,9 +355,12 @@ function renderHistoryItem(r: ShareRecord): string {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function showResult(url: string): void {
+function showResult(url: string, agentReady: boolean): void {
   shareResult.classList.remove('hidden');
   resultUrl.value = url;
+  resultLabel.textContent = agentReady
+    ? 'Agent-ready link copied — opens without vnsh'
+    : 'Encrypted link copied — recipient needs vnsh';
 }
 
 function showStatus(msg: string, type: 'loading' | 'error' | 'success'): void {
