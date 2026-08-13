@@ -53,7 +53,8 @@ there and set it as `VNSH_TOKEN`.
 - `GET /api/account/sessions` lists active browser sessions, CLI devices and agent tokens.
 - `DELETE /api/account/sessions/{id}` revokes one session or token.
 - `DELETE /api/account/documents/{id}` deletes an owned document from R2 and its index row.
-- `GET /api/account/me` returns the bearer token's user.
+- `GET /api/account/me` returns the bearer token's user plus current/history
+  byte usage and free-preview limits.
 - `DELETE /api/account/token/current` revokes the current bearer token.
 
 The browser dashboard also supports revoking every other session and deleting
@@ -68,6 +69,10 @@ returns a one-year revocable bearer token. Pending polls return `202`.
 Account sessions and tokens are stored only as SHA-256 hashes. The account index
 cannot reconstruct a lost document link; keep the link because its fragment is
 the only copy of the decryption/editing secret.
+
+Free-preview accounts are limited to 100 documents and 1 GiB across current
+objects plus retained versions. Creates or updates that would exceed either
+limit return `403 ACCOUNT_QUOTA_EXCEEDED` with current usage and limits.
 
 ### GET /api/workspace/:id
 

@@ -12,7 +12,14 @@ vn write "https://vnsh.dev/w/<id>#w=<secret>" ./revised.html
 vn renew -t 168 "https://vnsh.dev/w/<id>#w=<secret>"
 vn history "https://vnsh.dev/w/<id>#r=<key>"
 vn restore "https://vnsh.dev/w/<id>#w=<secret>" 3
+vn init .
 ```
+
+`vn init` adds a small, managed vnsh section to the project's existing
+`AGENTS.md` and/or `CLAUDE.md` (creating `AGENTS.md` when neither exists). It is
+safe to run again: surrounding project instructions are preserved and the vnsh
+section is refreshed in place. This gives agents a standing rule for when to
+create a handoff and how to open a complete encrypted URL.
 
 Workspaces expire 24 hours after their latest write by default. Use `--ttl 168`
 when creating one for a seven-day lifetime; writes preserve the chosen lifetime.

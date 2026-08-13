@@ -360,7 +360,7 @@ describe('the two tiers are distinguishable in the numbers', () => {
   it('appends the client version after visibility, without disturbing it', async () => {
     await createPublic();
     const point = written.find((p) => p.blobs?.[0] === 'workspace_create');
-    expect(point?.blobs?.length).toBe(8);
+    expect(point?.blobs?.length).toBe(9);
     expect(point?.blobs?.[5]).toBe('public');
     expect(point?.blobs?.[6]).toBe('');
     expect(point?.blobs?.[7]).toBe('anonymous');

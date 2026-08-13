@@ -27,6 +27,7 @@ import {
   isWorkspaceUrl,
 } from './crypto.js';
 import { clearToken, deviceLogin, loadToken, openBrowser, saveToken } from './auth.js';
+import { initProject, projectIsInitialized } from './project-init.js';
 
 // Read from the manifest npm publishes rather than a constant maintained by
 // hand. The constant had drifted twice — it said 2.3.1 while 2.3.3 was on the
@@ -193,6 +194,7 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      ...(projectIsInitialized() ? { 'X-Vnsh-Project': '1' } : {}),
       ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}),
       'X-Vnsh-Write-Hash': keys.writeHash,
       ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
@@ -677,6 +679,21 @@ program
   });
 
 program
+  .command('init [directory]')
+  .description('Teach agents in a project when and how to use vnsh')
+  .action((directory: string | undefined) => {
+    try {
+      const result = initProject(directory || '.');
+      for (const file of result.files) {
+        console.log(`${file.action === 'unchanged' ? '✓' : '+'} ${file.action}: ${path.relative(process.cwd(), file.path) || path.basename(file.path)}`);
+      }
+      console.log('Agents in this project can now create and open vnsh handoffs.');
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
   .command('login')
   .description('Sign in through your browser so new documents are kept permanently')
   .option('-H, --host <url>', 'Override API host')
@@ -716,9 +733,16 @@ program
       });
       if (response.status === 401) error('Your login expired. Run `vn login` again.');
       if (!response.ok) error(`Could not read account (HTTP ${response.status})`);
-      const data = await response.json() as { user: { email: string; tier: string } };
+      const data = await response.json() as {
+        user: { email: string; tier: string };
+        usage?: { documents: number; documentLimit: number; totalBytes: number; storageLimit: number };
+      };
       console.log(data.user.email);
       console.log(`tier: ${data.user.tier}`);
+      if (data.usage) {
+        console.log(`documents: ${data.usage.documents}/${data.usage.documentLimit}`);
+        console.log(`storage: ${formatBytes(data.usage.totalBytes)}/${formatBytes(data.usage.storageLimit)}`);
+      }
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }

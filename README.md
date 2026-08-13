@@ -95,7 +95,13 @@ vn read "<any vnsh url>"      # read one back — workspace, public, or legacy b
 vn write "<edit url>" ./new   # replace the contents; refuses to clobber
 vn history "<workspace url>"  # list the latest 20 retained versions
 vn restore "<edit url>" 3     # restore v3 as a new latest version
+vn init .                     # teach agents in this project to use vnsh
 ```
+
+`vn init` adds an idempotent managed section to the project's agent instruction
+file. It works across agent vendors and records only an anonymous
+"project initialized" dimension when that CLI later creates a workspace, so the
+experiment can be measured without collecting a project name or path.
 
 `--public` publishes it unencrypted (see below). `--blob` explicitly makes a
 one-shot link. `--ttl` works for workspaces too, up to 168 hours; subsequent
@@ -218,6 +224,8 @@ session automatically. For the CLI, run `vn login` and approve the device in
 your browser. MCP and CI can use an account token in `VNSH_TOKEN`; content is
 still encrypted locally and the account database
 stores only ownership metadata, not keys or plaintext.
+During the free preview, each account can keep 100 documents and 1 GB total,
+including retained versions.
 Keep the returned link: its fragment is the only copy of the decryption/editing
 secret, so the account can manage retention and deletion but cannot recover a
 lost key.

@@ -1,3 +1,5 @@
+import { FREE_DOCUMENT_LIMIT, FREE_STORAGE_LIMIT, accountUsage } from './account-usage';
+
 export interface AccountEnv {
   ACCOUNTS: D1Database;
   EMAIL?: SendEmail;
@@ -125,8 +127,9 @@ export async function handleAccount(
   if (url.pathname === "/api/account/me" && request.method === "GET") {
     const user = await currentUser(request, env);
     if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const usage = await accountUsage(env, user.id);
     return Response.json(
-      { user },
+      { user, usage },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -298,7 +301,7 @@ export async function handleAccount(
     const user = await currentUser(request, env);
     if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
     const docs = await env.ACCOUNTS.prepare(
-      "SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
+      "SELECT id,kind,visibility,size,version,history_size,history_versions,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
     )
       .bind(user.id)
       .all();
@@ -574,7 +577,7 @@ export async function handleAccount(
       { headers: htmlHeaders },
     );
   const docs = await env.ACCOUNTS.prepare(
-    "SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
+    "SELECT id,kind,visibility,size,version,history_size,history_versions,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
   )
     .bind(user.id)
     .all();
@@ -590,14 +593,14 @@ export async function handleAccount(
   const cards = docs.results
     .map(
       (d: any) =>
-        `<article class="card"><div class="card-top"><span class="badge ${d.kind === "workspace" ? "workspace" : ""}">${esc(d.kind)}</span><span class="visibility">${d.visibility === "public" ? "Public" : "Encrypted"}</span></div><div class="doc-id">${esc(d.id)}</div><div class="doc-meta">Version ${Number(d.version)} · ${formatBytes(Number(d.size))} · updated ${esc(new Date(String(d.updated_at)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }))}</div><div class="card-foot"><span class="kept">∞ kept permanently</span><details class="danger"><summary>Delete…</summary><form method="post" action="/documents/${esc(d.id)}/delete"><button class="delete">Confirm delete</button></form></details></div></article>`,
+        `<article class="card"><div class="card-top"><span class="badge ${d.kind === "workspace" ? "workspace" : ""}">${esc(d.kind)}</span><span class="visibility">${d.visibility === "public" ? "Public" : "Encrypted"}</span></div><div class="doc-id">${esc(d.id)}</div><div class="doc-meta">Version ${Number(d.version)} · ${formatBytes(Number(d.size))} current · ${Number(d.history_versions || 0)} retained versions (${formatBytes(Number(d.history_size || 0))}) · updated ${esc(new Date(String(d.updated_at)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }))}</div><div class="card-foot"><span class="kept">∞ kept permanently</span><details class="danger"><summary>Delete…</summary><form method="post" action="/documents/${esc(d.id)}/delete"><button class="delete">Confirm delete</button></form></details></div></article>`,
     )
     .join("");
   const artifactCount = docs.results.filter(
     (d: any) => d.kind === "artifact",
   ).length;
   const bytes = docs.results.reduce(
-    (n: number, d: any) => n + Number(d.size),
+    (n: number, d: any) => n + Number(d.size) + Number(d.history_size || 0),
     0,
   );
   const sessionCards = sessions.results.map((session: any) =>
@@ -605,7 +608,7 @@ export async function handleAccount(
   ).join("");
   return new Response(
     page(
-      `<main><div class="hero-row"><div><div class="eyebrow">Private library</div><h1>Your work, still here.</h1><p class="identity"><strong>${esc(user.email)}</strong> · free preview</p></div><div class="stats"><div class="stat"><b>${docs.results.length}</b><span>Documents</span></div><div class="stat"><b>${artifactCount}</b><span>Artifacts</span></div><div class="stat"><b>${formatBytes(bytes)}</b><span>Stored</span></div></div></div><div class="notice"><span class="shield">◇</span><div><b>Keep the original document link.</b> Its fragment contains the only decryption key; vnsh stores ownership metadata, never that secret.</div></div><div class="section-head"><h2>Saved documents</h2><span>Newest first · up to 200</span></div><section class="grid">${cards || '<div class="empty"><div class="empty-mark">+_</div><h2>No saved documents yet</h2><p>Create while signed in here, or connect your CLI or agent.</p><div class="actions" style="justify-content:center"><a class="button primary" href="https://vnsh.dev">Create a workspace</a></div></div>'}</section><div class="section-head"><h2>Devices and tokens</h2><span>${sessions.results.length} active</span></div><section class="grid">${sessionCards}</section><div class="actions"><form method="post" action="/api/account/token"><input name="label" maxlength="60" placeholder="Token name (for example, Cursor laptop)" required><button class="button primary">Create CLI / agent token</button></form><form method="post" action="/sessions/revoke-others"><button>Revoke all other sessions</button></form><a class="button" href="https://vnsh.dev/llms.txt">Agent setup guide</a><form method="post" action="/logout"><button class="link-button">Sign out</button></form></div><div class="section-head"><h2>Delete account</h2><span>Permanent and irreversible</span></div><div class="notice"><span class="shield">!</span><div><b>Deletes every saved document, retained version, device and token.</b><form method="post" action="/account/delete"><label for="delete-email">Type ${esc(user.email)} to confirm</label><input id="delete-email" name="email" type="email" autocomplete="off" required><button class="delete">Delete account and all documents</button></form></div></div></main>`,
+      `<main><div class="hero-row"><div><div class="eyebrow">Private library</div><h1>Your work, still here.</h1><p class="identity"><strong>${esc(user.email)}</strong> · free preview</p></div><div class="stats"><div class="stat"><b>${docs.results.length}/${FREE_DOCUMENT_LIMIT}</b><span>Documents</span></div><div class="stat"><b>${artifactCount}</b><span>Artifacts</span></div><div class="stat"><b>${formatBytes(bytes)} / 1 GB</b><span>Stored incl. history</span></div></div></div><div class="notice"><span class="shield">◇</span><div><b>Keep the original document link.</b> Its fragment contains the only decryption key; vnsh stores ownership metadata, never that secret.</div></div><div class="section-head"><h2>Saved documents</h2><span>Newest first · up to 100</span></div><section class="grid">${cards || '<div class="empty"><div class="empty-mark">+_</div><h2>No saved documents yet</h2><p>Create while signed in here, or connect your CLI or agent.</p><div class="actions" style="justify-content:center"><a class="button primary" href="https://vnsh.dev">Create a workspace</a></div></div>'}</section><div class="section-head"><h2>Devices and tokens</h2><span>${sessions.results.length} active</span></div><section class="grid">${sessionCards}</section><div class="actions"><form method="post" action="/api/account/token"><input name="label" maxlength="60" placeholder="Token name (for example, Cursor laptop)" required><button class="button primary">Create CLI / agent token</button></form><form method="post" action="/sessions/revoke-others"><button>Revoke all other sessions</button></form><a class="button" href="https://vnsh.dev/llms.txt">Agent setup guide</a><form method="post" action="/logout"><button class="link-button">Sign out</button></form></div><div class="section-head"><h2>Delete account</h2><span>Permanent and irreversible</span></div><div class="notice"><span class="shield">!</span><div><b>Deletes every saved document, retained version, device and token.</b><form method="post" action="/account/delete"><label for="delete-email">Type ${esc(user.email)} to confirm</label><input id="delete-email" name="email" type="email" autocomplete="off" required><button class="delete">Delete account and all documents</button></form></div></div></main>`,
     ),
     { headers: htmlHeaders },
   );
