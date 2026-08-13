@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-08-13 — MCP 1.5.1 / CLI 2.3.6
+## 2026-08-13 — MCP 1.5.1 / CLI 2.3.7
 
 - Workspace renewals now honor an explicitly requested lifetime in production.
 - CLI and MCP reject fractional or out-of-range TTLs instead of silently changing them.
