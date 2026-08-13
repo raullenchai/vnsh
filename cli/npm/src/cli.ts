@@ -272,6 +272,7 @@ async function renewWorkspace(url: string, options: UploadOptions): Promise<void
  */
 async function writeWorkspace(url: string, input: string | undefined, options: UploadOptions): Promise<void> {
   const link = parseWorkspaceUrl(url);
+  const artifact = new URL(url.split('#')[0]).pathname.startsWith('/artifact/');
   if (!link.canWrite) {
     error('That is a view-only link (#r=). Writing needs the edit link (#w=).');
   }
@@ -325,7 +326,7 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   console.log(
     isPublic
       ? result.url || `${host}/p/${link.id}`
-      : buildWorkspaceUrl(host, link.id, link.secret as Buffer),
+      : buildWorkspaceUrl(host, link.id, link.secret as Buffer).replace('/w/', artifact ? '/artifact/' : '/w/'),
   );
 }
 
