@@ -398,6 +398,7 @@ select {
 /* Publishing is an opt-out from the product's own promise, so it reads as a
    considered footnote rather than a headline choice — the same treatment it
    gets on the website. */
+.share-mode { display: grid; gap: 7px; }
 .opt-public {
   display: flex;
   gap: 8px;
@@ -411,9 +412,10 @@ select {
 .opt-public:hover { border-color: #3a3a3a; }
 .opt-public input { margin: 2px 0 0; accent-color: #22c55e; flex-shrink: 0; }
 .opt-public strong { display: block; font-size: 12px; font-weight: 600; color: #e5e5e5; }
+.opt-public strong small { margin-left: 5px; color: #22c55e; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
 .opt-public em { display: block; font-style: normal; font-size: 11px; color: #737373; margin-top: 1px; }
-.opt-public:has(input:checked) { border-color: #f0a13a; background: rgba(240, 161, 58, 0.06); }
-.opt-public:has(input:checked) strong { color: #f0a13a; }
+.opt-public:has(input:checked) { border-color: #22c55e; background: rgba(34, 197, 94, 0.06); }
+.opt-public:has(input:checked) strong { color: #eafff1; }
 /* Retention is an ordinary preference, not a warning, so it gets none of the
    framing above — one row, no border, sitting where the fixed "24 hours" note
    used to state a fact nobody could change. */

@@ -1,13 +1,25 @@
 # vnsh Chrome Extension
 
-One-click encrypted debug bundles for AI. Share text, screenshots, and console errors via ephemeral, end-to-end encrypted URLs.
+One-click context sharing for people and AI Agents. Share text, files, screenshots,
+and debug bundles as short-lived workspace links.
 
-**vnsh** encrypts everything in your browser before upload. The server is mathematically blind to your data. Links auto-expire in 24 hours.
+The popup offers two explicit modes:
+
+- **Agent-ready (default):** anyone with the unguessable link can fetch the
+  plaintext directly. The first share asks for confirmation because this mode
+  is not encrypted.
+- **Encrypted:** host-blind AES-256-GCM. The recipient needs vnsh or another
+  local JavaScript-capable client; HTTP-only fetch tools cannot decrypt URL
+  fragments.
+
+Right-click and keyboard-shortcut shares remain encrypted because those paths
+have no UI in which to confirm publishing plaintext. Shares use a configurable
+24-hour, 3-day, or 7-day sliding retention window.
 
 ## Features
 
 ### AI Debug Bundle
-The killer feature: one keyboard shortcut (`Cmd+Shift+D`) packages your current page's full debug context into a single encrypted link:
+One keyboard shortcut (`Cmd+Shift+D`) packages your current page's full debug context into a single encrypted link:
 
 - Page screenshot
 - Console errors
@@ -15,7 +27,8 @@ The killer feature: one keyboard shortcut (`Cmd+Shift+D`) packages your current 
 - Current URL + page title
 - Your description
 
-Paste the link to any AI assistant (Claude, ChatGPT, etc.) and it gets the complete context.
+Paste it to an Agent with vnsh installed. For universal Agent compatibility,
+create the bundle from the popup and choose Agent-ready.
 
 ### Right-Click Context Menu
 - **Share via vnsh** - Encrypt and share selected text
@@ -42,7 +55,8 @@ Detects `vnsh.dev` links and shows a decrypted preview tooltip on hover. Runs on
 ```
 src/
   lib/                   # Shared library (crypto, API, storage)
-    crypto.ts            # AES-256-CBC via WebCrypto API
+    crypto.ts            # Legacy one-shot AES-256-CBC crypto
+    workspace.ts         # Mutable workspace AES-256-GCM crypto
     api.ts               # vnsh.dev API client
     url.ts               # v1+v2 URL parsing & construction
     storage.ts           # chrome.storage.local wrappers
@@ -65,11 +79,10 @@ src/
 
 ### Crypto
 
-AES-256-CBC encryption via the WebCrypto API. Byte-identical output with OpenSSL CLI and Node.js `crypto` module.
-
-- Key (32 bytes) and IV (16 bytes) are generated client-side
-- Transmitted only in the URL fragment (`#`) which never reaches the server
-- v2 URL format: `https://vnsh.dev/v/{id}#{base64url(key+iv)}`
+New encrypted workspaces use authenticated AES-256-GCM. Their read and owner
+keys are generated client-side and live only in URL fragments. The extension
+copies a `#r=` recipient link by default and keeps the `#w=` edit link as a
+separately labelled History action. Legacy one-shot links remain readable.
 
 ### Build System
 
@@ -110,7 +123,7 @@ npm run package    # Build + create vnsh-extension.zip
 ### Testing
 
 ```bash
-# Run all tests (48 tests)
+# Run all tests
 npm test
 
 # Run with coverage (93%+ statements)
@@ -164,10 +177,10 @@ npm run test:cov
 
 ## Security
 
-- **Host-blind**: The server stores encrypted blobs. It never sees keys, plaintext, or file types.
-- **Client-side crypto**: AES-256-CBC encryption happens entirely in your browser via WebCrypto.
+- **Explicit visibility**: Agent-ready links store plaintext; encrypted links are host-blind.
+- **Client-side crypto**: encrypted workspaces use AES-256-GCM in WebCrypto.
 - **Fragment-only keys**: The decryption key is in the URL fragment (`#`), which browsers never send to servers.
-- **Ephemeral**: Data auto-expires (default 24h). After expiry, the ciphertext is deleted from storage.
+- **Ephemeral**: data auto-expires after the selected sliding retention window.
 - **No analytics**: No tracking, no telemetry, no external scripts. Strict CSP.
 
 ### Store Assets

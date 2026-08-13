@@ -191,9 +191,10 @@ describe('what the extension puts on the clipboard', () => {
   });
 
   it('still keeps the edit link for whoever created it', () => {
-    // Read-only sharing must not cost the author the ability to update.
-    const entries = [...source.matchAll(/addToHistory\(\{\s*url: (\w+)/g)].map((m) => m[1]);
+    // History's primary URL is safe to share; write access remains an explicit
+    // secondary field rather than hiding behind a generic Copy button.
+    const entries = [...source.matchAll(/addToHistory\(\{\s*url: (\w+),\s*editUrl,/g)].map((m) => m[1]);
     expect(entries.length).toBeGreaterThanOrEqual(4);
-    for (const name of entries) expect(name).toBe('editUrl');
+    for (const name of entries) expect(name).toBe('viewUrl');
   });
 });

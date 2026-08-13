@@ -140,15 +140,17 @@ async function handleShareText(
 ): Promise<string> {
   if (!text) throw new Error('No text to share');
 
-  // A public workspace is stored as plaintext, which is the only way an agent's
-  // fetch reads it with no key and no runtime. Never the default.
+  // A public workspace is stored as plaintext, which is the only way an Agent's
+  // HTTP-only fetch can read it with no key and no local runtime. The popup
+  // makes this the explicit recommended mode and confirms it on first use.
   const { editUrl, viewUrl, expires } = await createWorkspace(new TextEncoder().encode(text), {
     ttl: await getRetentionHours(),
     public: isPublic,
   });
 
   await addToHistory({
-    url: editUrl,
+    url: viewUrl,
+    editUrl,
     label: text.slice(0, 80),
     type: 'text',
     sharedAt: new Date().toISOString(),
@@ -168,7 +170,8 @@ async function handleShareBinary(
   const { editUrl, viewUrl, expires } = await createWorkspace(data, { public: isPublic, ttl: await getRetentionHours() });
 
   await addToHistory({
-    url: editUrl,
+    url: viewUrl,
+    editUrl,
     label: filename || 'File',
     type: 'image',
     sharedAt: new Date().toISOString(),
@@ -192,7 +195,8 @@ async function handleShareImage(
   const { editUrl, viewUrl, expires } = await createWorkspace(data, { ttl: await getRetentionHours() });
 
   await addToHistory({
-    url: editUrl,
+    url: viewUrl,
+    editUrl,
     label: 'Image',
     type: 'image',
     sharedAt: new Date().toISOString(),
@@ -200,7 +204,7 @@ async function handleShareImage(
   });
 
   await copyToClipboard(viewUrl, tab);
-  showNotification('Image shared!', 'Link copied to clipboard');
+  showNotification('Encrypted link copied', 'Recipient needs vnsh or local code execution');
   return viewUrl;
 }
 
@@ -244,7 +248,8 @@ async function handleScreenshot(
   const { editUrl, viewUrl, expires } = await createWorkspace(bytes, { public: isPublic, ttl: await getRetentionHours() });
 
   await addToHistory({
-    url: editUrl,
+    url: viewUrl,
+    editUrl,
     label: `Screenshot: ${currentTab.title || 'Page'}`,
     type: 'image',
     sharedAt: new Date().toISOString(),
@@ -252,7 +257,10 @@ async function handleScreenshot(
   });
 
   await copyToClipboard(viewUrl, currentTab);
-  showNotification('Screenshot shared!', 'Link copied to clipboard');
+  showNotification(
+    isPublic ? 'Agent-ready link copied' : 'Encrypted link copied',
+    isPublic ? 'Anyone with the link can open it' : 'Recipient needs vnsh or local code execution',
+  );
   return viewUrl;
 }
 
@@ -357,7 +365,8 @@ async function handleDebugBundle(
   const aiUrl = `${AI_PROMPT_PREFIX}${viewUrl}${AI_PROMPT_SUFFIX}`;
 
   await addToHistory({
-    url: editUrl,
+    url: viewUrl,
+    editUrl,
     label: `Debug Bundle: ${currentTab.title || 'Page'}`,
     type: 'bundle',
     sharedAt: new Date().toISOString(),
@@ -365,7 +374,10 @@ async function handleDebugBundle(
   });
 
   await copyToClipboard(aiUrl, currentTab);
-  showNotification('Debug Bundle created!', 'AI-ready link copied to clipboard');
+  showNotification(
+    isPublic ? 'Agent-ready debug bundle copied' : 'Encrypted debug bundle copied',
+    isPublic ? 'Any Agent can fetch it directly' : 'Recipient needs vnsh or local code execution',
+  );
   return viewUrl;
 }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "vnsh \u2014 workspaces your AI agents can read and write",
-  "version": "1.1.1",
-  "description": "One workspace all your AI agents can read and write. Encrypted in your browser, gone 24h after the last edit.",
+  "version": "1.2.0",
+  "description": "One workspace all your AI agents can read and write. Agent-ready by default, or encrypted and host-blind.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",

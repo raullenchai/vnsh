@@ -28,13 +28,22 @@
     </div>
 
     <div class="share-options">
-      <label class="opt-public" for="public-toggle">
-        <input type="checkbox" id="public-toggle">
-        <span>
-          <strong>Readable without a key</strong>
-          <em>Agents can fetch it directly &mdash; and vnsh can read it.</em>
-        </span>
-      </label>
+      <div class="share-mode" role="radiogroup" aria-label="Sharing mode">
+        <label class="opt-public" for="mode-agent-ready">
+          <input type="radio" name="share-mode" id="mode-agent-ready" value="agent-ready" checked>
+          <span>
+            <strong>Agent-ready <small>Recommended</small></strong>
+            <em>Any Agent or person can open it. Not encrypted; vnsh can read it.</em>
+          </span>
+        </label>
+        <label class="opt-public" for="mode-encrypted">
+          <input type="radio" name="share-mode" id="mode-encrypted" value="encrypted">
+          <span>
+            <strong>Encrypted</strong>
+            <em>Host-blind, but the recipient needs vnsh or local code execution.</em>
+          </span>
+        </label>
+      </div>
       <label class="opt-retention" for="retention-select">
         <span>Keep for</span>
         <select id="retention-select">
@@ -53,7 +62,7 @@
     </div>
 
     <div id="share-result" class="result hidden">
-      <div class="result-label">Link copied!</div>
+      <div class="result-label" id="result-label">Agent-ready link copied!</div>
       <input id="result-url" type="text" readonly>
       <button id="btn-copy" class="btn small">Copy</button>
     </div>

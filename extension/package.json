@@ -1,6 +1,6 @@
 {
   "name": "vnsh-extension",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "vnsh Chrome Extension - AI Debug Sharing",
   "private": true,
   "type": "module",
@@ -16,7 +16,7 @@
   "devDependencies": {
     "@types/chrome": "^0.0.287",
     "@vitest/coverage-istanbul": "^3.2.4",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "vitest": "^3.2.0"

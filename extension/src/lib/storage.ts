@@ -4,12 +4,15 @@
  */
 
 import { MAX_HISTORY_ENTRIES, MAX_SAVED_SNIPPETS } from './constants';
+import { buildReadOnlyWorkspaceUrl, parseWorkspaceUrl } from './workspace';
 
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface ShareRecord {
-  /** vnsh URL (full, with fragment) */
+  /** Recipient-safe URL: public for Agent-ready shares, #r= for encrypted shares. */
   url: string;
+  /** Owner-only read/write URL. Never use this for the primary Copy action. */
+  editUrl?: string;
   /** Short label / first line of content */
   label: string;
   /** 'text' | 'image' | 'bundle' */
@@ -40,7 +43,28 @@ const SNIPPETS_KEY = 'vnsh_snippets';
 /** Get all share history entries (newest first). */
 export async function getHistory(): Promise<ShareRecord[]> {
   const result = await chrome.storage.local.get(HISTORY_KEY);
-  return (result[HISTORY_KEY] as ShareRecord[]) || [];
+  const history = (result[HISTORY_KEY] as ShareRecord[]) || [];
+  let migrated = false;
+
+  // Versions through 1.1.1 stored the owner link as the only history URL. A
+  // later click on the innocent-looking "Copy" button therefore leaked write
+  // access and gave recipients a #w= link. Repair those records in place.
+  for (const record of history) {
+    if (!record.editUrl && /\/w\/[0-9A-Za-z]{12}#w=/.test(record.url)) {
+      try {
+        const parsed = await parseWorkspaceUrl(record.url);
+        if (parsed.secret) {
+          record.editUrl = record.url;
+          record.url = await buildReadOnlyWorkspaceUrl(parsed.host, parsed.id, parsed.secret);
+          migrated = true;
+        }
+      } catch {
+        // Keep malformed legacy entries visible rather than deleting history.
+      }
+    }
+  }
+  if (migrated) await chrome.storage.local.set({ [HISTORY_KEY]: history });
+  return history;
 }
 
 /** Add a share to history. Trims to MAX_HISTORY_ENTRIES. */
