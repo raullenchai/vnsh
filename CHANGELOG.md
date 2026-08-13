@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-13 — MCP 1.5.0 / CLI 2.3.5
+
+- Publish workspace renewal and configurable workspace TTL through MCP.
+- Let both MCP read tools consume fragment-free public workspace URLs.
+- Report the real MCP package version and use client-neutral binary file hints.
+- Clarify that encrypted `#r=` links are valid read inputs and only `#w=` can write.
+- Improve CLI public-upload/progress wording and workspace version display.
+- Return 400 for malformed `If-Match` and support `HEAD /llms.txt` discovery.
+- Align CLI, MCP, root, and agent-facing documentation with the current protocol.
+
 All notable changes to vnsh are documented in this file.
 
 ## [Unreleased]

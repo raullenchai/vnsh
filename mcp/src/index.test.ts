@@ -17,8 +17,27 @@ import {
   handleShare,
   handleWorkspaceCreate,
   handleWorkspaceRenew,
+  handleWorkspaceRead,
   detectFileType,
 } from './index.js';
+
+describe('public workspace reads', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('reads a fragment-free public URL through both read tools', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('# public plan\n', {
+      status: 200,
+      headers: { ETag: '"4"', 'Content-Type': 'text/markdown' },
+    })) as typeof fetch;
+    const url = 'https://vnshcontent.dev/p/aBcDeFgHiJkL';
+    const generic = await handleRead({ url });
+    const workspace = await handleWorkspaceRead({ url });
+    expect((generic.content[0] as { text: string }).text).toBe('# public plan\n');
+    expect((workspace.content[0] as { text: string }).text).toContain('# public plan');
+    expect(workspace.metadata).toMatchObject({ version: 4, public: true, canWrite: false });
+  });
+});
 
 describe('detectImageType', () => {
   describe('PNG detection', () => {

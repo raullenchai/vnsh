@@ -126,6 +126,22 @@ describe('Retention', () => {
       expect(hoursOut(after.expires)).toBeGreaterThan(167);
     });
 
+    it('accepts the lowercase metadata spelling used by production R2', async () => {
+      const { id } = await createWorkspace({ ttl: '168' });
+      const key = `w/${id}`;
+      const existing = await env.VNSH_STORE.get(key);
+      const body = await existing!.arrayBuffer();
+      const md = { ...(existing!.customMetadata || {}) };
+      delete md.ttlHours;
+      md.ttlhours = '168';
+      await env.VNSH_STORE.put(key, body, { customMetadata: md });
+
+      const response = await put(id, 'edited-v2', '"1"');
+      expect(response.status).toBe(200);
+      const after = (await response.json()) as { expires: string };
+      expect(hoursOut(after.expires)).toBeGreaterThan(167);
+    });
+
     it('keeps the default lifetime for a workspace that never asked for more', async () => {
       const { id } = await createWorkspace();
       const response = await put(id, 'edited-v2', '"1"');

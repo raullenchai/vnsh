@@ -1,6 +1,6 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "mcpName": "io.github.raullenchai/vnsh",
   "description": "One workspace all your AI agents can read and write — MCP server for vnsh, encrypted client-side",
   "keywords": [
@@ -29,7 +29,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "vnsh-mcp": "./dist/index.js"
+    "vnsh-mcp": "dist/index.js"
   },
   "files": [
     "dist/index.js",

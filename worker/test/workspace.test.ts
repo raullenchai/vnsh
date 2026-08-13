@@ -180,6 +180,13 @@ describe('Workspaces', () => {
       expect(await read.text()).toBe('v2');
     });
 
+    it('rejects a malformed If-Match instead of suggesting a merge', async () => {
+      const { id } = await createWorkspace();
+      const response = await put(id, 'bad header', 'banana');
+      expect(response.status).toBe(400);
+      expect((await response.json() as { error: string }).error).toBe('INVALID_IF_MATCH');
+    });
+
     it('returns 404 when the workspace does not exist', async () => {
       const response = await put('bbbbbbbbbbbb', 'x', '"1"');
       expect(response.status).toBe(404);
@@ -282,7 +289,7 @@ describe('GET /w/:id viewer', () => {
     // What each tier grants has to be stated at the point of sharing, not left
     // for the sender to discover after the fact.
     expect(html).toContain('They can read it. They cannot change it.');
-    expect(html).toContain('They can read and change it.');
+    expect(html).toContain('an agent or CLI can change it.');
   });
 
   it('offers both share tiers and can never hand out more than it holds', async () => {

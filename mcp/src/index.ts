@@ -9,7 +9,7 @@
  * - vnsh_read: Decrypt and read content from a vnsh URL
  * - vnsh_share: Encrypt and upload text content, return shareable URL
  * - vnsh_share_file: Encrypt and upload a local file, return shareable URL
- * - vnsh_workspace_create/read/update/open: mutable, versioned shared workspaces
+ * - vnsh_workspace_create/read/update/renew/open: mutable, versioned shared workspaces
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -119,7 +119,7 @@ const WorkspaceRenewSchema = z.object({
 });
 
 const WorkspaceUrlSchema = z.object({
-  url: z.string().describe('Full workspace URL including the #w= fragment'),
+  url: z.string().describe('Full workspace URL: encrypted #w=/#r= or public /p/{id}'),
 });
 
 const WorkspaceUpdateSchema = z.object({
@@ -132,7 +132,7 @@ const WorkspaceUpdateSchema = z.object({
 const server = new Server(
   {
     name: 'vnsh-mcp',
-    version: '1.0.0',
+    version: PKG_VERSION,
   },
   {
     capabilities: {
@@ -148,15 +148,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'vnsh_read',
         description:
-          'Securely retrieves and decrypts content from a vnsh URL. Use this tool whenever ' +
-          'the user provides a vnsh.dev link or any URL with #k= and &iv= in the fragment. ' +
-          'The content is decrypted locally - the server never sees the decryption key.',
+          'Reads any vnsh URL: decrypts legacy vnsh.dev/v links locally, or directly fetches ' +
+          'a public vnshcontent.dev/p link. Public content is intentionally unencrypted.',
         inputSchema: {
           type: 'object',
           properties: {
             url: {
               type: 'string',
-              description: 'The full vnsh URL including the hash fragment (#k=...&iv=...)',
+              description: 'A legacy /v/ URL with #k=/iv=, or a public /p/{id} URL',
             },
           },
           required: ['url'],
@@ -276,14 +275,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'vnsh_workspace_read',
         description:
-          'Reads the current content of a vnsh workspace URL (a /w/ link with a #w= fragment). ' +
+          'Reads the current content of a workspace: encrypted /w/ links with #w= or #r=, ' +
+          'and public /p/ links with no fragment. ' +
           'Use this whenever the user provides such a link — it is how you pick up work another ' +
           'agent left for you. Returns the content and its version number; pass that version to ' +
           'vnsh_workspace_update to write safely.',
         inputSchema: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+            url: { type: 'string', description: 'Encrypted #w=/#r= URL or public /p/{id} URL' },
           },
           required: ['url'],
         },
@@ -298,7 +298,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+            url: { type: 'string', description: 'Full workspace edit URL including #w=' },
             content: { type: 'string', description: 'The full new content (replaces everything)' },
             base_version: {
               type: 'number',
@@ -320,7 +320,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            url: { type: 'string', description: 'Full workspace URL including the #w= fragment' },
+            url: { type: 'string', description: 'Encrypted #w=/#r= URL or public /p/{id} URL' },
           },
           required: ['url'],
         },
@@ -371,6 +371,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
  */
 export async function handleRead(args: unknown) {
   const { url } = ReadInputSchema.parse(args);
+
+  if (isPublicWorkspaceUrl(url)) {
+    return fetchPublicWorkspace(url);
+  }
 
   // Parse the URL to extract components
   const { host, id, key, iv } = parseVnshUrl(url);
@@ -454,7 +458,7 @@ export async function handleRead(args: unknown) {
       content: [
         {
           type: 'text',
-          text: `Image detected (${imageType.mime}). Saved to: ${tempFile}\n\nUse the Read tool to view this image.`,
+          text: `Image detected (${imageType.mime}). Saved to: ${tempFile}\n\nOpen this local path with your client's file or image viewer.`,
         },
       ],
       metadata: {
@@ -521,6 +525,45 @@ export async function handleRead(args: unknown) {
       size: encrypted.length,
       contentType,
     },
+  };
+}
+
+function isPublicWorkspaceUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw.split('#')[0]);
+    return /^\/p\/[0-9A-Za-z]{12}$/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+async function fetchPublicWorkspace(raw: string) {
+  const url = new URL(raw.split('#')[0]);
+  const id = url.pathname.slice(3);
+  const response = await fetch(url, { headers: { ...clientHeaders() } });
+  if (response.status === 404 || response.status === 410) {
+    throw new Error('Public workspace not found — it may have expired.');
+  }
+  if (!response.ok) throw new Error(`Read failed: HTTP ${response.status}`);
+  const payload = Buffer.from(await response.arrayBuffer());
+  if (payload.length > MAX_CONTENT_SIZE) throw new Error(`Workspace is too large (${payload.length} bytes)`);
+  const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+  const kind = detectFileType(payload);
+  if (kind || detectBinary(payload)) {
+    const ext = kind?.ext || 'bin';
+    const mime = kind?.mime || 'application/octet-stream';
+    const filePath = path.join(os.tmpdir(), `vnsh-public-${id}-v${version}.${ext}`);
+    fs.writeFileSync(filePath, payload, { mode: 0o600 });
+    return {
+      content: [{ type: 'text', text: `Public workspace ${id} — version ${version}.\n` +
+        `It holds ${mime} (${payload.length} bytes). Saved unmodified to: ${filePath}\n\n` +
+        `Open this local path with your client's file or image viewer.` }],
+      metadata: { workspaceId: id, version, public: true, canWrite: false, filePath, contentType: mime },
+    };
+  }
+  return {
+    content: [{ type: 'text', text: payload.toString('utf-8') }],
+    metadata: { workspaceId: id, version, public: true, canWrite: false },
   };
 }
 
@@ -813,6 +856,20 @@ export async function handleWorkspaceCreate(args: unknown) {
 
 // Fetch and decrypt a workspace. Shared by read/update/open.
 async function fetchWorkspace(url: string) {
+  if (isPublicWorkspaceUrl(url)) {
+    const target = new URL(url.split('#')[0]);
+    const id = target.pathname.slice(3);
+    const response = await fetch(target, { headers: { ...clientHeaders() } });
+    if (response.status === 404 || response.status === 410) {
+      throw new Error('Public workspace not found — it may have expired.');
+    }
+    if (!response.ok) throw new Error(`Read failed: HTTP ${response.status}`);
+    const plaintext = Buffer.from(await response.arrayBuffer());
+    if (plaintext.length > MAX_CONTENT_SIZE) throw new Error(`Workspace is too large (${plaintext.length} bytes)`);
+    const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+    return { host: target.origin, id, version, writeToken: undefined, key: undefined,
+      secret: undefined, canWrite: false, plaintext, public: true };
+  }
   const link = parseWorkspaceUrl(url);
   const { host, id, key, secret, writeToken, canWrite } = link;
 
@@ -856,7 +913,7 @@ async function fetchWorkspace(url: string) {
     );
   }
 
-  return { host, id, version, writeToken, key, secret, canWrite, plaintext };
+  return { host, id, version, writeToken, key, secret, canWrite, plaintext, public: isPublic };
 }
 
 /**
@@ -865,14 +922,14 @@ async function fetchWorkspace(url: string) {
  */
 export async function handleWorkspaceRead(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
-  const { host, id, version, secret, canWrite, plaintext } = await fetchWorkspace(url);
+  const { host, id, version, secret, canWrite, plaintext, public: isPublic } = await fetchWorkspace(url);
   const viewUrl = secret ? buildReadOnlyWorkspaceUrl(host, id, secret) : url;
 
   const header = canWrite
     ? `Workspace ${id} — version ${version}.\n` +
       `To modify it, call vnsh_workspace_update with base_version: ${version}.\n` +
       `To let someone read it without being able to change it, share:\n${viewUrl}\n\n`
-    : `Workspace ${id} — version ${version}. This is a view-only link; it cannot be written to.\n\n`;
+    : `Workspace ${id} — version ${version}. This is ${isPublic ? 'public content' : 'a view-only link'}; it cannot be written to from this URL.\n\n`;
 
   // A workspace holds whatever was put in it, and the Chrome extension puts
   // screenshots in — JPEG bytes, not text. This used to run toString('utf-8')
@@ -892,7 +949,7 @@ export async function handleWorkspaceRead(args: unknown) {
     const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
     fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
     const hint = kind && kind.image
-      ? '\n\nUse the Read tool on that path to view the image.'
+      ? '\n\nOpen that local path with your client\'s file or image viewer.'
       : '\n\nRead that path to work with the file.';
     return {
       content: [{
@@ -901,7 +958,7 @@ export async function handleWorkspaceRead(args: unknown) {
           `Saved unmodified to: ${filePath}${hint}`,
       }],
       metadata: {
-        workspaceId: id, version, canWrite, viewUrl,
+        workspaceId: id, version, canWrite, public: Boolean(isPublic), viewUrl,
         size: plaintext.length, contentType: mime, filePath,
       },
     };
@@ -909,7 +966,7 @@ export async function handleWorkspaceRead(args: unknown) {
 
   return {
     content: [{ type: 'text', text: header + plaintext.toString('utf-8') }],
-    metadata: { workspaceId: id, version, canWrite, viewUrl, size: plaintext.length },
+    metadata: { workspaceId: id, version, canWrite, public: Boolean(isPublic), viewUrl, size: plaintext.length },
   };
 }
 

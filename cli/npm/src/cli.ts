@@ -146,7 +146,9 @@ function humanExpiry(iso: string): string {
 
 async function createWorkspace(input: string | undefined, options: UploadOptions): Promise<void> {
   const host = options.host || DEFAULT_HOST;
-  const data = await readInput(input, 'Encrypting');
+  // Validate before reading input or claiming work has started.
+  const ttl = ttlQuery(options.ttl);
+  const data = await readInput(input, options.public ? 'Reading for public upload' : 'Encrypting');
 
   const secret = generateRootSecret();
   const keys = deriveWorkspaceKeys(secret);
@@ -168,7 +170,7 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   }
 
   info(`Uploading workspace (${formatBytes(payload.length)})...`);
-  const response = await fetch(`${host}/api/workspace${ttlQuery(options.ttl)}`, {
+  const response = await fetch(`${host}/api/workspace${ttl}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -410,12 +412,12 @@ function looksBinary(b: Buffer): boolean {
   // path has to expect plaintext, or holding your own edit link looks like
   // corruption.
   if (response.headers.get('X-Vnsh-Public') === '1') {
-    info(`Public workspace v${response.headers.get('ETag') || '?'} — no decryption needed`);
+    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
     writeOut(payload, `${link.id}-public`);
     return;
   }
 
-  info(`Decrypting workspace v${response.headers.get('ETag') || '?'} (${formatBytes(payload.length)})...`);
+  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
   try {
     writeOut(decryptWorkspace(payload, link.key), link.id);
   } catch {

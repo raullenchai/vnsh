@@ -219,7 +219,12 @@ const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 // Check a request against a rate limiter. Fails open on any error — rate limiting
 // must never take down the core service.
-async function checkRateLimit(limiter: RateLimit, ip: string): Promise<boolean> {
+async function checkRateLimit(limiter: RateLimit | undefined, ip: string): Promise<boolean> {
+  // The Vitest Workers pool does not currently emulate native rate-limit
+  // bindings. Treat an absent binding like the documented fail-open path,
+  // without printing a stack trace for every test request. Production config
+  // declares both bindings, so a runtime failure there is still logged below.
+  if (!limiter) return true;
   try {
     const { success } = await limiter.limit({ key: ip });
     return success;
@@ -887,7 +892,11 @@ function workspaceExpiry(ttlHours: number = DEFAULT_TTL_HOURS): {
 // created before this field existed carry no value and read back as the default,
 // which is the lifetime they were actually given.
 function workspaceTtlHours(md: Record<string, string>): number {
-  return parseTtlHours(md.ttlHours || null);
+  // R2 custom metadata is transported as HTTP headers and production
+  // normalizes field names to lowercase. Miniflare preserves the spelling, so
+  // accept both forms to keep edits from silently demoting a long-lived
+  // workspace to the 24-hour default.
+  return parseTtlHours(md.ttlHours || md.ttlhours || null);
 }
 
 // POST /api/workspace — create a workspace and return its ID.
@@ -1158,6 +1167,14 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   // `*` meaning "whatever is there now". Being strict here only manufactures
   // conflicts that do not exist.
   const claimedVersion = ifMatch.trim().replace(/^W\//i, '').replace(/"/g, '');
+  if (claimedVersion !== '*' && !/^\d+$/.test(claimedVersion)) {
+    return errorResponse(
+      'INVALID_IF_MATCH',
+      'If-Match must be the numeric workspace version, optionally quoted or weak, or *',
+      400,
+      request,
+    );
+  }
   if (claimedVersion !== '*' && claimedVersion !== currentVersion) {
     return errorResponse(
       'VERSION_CONFLICT',
@@ -1549,7 +1566,7 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       </button>
       <button id="share-edit">
         <span class="t">Copy edit link</span>
-        <span class="d">They can read and change it.</span>
+        <span class="d">They can read it here; an agent or CLI can change it.</span>
       </button>
     </div>
   </span>
@@ -2618,12 +2635,15 @@ export default {
       });
     }
 
-    // Route: GET /llms.txt - AI agent instructions
-    if (request.method === 'GET' && path === '/llms.txt') {
+    // Route: GET/HEAD /llms.txt - AI agent instructions and discovery probes
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/llms.txt') {
       // The document is written against the primary host; public links are
       // rewritten to the content domain here so a self-hosted instance with no
       // second domain still reads correctly rather than advertising ours.
-      return new Response(LLMS_TXT.split('https://vnsh.dev/p/').join(`${contentOrigin(env, url)}/p/`), {
+      const body = request.method === 'HEAD'
+        ? null
+        : LLMS_TXT.split('https://vnsh.dev/p/').join(`${contentOrigin(env, url)}/p/`);
+      return new Response(body, {
         status: 200,
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
       });
@@ -3576,9 +3596,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.4.1
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.4.1"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.4.1
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.5.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.5.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3746,8 +3766,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.4.1        pin the version
-  npm i -g vnsh-mcp@1.4.1 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0        pin the version
+  npm i -g vnsh-mcp@1.5.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code
@@ -5930,7 +5950,7 @@ const APP_HTML = `<!DOCTYPE html>
             <div class="link-card primary">
               <div class="link-top">
                 <div class="link-name">Edit link</div>
-                <div class="link-role">read + change</div>
+                <div class="link-role">read here · change via agent or CLI</div>
               </div>
               <div class="link-row">
                 <div class="result-url" id="result-url-short"></div>
@@ -5951,7 +5971,7 @@ const APP_HTML = `<!DOCTYPE html>
             </div>
 
             <div class="handoff">
-              <b>Now hand it to an agent.</b> Paste the edit link into Claude&nbsp;Code or Cursor
+              <b>Now hand it to an agent.</b> Browser links are viewers, not editors. Paste the edit link into Claude&nbsp;Code or Cursor
               and ask it to add to the document &mdash; or
               <button class="btn" style="padding:2px 8px;font-size:12px;" onclick="copyForClaude()">copy it with a note for the agent</button>
             </div>
