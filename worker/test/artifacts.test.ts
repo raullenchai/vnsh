@@ -35,7 +35,7 @@ beforeAll(async () => {
     ] },
     { name: 'artifacts.sql', queries: [
       "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,summary TEXT,artifact_type TEXT NOT NULL DEFAULT 'document',content_type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',visibility TEXT NOT NULL DEFAULT 'private',current_version INTEGER NOT NULL DEFAULT 1,current_object_key TEXT NOT NULL,current_size INTEGER NOT NULL,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
-      "CREATE TABLE artifact_versions (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,version INTEGER NOT NULL,object_key TEXT NOT NULL UNIQUE,size INTEGER NOT NULL,author_principal_id TEXT NOT NULL,author_kind TEXT NOT NULL,change_summary TEXT,source_ref TEXT,evidence_json TEXT NOT NULL DEFAULT '[]',client_harness TEXT,client_model TEXT,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,version))",
+      "CREATE TABLE artifact_versions (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,version INTEGER NOT NULL,object_key TEXT NOT NULL UNIQUE,size INTEGER NOT NULL,author_principal_id TEXT NOT NULL,author_kind TEXT NOT NULL,change_summary TEXT,source_ref TEXT,evidence_json TEXT NOT NULL DEFAULT '[]',client_harness TEXT,client_model TEXT,content_type TEXT,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,version))",
       "CREATE TABLE artifact_access (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,principal_type TEXT NOT NULL,principal_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,principal_type,principal_id))",
     ] },
   ]);
@@ -78,7 +78,7 @@ describe('account Artifacts V1 contract', () => {
     const updated = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, {
       method: 'PUT',
       headers: { Authorization: 'Bearer agent-token', 'If-Match': 'W/"1"', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summary: 'Production-verified release evidence', content: '<h1>Ready</h1><p>Smoke passed.</p>', changeSummary: 'Added production proof', sourceRef: 'https://vnsh.dev', evidence: ['40/40 smoke checks'], harness: 'Codex CLI', model: 'GPT-5' }),
+      body: JSON.stringify({ summary: 'Production-verified release evidence', content: '<h1>Ready</h1><p>Smoke passed.</p>', contentType: 'text/plain; charset=utf-8', changeSummary: 'Added production proof', sourceRef: 'https://vnsh.dev', evidence: ['40/40 smoke checks'], harness: 'Codex CLI', model: 'GPT-5' }),
     }));
     expect(updated.status).toBe(200);
     expect(await updated.json<any>()).toMatchObject({ artifact: { version: 2, capabilities: ['read', 'update', 'request_review'] } });
@@ -94,6 +94,32 @@ describe('account Artifacts V1 contract', () => {
         { version: 1, author: { kind: 'human', principalId: 'human-session' }, evidence: ['Worker tests passed'] },
       ],
     });
+
+    const shell = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}?version=1`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(shell.status).toBe(200);
+    expect(shell.headers.get('Content-Security-Policy')).toContain("frame-src 'self'");
+    expect(await shell.text()).toContain(`/artifacts/${artifact.id}/content?version=1`);
+
+    const agentShell = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}`, { headers: { Authorization: 'Bearer agent-token' } }));
+    expect(agentShell.status).toBe(403);
+    expect(await agentShell.json()).toMatchObject({ error: 'HUMAN_REQUIRED' });
+
+    const firstContent = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content?version=1`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(firstContent.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    expect(firstContent.headers.get('Content-Security-Policy')).toContain("sandbox; default-src 'none'");
+    expect(await firstContent.text()).toBe('<h1>Ready</h1>');
+    const currentContent = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content?version=2`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(currentContent.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+    expect(await currentContent.text()).toContain('Smoke passed.');
+    const contentHead = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content`, { method: 'HEAD', headers: { Authorization: 'Bearer human-token' } }));
+    expect(contentHead.status).toBe(200);
+    expect(await contentHead.text()).toBe('');
+    const invalidVersion = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content?version=banana`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(invalidVersion.status).toBe(400);
+    expect(await invalidVersion.json()).toMatchObject({ error: 'INVALID_VERSION' });
+    const missingVersion = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content?version=99`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(missingVersion.status).toBe(404);
+    expect(await missingVersion.json()).toMatchObject({ error: 'NOT_FOUND' });
 
     const stale = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, {
       method: 'PUT', headers: { Authorization: 'Bearer agent-token', 'If-Match': '"1"' }, body: JSON.stringify({ content: 'stale' }),
