@@ -171,7 +171,11 @@ describe("accounts", () => {
     ).toMatchObject({ kind: "artifact" });
     const artifactPage = await call(
       new Request(`https://vnsh.dev/artifact/${body.id}`, {
-        headers: { Accept: "text/html" },
+        headers: {
+          Accept: "text/html",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Dest": "document",
+        },
       }),
     );
     expect(artifactPage.status).toBe(200);

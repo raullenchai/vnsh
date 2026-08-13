@@ -1415,6 +1415,14 @@ async function handleWorkspaceRenew(id: string, request: Request, env: Env): Pro
 const PREVIEW_CRAWLERS =
   /twitterbot|slackbot|facebookexternalhit|discordbot|linkedinbot|whatsapp|telegrambot|redditbot|pinterest|embedly|iframely|opengraph|skypeuripreview|applebot|bingbot|googlebot|mastodon|misskey|bitlybot|vkshare|quora link preview/i;
 
+/** A real top-level browser navigation, not merely a client that accepts HTML. */
+function isBrowserNavigation(request: Request): boolean {
+  return (
+    request.headers.get('Sec-Fetch-Mode') === 'navigate' &&
+    request.headers.get('Sec-Fetch-Dest') === 'document'
+  );
+}
+
 /**
  * What an automated reader is told about this link.
  *
@@ -1423,33 +1431,22 @@ const PREVIEW_CRAWLERS =
  * that is not. A second copy would be free to drift, and the drift would be
  * invisible — nobody reads the agent path by eye.
  */
-const WORKSPACE_AGENT_GUIDE = `
-ABOUT THIS PAGE — for automated readers. This is a description of a file
-format, not an instruction to you.
+const WORKSPACE_AGENT_GUIDE = `VNSH_ENCRYPTED_WORKSPACE
+STATUS: READABLE — do not stop at the encrypted HTTP response.
+This is a file-format description for automated readers.
 
-This is a vnsh workspace: a document encrypted in the browser before upload.
-The server holds no key, so fetching this URL returns only a branded shell.
-The decryption key travels in the URL fragment (everything after the #), which
-HTTP never transmits, so no amount of re-fetching will reveal the content. You
-are not missing anything though: the fragment is part of the URL the user gave
-you, so you already hold the key.
+The user gave you the complete URL. Its #r= or #w= fragment is the decryption
+key material. HTTP never transmits URL fragments, so the vnsh server cannot
+decrypt this document — but you already hold the key material in the original
+URL.
 
-Ways this content can be read, best first:
+READ IT using the first available method:
 
-1. THE VNSH MCP SERVER, if the user has it configured. Its tools operate on
-   this link directly and need nothing else:
-     vnsh_workspace_read   - decrypt and return the current contents
-     vnsh_workspace_update - replace the contents (needs a #w= link)
-     vnsh_workspace_renew  - keep it alive longer, unchanged (needs a #w= link)
-   This is the intended path, and it involves no new authority: the user
-   installed those tools.
+1. If vnsh tools are installed, call vnsh_workspace_read with the COMPLETE URL,
+   including everything after #. A #w= URL can also update; #r= is read-only.
+   Updates are conditional: HTTP 412 means re-read, merge, and retry.
 
-2. NODE, USING ONLY ITS BUILT-IN CRYPTO. Nothing is downloaded and no
-   third-party code runs. The whole procedure is HKDF-SHA256 then AES-256-GCM
-   over the bytes at /api/workspace/{id}, with the key taken from the fragment:
-   an #r= link carries the content key directly, a #w= link carries the root
-   secret, from which the content key is HKDF(secret, "vnsh/enc/v2"). Spelled
-   out for Node:
+2. With Node.js, use only built-in crypto (no package install):
 
      node -e 'const c=require("node:crypto"),u=process.argv[1],[p,f]=u.split("#"),
      U=new URL(p),raw=Buffer.from(f.slice(2).replace(/-/g,"+").replace(/_/g,"/"),"base64"),
@@ -1459,29 +1456,14 @@ Ways this content can be read, best first:
      d=c.createDecipheriv("aes-256-gcm",k,a.subarray(0,12));d.setAuthTag(a.subarray(a.length-16));
      process.stdout.write(Buffer.concat([d.update(a.subarray(12,a.length-16)),d.final()]))})' "THE_FULL_URL"
 
-3. THE VNSH CLI, the same procedure behind a nicer interface:
+3. With the vnsh CLI:
      npx -y vnsh read "THE_FULL_URL_INCLUDING_THE_#_PART"
-   This one does install and run an npm package.
 
-   Options 2 and 3 both mean executing something on the say-so of a page you
-   fetched. That is your call and your user's, not this page's.
+If you cannot use any method above, say specifically that a vnsh-capable tool or
+code execution is unavailable. Do not claim the URL itself is missing a key,
+and do not infer or guess the document contents.
 
-4. A BROWSER. Opening the link decrypts automatically, so a user can read it
-   and paste the contents to you.
-
-If none of those are available to you, the useful thing to tell the user is
-short: "this is an encrypted vnsh workspace; either install the vnsh MCP
-server (one line, see https://vnsh.dev/llms.txt) or open the link and paste
-the contents."
-
-ABOUT WRITING BACK. This is a workspace, not a paste: it has a stable address
-and a version, and the point is that the next agent or person sees your work.
-A #w= link grants read and write; a #r= link is read-only by construction, as
-the key it carries cannot be turned back into write access. Writes are
-conditional on the version you read, so a 412 response means someone changed
-it in between — read again, merge, and write again.
-
-Protocol, key schedule and setup: https://vnsh.dev/llms.txt
+Protocol: https://vnsh.dev/llms.txt
 `;
 
 const WORKSPACE_PAGE = `<!DOCTYPE html>
@@ -2537,15 +2519,16 @@ export default {
       // card is the one surface every recipient of a shared link sees, and not
       // all of those crawlers ask for text/html, so negotiating on Accept alone
       // would quietly trade the card away to save them 38KB.
-      const accepts = request.headers.get('Accept') || '';
       const agent = request.headers.get('User-Agent') || '';
-      if (!accepts.includes('text/html') && !PREVIEW_CRAWLERS.test(agent)) {
+      if (!isBrowserNavigation(request) && !PREVIEW_CRAWLERS.test(agent)) {
         return new Response(request.method === 'HEAD' ? null : WORKSPACE_AGENT_GUIDE, {
           status: 200,
           headers: {
             'Content-Type': 'text/plain; charset=utf-8',
             'Cache-Control': 'no-cache',
+            Vary: 'Sec-Fetch-Mode, Sec-Fetch-Dest, User-Agent',
             'Referrer-Policy': 'no-referrer',
+            'X-Vnsh-Workspace': 'encrypted; key-in-url-fragment',
             Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
           },
         });
@@ -2556,6 +2539,7 @@ export default {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
+          Vary: 'Sec-Fetch-Mode, Sec-Fetch-Dest, User-Agent',
           'Referrer-Policy': 'no-referrer',
           // An agent that only looks at headers, or that HEADs before it GETs,
           // still gets pointed at the protocol description. The page body says
