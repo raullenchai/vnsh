@@ -2,10 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
-// The workspace route now content-negotiates: anything not asking for HTML
-// gets the agent guide as plain text. A suite asserting the browser page has to
-// ask for the browser page.
-const BROWSER = { headers: { Accept: 'text/html' } };
+// The workspace route now content-negotiates: only real browser navigations
+// get the application. A suite asserting the browser page has to identify one.
+const BROWSER = { headers: { Accept: 'text/html', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' } };
 
 type Env = { VNSH_STORE: R2Bucket };
 

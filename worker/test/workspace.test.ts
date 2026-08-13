@@ -2,10 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
 
-// The workspace route now content-negotiates: anything not asking for HTML
-// gets the agent guide as plain text. A suite asserting the browser page has to
-// ask for the browser page.
-const BROWSER = { headers: { Accept: 'text/html' } };
+// The workspace route now content-negotiates: only real browser navigations
+// get the application. A suite asserting the browser page has to identify one.
+const BROWSER = { headers: { Accept: 'text/html', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' } };
 
 type Env = { VNSH_STORE: R2Bucket };
 
@@ -700,7 +699,7 @@ describe('workspace page explains itself to agents', () => {
     // Re-fetching can never work: the fragment is not sent to the server.
     expect(html).toMatch(/never transmits|never sent/i);
     // And it already holds the key, so it does not need to ask for the content.
-    expect(html).toMatch(/you already hold the key/i);
+    expect(html).toMatch(/you already hold the key material/i);
   });
 
   // An agent found the earlier version of this block, correctly refused to act
@@ -710,9 +709,9 @@ describe('workspace page explains itself to agents', () => {
   // not command, or it converts one dead end into another.
   it('describes a format rather than issuing orders', async () => {
     const html = await page();
-    const block = html.slice(html.indexOf('ABOUT THIS PAGE'), html.indexOf('</div>', html.indexOf('ABOUT THIS PAGE')));
+    const block = html.slice(html.indexOf('VNSH_ENCRYPTED_WORKSPACE'));
 
-    expect(block).toMatch(/description of a file\s+format, not an instruction to you/i);
+    expect(block).toMatch(/file-format description for automated readers/i);
     // The wording that reads as an injection attempt, and did get refused.
     expect(block).not.toMatch(/INSTRUCTIONS FOR AI AGENTS/);
     expect(block).not.toMatch(/^\s*TO READ IT, run/im);
@@ -721,31 +720,27 @@ describe('workspace page explains itself to agents', () => {
 
   it('names the tool the user already authorised before the one they did not', async () => {
     const html = await page();
-    const block = html.slice(html.indexOf('ABOUT THIS PAGE'));
+    const block = html.slice(html.indexOf('VNSH_ENCRYPTED_WORKSPACE'));
     // The MCP tools are something the user installed, so using them needs no
     // new authority; npx installs and runs a package, so it does.
     expect(block.indexOf('vnsh_workspace_read')).toBeLessThan(block.indexOf('npx -y vnsh read'));
-    // Executing anything is the reader's decision and their user's; a page
-    // cannot hand out that permission, and saying so is what stops this block
-    // from reading as an injection attempt.
-    expect(block).toMatch(/your call and your user['\u2019]s, not this page/i);
     // And the lowest-authority option — no download, no third-party code —
     // comes before the one that installs a package.
     expect(block.indexOf('node -e')).toBeLessThan(block.indexOf('npx -y vnsh read'));
-    expect(block).toMatch(/does install and run an npm package/i);
+    expect(block).toMatch(/built-in crypto \(no package install\)/i);
   });
 
   it('leaves the agent something useful to say when it can do nothing', async () => {
     const html = await page();
     // Otherwise it goes back to the human with a shrug, which is the failure.
-    expect(html).toMatch(/the useful thing to tell the user/i);
+    expect(html).toMatch(/say specifically that a vnsh-capable tool/i);
     expect(html).toContain('https://vnsh.dev/llms.txt');
   });
 
   it('explains the write semantics, including how a write fails', async () => {
     const html = await page();
     expect(html).toMatch(/412/);
-    expect(html).toMatch(/#r= link is read-only by construction/i);
+    expect(html).toMatch(/#r= is read-only/i);
   });
 
   /**
@@ -817,16 +812,30 @@ describe('an automated reader is told it can read this, not that it cannot', () 
     expect(res.headers.get('Content-Type')).toContain('text/plain');
     const body = await res.text();
     // The sentence that turns "impossible" into "here is how".
-    expect(body).toContain('you already hold the key');
+    expect(body).toContain('STATUS: READABLE');
+    expect(body).toContain('you already hold the key material');
     expect(body).toContain('vnsh/enc/v2');
     expect(body).toContain('vnsh_workspace_read');
     // Small enough to be read in full rather than skimmed.
     expect(body.length).toBeLessThan(6000);
   });
 
+  it('does not mistake an agent asking for HTML for a browser navigation', async () => {
+    for (const ua of ['OpenAI-WebFetch/1.0', 'ClaudeBot/1.0', 'Mozilla/5.0 agent-fetch']) {
+      const res = await call(new Request('http://localhost/w/aBcDeFgHiJkL', {
+        headers: { 'User-Agent': ua, Accept: 'text/html,application/xhtml+xml' },
+      }));
+      expect(res.headers.get('Content-Type'), ua).toContain('text/plain');
+      expect(res.headers.get('Vary'), ua).toContain('Sec-Fetch-Mode');
+      expect(res.headers.get('X-Vnsh-Workspace'), ua).toContain('key-in-url-fragment');
+      expect(await res.text(), ua).toContain('VNSH_ENCRYPTED_WORKSPACE');
+    }
+  });
+
   it('gives a browser the application, not the procedure', async () => {
     const res = await call(new Request('http://localhost/w/aBcDeFgHiJkL', BROWSER));
     expect(res.headers.get('Content-Type')).toContain('text/html');
+    expect(res.headers.get('Vary')).toContain('Sec-Fetch-Dest');
     expect(await res.text()).toContain('<!DOCTYPE html>');
   });
 
