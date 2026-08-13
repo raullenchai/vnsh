@@ -1,6 +1,7 @@
 import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
 import { currentUser, type AccountEnv, type AccountUser } from './accounts';
 import { isTooLarge, readCapped } from './workspace-storage';
+import { ownedWorkspace } from './workspaces';
 
 const MAX_ARTIFACT_SIZE = 25 * 1024 * 1024;
 const ARTIFACT_PREFIX = 'a/';
@@ -20,6 +21,7 @@ type ArtifactInput = {
   evidence?: unknown;
   harness?: unknown;
   model?: unknown;
+  workspaceId?: unknown;
 };
 
 type ArtifactRow = {
@@ -38,6 +40,8 @@ type ArtifactRow = {
   history_versions: number;
   created_at: string;
   updated_at: string;
+  workspace_id: string | null;
+  workspace_name?: string;
 };
 
 function jsonError(error: string, message: string, status: number): Response {
@@ -63,6 +67,7 @@ function present(row: ArtifactRow, user: AccountUser) {
     size: row.current_size,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    workspace: { id: row.workspace_id, name: row.workspace_name || 'Personal' },
     capabilities: capabilities(user),
   };
 }
@@ -139,7 +144,8 @@ function authorKind(user: AccountUser): 'human' | 'agent' {
 }
 
 async function ownedArtifact(env: AccountEnv, id: string, userId: string): Promise<ArtifactRow | null> {
-  return env.ACCOUNTS.prepare('SELECT * FROM artifacts WHERE id=? AND owner_id=?')
+  return env.ACCOUNTS.prepare(`SELECT a.*,w.name AS workspace_name FROM artifacts a
+    LEFT JOIN workspaces w ON w.id=a.workspace_id WHERE a.id=? AND a.owner_id=?`)
     .bind(id, userId).first<ArtifactRow>();
 }
 
@@ -152,6 +158,11 @@ async function createArtifact(request: Request, env: AccountEnv, user: AccountUs
   if (bytes.byteLength > MAX_ARTIFACT_SIZE) return jsonError('PAYLOAD_TOO_LARGE', 'Maximum Artifact content size is 25MB', 413);
   const quota = await canCreateDocument(env, user, bytes.byteLength);
   if (!quota.allowed) return quotaResponse(quota.usage);
+  if (parsed.workspaceId !== undefined && typeof parsed.workspaceId !== 'string') {
+    return jsonError('INVALID_WORKSPACE', 'workspaceId must be a string', 400);
+  }
+  const workspace = await ownedWorkspace(env, user.id, typeof parsed.workspaceId === 'string' ? parsed.workspaceId : null);
+  if (!workspace) return jsonError('WORKSPACE_NOT_FOUND', 'Workspace not found', 404);
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -159,8 +170,8 @@ async function createArtifact(request: Request, env: AccountEnv, user: AccountUs
   await env.VNSH_STORE.put(objectKey, bytes, { httpMetadata: { contentType: input.contentType || 'text/html; charset=utf-8' } });
   try {
     await env.ACCOUNTS.batch([
-      env.ACCOUNTS.prepare('INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .bind(id, user.id, input.title, input.summary || null, input.artifactType || 'document', input.contentType || 'text/html; charset=utf-8', 'draft', 'private', 1, objectKey, bytes.byteLength, now, now),
+      env.ACCOUNTS.prepare('INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,workspace_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, user.id, input.title, input.summary || null, input.artifactType || 'document', input.contentType || 'text/html; charset=utf-8', 'draft', 'private', 1, objectKey, bytes.byteLength, workspace.id, now, now),
       env.ACCOUNTS.prepare('INSERT INTO artifact_versions(artifact_id,version,object_key,size,author_principal_id,author_kind,change_summary,source_ref,evidence_json,client_harness,client_model,content_type,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
         .bind(id, 1, objectKey, bytes.byteLength, user.sessionId, authorKind(user), input.changeSummary || 'Initial version', input.sourceRef || null, JSON.stringify(input.evidence), input.harness || null, input.model || null, input.contentType || 'text/html; charset=utf-8', now),
       env.ACCOUNTS.prepare('INSERT INTO artifact_access(artifact_id,principal_type,principal_id,role,created_at) VALUES(?,?,?,?,?)')
@@ -175,9 +186,12 @@ async function createArtifact(request: Request, env: AccountEnv, user: AccountUs
   return Response.json({ artifact: present(row!, user) }, { status: 201, headers: { ETag: '"1"', 'Cache-Control': 'no-store' } });
 }
 
-async function listArtifacts(env: AccountEnv, user: AccountUser): Promise<Response> {
-  const result = await env.ACCOUNTS.prepare('SELECT * FROM artifacts WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100')
-    .bind(user.id).all<ArtifactRow>();
+async function listArtifacts(request: Request, env: AccountEnv, user: AccountUser): Promise<Response> {
+  const workspaceId = new URL(request.url).searchParams.get('workspace');
+  if (workspaceId && !(await ownedWorkspace(env, user.id, workspaceId))) return jsonError('WORKSPACE_NOT_FOUND', 'Workspace not found', 404);
+  const result = await env.ACCOUNTS.prepare(`SELECT a.*,w.name AS workspace_name FROM artifacts a
+    LEFT JOIN workspaces w ON w.id=a.workspace_id WHERE a.owner_id=? AND (? IS NULL OR a.workspace_id=?) ORDER BY a.updated_at DESC LIMIT 100`)
+    .bind(user.id, workspaceId, workspaceId).all<ArtifactRow>();
   return Response.json({ artifacts: result.results.map((row) => present(row, user)) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -351,7 +365,7 @@ export async function handleArtifacts(request: Request, env: AccountEnv, url: UR
   if (!collection && !match && !versions && !page && !content && !formDelete) return null;
   const user = await currentUser(request, env);
   if (!user) return jsonError('UNAUTHORIZED', 'Sign in or connect an Agent token', 401);
-  if (collection && request.method === 'GET') return listArtifacts(env, user);
+  if (collection && request.method === 'GET') return listArtifacts(request, env, user);
   if (collection && request.method === 'POST') return createArtifact(request, env, user);
   if (versions && request.method === 'GET') return listVersions(versions[1], env, user);
   if (versions) return jsonError('METHOD_NOT_ALLOWED', 'Use GET to list Artifact versions', 405);
