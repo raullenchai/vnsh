@@ -26,6 +26,7 @@ import {
   parseWorkspaceUrl,
   isWorkspaceUrl,
 } from './crypto.js';
+import { clearToken, deviceLogin, loadToken, openBrowser, saveToken } from './auth.js';
 
 // Read from the manifest npm publishes rather than a constant maintained by
 // hand. The constant had drifted twice — it said 2.3.1 while 2.3.3 was on the
@@ -39,8 +40,11 @@ const VERSION: string = (() => {
   }
 })();
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
-const ACCOUNT_TOKEN = process.env.VNSH_TOKEN;
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
+
+function accountOrigin(host: string): string {
+  return new URL(host).hostname === 'vnsh.dev' ? 'https://account.vnsh.dev' : host;
+}
 
 // Colors for terminal output
 const colors = {
@@ -177,12 +181,13 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   }
 
   info(`Uploading workspace (${formatBytes(payload.length)})...`);
+  const accountToken = loadToken(host);
   const response = await fetch(`${host}/api/workspace${ttl}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
-      ...(ACCOUNT_TOKEN ? { Authorization: `Bearer ${ACCOUNT_TOKEN}` } : {}),
+      ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}),
       'X-Vnsh-Write-Hash': keys.writeHash,
       ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
       ...(options.artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
@@ -612,6 +617,84 @@ program
       } else {
         await createWorkspace(file, options);
       }
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('login')
+  .description('Sign in through your browser so new documents are kept permanently')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (options: UploadOptions) => {
+    try {
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      if (loadToken(host)) info('Replacing the account already saved for this host...');
+      const token = await deviceLogin(host, (device) => {
+        console.log(`Your one-time code: ${colors.yellow(device.user_code)}`);
+        console.log(`Open: ${device.verification_uri}`);
+        if (openBrowser(device.verification_uri)) info('Opened your browser. Approve the CLI there...');
+        else info('Open the URL above in a browser to continue...');
+      });
+      saveToken(host, token);
+      const response = await fetch(`${accountOrigin(host)}/api/account/me`, {
+        headers: { Authorization: `Bearer ${token}`, 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+      });
+      const data = response.ok ? await response.json() as { user?: { email?: string } } : {};
+      console.log(colors.green(`✓ Signed in${data.user?.email ? ` as ${data.user.email}` : ''}`));
+      console.log('New workspaces and artifacts will be kept until you delete them.');
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('whoami')
+  .description('Show the vnsh account used by this CLI')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (options: UploadOptions) => {
+    try {
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const token = loadToken(host);
+      if (!token) error('Not signed in. Run `vn login`.');
+      const response = await fetch(`${accountOrigin(host)}/api/account/me`, {
+        headers: { Authorization: `Bearer ${token}`, 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+      });
+      if (response.status === 401) error('Your login expired. Run `vn login` again.');
+      if (!response.ok) error(`Could not read account (HTTP ${response.status})`);
+      const data = await response.json() as { user: { email: string; tier: string } };
+      console.log(data.user.email);
+      console.log(`tier: ${data.user.tier}`);
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('logout')
+  .description('Revoke and remove the account token saved on this device')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (options: UploadOptions) => {
+    try {
+      if (process.env.VNSH_TOKEN) error('VNSH_TOKEN is set in the environment; unset it to log out this shell.');
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const token = loadToken(host);
+      if (!token) {
+        console.log('Not signed in.');
+        return;
+      }
+      let revoked: Response;
+      try {
+        revoked = await fetch(`${accountOrigin(host)}/api/account/token/current`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}`, 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+        });
+      } catch {
+        error('Could not reach vnsh to revoke this token. Your saved login was kept so you can retry.');
+      }
+      if (!revoked.ok && revoked.status !== 401) error(`Could not revoke login (HTTP ${revoked.status}). Try again.`);
+      clearToken();
+      console.log(colors.green('✓ Signed out'));
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }

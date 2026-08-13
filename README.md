@@ -211,8 +211,9 @@ bad write token. Full reference in [`docs/api.md`](docs/api.md).
 Anonymous sharing remains account-free and temporary. Sign in at
 `https://account.vnsh.dev` with a magic link to keep newly created workspaces
 and `/artifact/` pages until you delete them. Browser creates use the signed-in
-session automatically. For CLI and MCP, create a token on the account page and
-set `VNSH_TOKEN`; content is still encrypted locally and the account database
+session automatically. For the CLI, run `vn login` and approve the device in
+your browser. MCP and CI can use an account token in `VNSH_TOKEN`; content is
+still encrypted locally and the account database
 stores only ownership metadata, not keys or plaintext.
 Keep the returned link: its fragment is the only copy of the decryption/editing
 secret, so the account can manage retention and deletion but cannot recover a

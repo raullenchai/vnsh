@@ -39,6 +39,7 @@ beforeAll(async () => {
         "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY,user_id TEXT,expires_at TEXT,created_at TEXT)",
         "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT)",
         "CREATE TABLE magic_links (token_hash TEXT PRIMARY KEY,email TEXT,expires_at TEXT,used_at TEXT,created_at TEXT)",
+        "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
       ],
     },
   ]);
@@ -78,6 +79,69 @@ describe("accounts", () => {
         new Date().toISOString(),
       ),
     ]);
+
+    const deviceStart = await call(
+      new Request("https://account.vnsh.dev/api/auth/device", {
+        method: "POST",
+      }),
+    );
+    expect(deviceStart.status).toBe(201);
+    const device = await deviceStart.json<any>();
+    expect(device.user_code).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+    expect(device.verification_uri).toContain(device.user_code);
+    const poll = () =>
+      call(
+        new Request("https://account.vnsh.dev/api/auth/device/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_code: device.device_code }),
+        }),
+      );
+    expect((await poll()).status).toBe(202);
+    const approvalPage = await call(
+      new Request(device.verification_uri, {
+        headers: { Authorization: `Bearer ${raw}` },
+      }),
+    );
+    expect(await approvalPage.text()).toContain("Approve this device?");
+    const approval = await call(
+      new Request("https://account.vnsh.dev/device/approve", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${raw}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ code: device.user_code }),
+      }),
+    );
+    expect(await approval.text()).toContain("CLI connected.");
+    const tokenResponse = await poll();
+    expect(tokenResponse.status).toBe(200);
+    const cliToken = (await tokenResponse.json<any>()).token;
+    const me = await call(
+      new Request("https://account.vnsh.dev/api/account/me", {
+        headers: { Authorization: `Bearer ${cliToken}` },
+      }),
+    );
+    expect(await me.json()).toMatchObject({ user: { email: "u@example.com" } });
+    expect((await poll()).status).toBe(410);
+    const revoked = await call(
+      new Request("https://account.vnsh.dev/api/account/token/current", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${cliToken}` },
+      }),
+    );
+    expect(revoked.status).toBe(204);
+    expect(
+      (
+        await call(
+          new Request("https://account.vnsh.dev/api/account/me", {
+            headers: { Authorization: `Bearer ${cliToken}` },
+          }),
+        )
+      ).status,
+    ).toBe(401);
+
     const writeToken = "b".repeat(64);
     const response = await call(
       new Request("https://vnsh.dev/api/workspace", {

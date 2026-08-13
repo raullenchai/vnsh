@@ -33,6 +33,12 @@ function token(): string {
     .replace(/=+$/, "");
 }
 
+function deviceCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+}
+
 async function hash(value: string): Promise<string> {
   return hex(
     new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(value))),
@@ -91,6 +97,174 @@ export async function handleAccount(
   env: AccountEnv,
   url: URL,
 ): Promise<Response> {
+  if (url.pathname === "/api/account/me" && request.method === "GET") {
+    const user = await currentUser(request, env);
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    return Response.json(
+      { user },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (
+    url.pathname === "/api/account/token/current" &&
+    request.method === "DELETE"
+  ) {
+    const bearer = request.headers
+      .get("Authorization")
+      ?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!bearer || bearer.length > 256)
+      return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const removed = await env.ACCOUNTS.prepare(
+      "DELETE FROM sessions WHERE token_hash=?",
+    )
+      .bind(await hash(bearer))
+      .run();
+    return new Response(null, { status: removed.meta.changes ? 204 : 401 });
+  }
+  if (url.pathname === "/api/auth/device" && request.method === "POST") {
+    const raw = token();
+    const now = new Date();
+    const expires = new Date(now.getTime() + 10 * 60_000).toISOString();
+    let code = deviceCode();
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await env.ACCOUNTS.prepare(
+          "INSERT INTO device_logins(code,secret_hash,expires_at,created_at) VALUES(?,?,?,?)",
+        )
+          .bind(code, await hash(raw), expires, now.toISOString())
+          .run();
+        return Response.json(
+          {
+            device_code: raw,
+            user_code: code,
+            verification_uri: `${url.origin}/device?code=${code}`,
+            expires_in: 600,
+            interval: 2,
+          },
+          { status: 201, headers: { "Cache-Control": "no-store" } },
+        );
+      } catch (error) {
+        if (attempt === 4) throw error;
+        code = deviceCode();
+      }
+    }
+  }
+  if (url.pathname === "/api/auth/device/token" && request.method === "POST") {
+    const input = (await request.json().catch(() => ({}))) as {
+      device_code?: string;
+    };
+    if (!input.device_code || input.device_code.length > 256)
+      return Response.json({ error: "INVALID_DEVICE_CODE" }, { status: 400 });
+    const now = new Date().toISOString();
+    const login = await env.ACCOUNTS.prepare(
+      "SELECT code,user_id,expires_at,approved_at,consumed_at FROM device_logins WHERE secret_hash=?",
+    )
+      .bind(await hash(input.device_code))
+      .first<any>();
+    if (!login)
+      return Response.json({ error: "INVALID_DEVICE_CODE" }, { status: 400 });
+    if (login.consumed_at)
+      return Response.json({ error: "DEVICE_CODE_USED" }, { status: 410 });
+    if (login.expires_at <= now)
+      return Response.json({ error: "DEVICE_CODE_EXPIRED" }, { status: 410 });
+    if (!login.approved_at || !login.user_id)
+      return Response.json(
+        { error: "AUTHORIZATION_PENDING" },
+        { status: 202, headers: { "Retry-After": "2" } },
+      );
+    const session = token();
+    const exchanged = await env.ACCOUNTS.batch([
+      env.ACCOUNTS.prepare(
+        "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) SELECT ?,user_id,?,? FROM device_logins WHERE code=? AND approved_at IS NOT NULL AND consumed_at IS NULL AND expires_at>?",
+      ).bind(
+        await hash(session),
+        new Date(Date.now() + 365 * 86400_000).toISOString(),
+        now,
+        login.code,
+        now,
+      ),
+      env.ACCOUNTS.prepare(
+        "UPDATE device_logins SET consumed_at=? WHERE code=? AND approved_at IS NOT NULL AND consumed_at IS NULL AND expires_at>?",
+      ).bind(now, login.code, now),
+    ]);
+    if (exchanged[0].meta.changes !== 1)
+      return Response.json({ error: "DEVICE_CODE_USED" }, { status: 410 });
+    return Response.json(
+      { token: session, token_type: "Bearer", expires_in: 365 * 86400 },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (url.pathname === "/device" && request.method === "GET") {
+    const code = (url.searchParams.get("code") || "").toUpperCase();
+    if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code))
+      return new Response(
+        page(
+          '<main><div class="auth-card"><h1>Invalid device code.</h1><p>Return to the CLI and run <code>vn login</code> again.</p></div></main>',
+          "Invalid device code",
+        ),
+        { status: 400, headers: htmlHeaders },
+      );
+    const pending = await env.ACCOUNTS.prepare(
+      "SELECT expires_at,consumed_at FROM device_logins WHERE code=?",
+    )
+      .bind(code)
+      .first<any>();
+    if (
+      !pending ||
+      pending.consumed_at ||
+      pending.expires_at <= new Date().toISOString()
+    )
+      return new Response(
+        page(
+          '<main><div class="auth-card"><h1>Device code expired.</h1><p>Return to the CLI and run <code>vn login</code> again.</p></div></main>',
+          "Device code expired",
+        ),
+        { status: 410, headers: htmlHeaders },
+      );
+    const user = await currentUser(request, env);
+    if (!user)
+      return new Response(
+        page(
+          `<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">CLI sign in</div><h1>Connect this device.</h1><p class="lede">Confirm code <strong>${code}</strong> after signing in. The code expires in 10 minutes.</p></section><section class="auth-card"><h2>Sign in to continue</h2><form method="post" action="/api/auth/request"><input type="hidden" name="device" value="${code}"><label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com"><button>Send magic link →</button></form></section></div></main>`,
+          "Connect CLI",
+        ),
+        { headers: htmlHeaders },
+      );
+    return new Response(
+      page(
+        `<main><div class="auth-card"><div class="eyebrow">CLI sign in</div><h1>Approve this device?</h1><p>Code <strong>${code}</strong> requested access to <strong>${esc(user.email)}</strong>.</p><p class="fine">Only approve if you just ran <code>vn login</code> on your own device.</p><form method="post" action="/device/approve"><input type="hidden" name="code" value="${code}"><button>Approve CLI →</button></form></div></main>`,
+        "Approve CLI",
+      ),
+      { headers: htmlHeaders },
+    );
+  }
+  if (url.pathname === "/device/approve" && request.method === "POST") {
+    const user = await currentUser(request, env);
+    if (!user)
+      return new Response(null, { status: 302, headers: { Location: "/" } });
+    const data = await request.formData();
+    const code = String(data.get("code") || "").toUpperCase();
+    const approved = await env.ACCOUNTS.prepare(
+      "UPDATE device_logins SET user_id=?,approved_at=? WHERE code=? AND user_id IS NULL AND consumed_at IS NULL AND expires_at>?",
+    )
+      .bind(user.id, new Date().toISOString(), code, new Date().toISOString())
+      .run();
+    if (approved.meta.changes !== 1)
+      return new Response(
+        page(
+          '<main><div class="auth-card"><h1>Could not approve this device.</h1><p>The request may have expired or already been used.</p></div></main>',
+          "Approval failed",
+        ),
+        { status: 409, headers: htmlHeaders },
+      );
+    return new Response(
+      page(
+        '<main><div class="auth-card"><div class="empty-mark">✓</div><h1>CLI connected.</h1><p>You can close this tab and return to your terminal.</p></div></main>',
+        "CLI connected",
+      ),
+      { headers: htmlHeaders },
+    );
+  }
   if (url.pathname === "/api/account/documents" && request.method === "GET") {
     const user = await currentUser(request, env);
     if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
@@ -174,6 +348,7 @@ export async function handleAccount(
     const email = String(data.get("email") || "")
       .trim()
       .toLowerCase();
+    const device = String(data.get("device") || "").toUpperCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return Response.json({ error: "INVALID_EMAIL" }, { status: 400 });
     const raw = token();
@@ -184,14 +359,17 @@ export async function handleAccount(
     )
       .bind(await hash(raw), email, expires.toISOString(), now.toISOString())
       .run();
-    const link = `https://account.vnsh.dev/auth/callback?token=${encodeURIComponent(raw)}`;
+    const deviceQuery = /^[A-HJ-NP-Z2-9]{8}$/.test(device)
+      ? `&device=${encodeURIComponent(device)}`
+      : "";
+    const link = `${url.origin}/auth/callback?token=${encodeURIComponent(raw)}${deviceQuery}`;
     try {
       await env.EMAIL.send({
         to: email,
         from: { email: "login@vnsh.dev", name: "vnsh" },
         subject: "Sign in to vnsh",
         text: `Sign in to vnsh: ${link}\n\nThis link expires in 15 minutes.`,
-        html: `<p><a href="${link}">Sign in to vnsh</a></p><p>This link expires in 15 minutes.</p>`,
+          html: `<p><a href="${link.replace(/&/g, "&amp;")}">Sign in to vnsh</a></p><p>This link expires in 15 minutes.</p>`,
       });
     } catch (error) {
       await env.ACCOUNTS.prepare("DELETE FROM magic_links WHERE token_hash=?")
@@ -256,10 +434,14 @@ export async function handleAccount(
     )
       .bind(await hash(session), user!.id, expires, now)
       .run();
+    const device = (url.searchParams.get("device") || "").toUpperCase();
+    const location = /^[A-HJ-NP-Z2-9]{8}$/.test(device)
+      ? `/device?code=${device}`
+      : "/";
     return new Response(null, {
       status: 302,
       headers: {
-        Location: "/",
+        Location: location,
         "Set-Cookie": `${COOKIE}=${session}; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
       },
     });

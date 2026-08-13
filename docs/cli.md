@@ -62,14 +62,21 @@ asking for a longer life no longer costs you the ability to edit.
 but not decide how long it lives. Renewing does not bump the version, so an
 agent part-way through an edit is unaffected.
 
-Sign in at `https://account.vnsh.dev`, create a CLI / agent token, then set
-`VNSH_TOKEN` to make new workspaces permanent. Use `--artifact` for a rendered
-`/artifact/` link. The account never stores the link fragment, so retain the URL.
+Sign in through the browser to make new workspaces permanent. The CLI stores its
+revocable credential at `~/.config/vnsh/credentials.json` with mode `0600`.
+Use `whoami` to inspect the active account and `logout` to revoke the token and
+remove it locally. The account never stores document link fragments, so retain
+the returned URLs.
 
 ```bash
-export VNSH_TOKEN='...'
+vn login
+vn whoami
 vn --artifact report.html
+vn logout
 ```
+
+For CI and other non-interactive environments, create an agent token on the
+account page and provide it as `VNSH_TOKEN`; it overrides the saved CLI login.
 
 ## Examples
 
