@@ -23,8 +23,14 @@ jobs:
       - name: Install dependencies
         run: cd worker && npm ci
 
-      - name: Run tests
-        run: cd worker && npm test
+      - name: Run tests with coverage gate
+        run: cd worker && npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-worker
+          path: worker/coverage
 
   test-mcp:
     name: MCP Server Tests
@@ -42,8 +48,14 @@ jobs:
       - name: Install dependencies
         run: cd mcp && npm ci
 
-      - name: Run tests
-        run: cd mcp && npm test
+      - name: Run tests with coverage gate
+        run: cd mcp && npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-mcp
+          path: mcp/coverage
 
       - name: Build
         run: cd mcp && npm run build
@@ -72,8 +84,14 @@ jobs:
       - name: Build
         run: cd cli/npm && npm run build
 
-      - name: Run tests
-        run: cd cli/npm && npm test
+      - name: Run tests with coverage gate
+        run: cd cli/npm && npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-cli
+          path: cli/npm/coverage
 
       - name: Test CLI help
         run: node cli/npm/dist/cli.js --help
@@ -94,8 +112,14 @@ jobs:
       - name: Install dependencies
         run: cd extension && npm ci
 
-      - name: Run tests
-        run: cd extension && npm test
+      - name: Run tests with coverage gate
+        run: cd extension && npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-extension
+          path: extension/coverage
 
       - name: Build
         run: cd extension && npm run build
@@ -141,12 +165,37 @@ jobs:
       - name: Check formatting (extension)
         run: cd extension && npm ci && npx tsc --noEmit
 
+  coverage-summary:
+    name: Repository Coverage Gate
+    needs: [test-worker, test-mcp, test-cli, test-extension]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-worker
+          path: worker/coverage
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-mcp
+          path: mcp/coverage
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-cli
+          path: cli/npm/coverage
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-extension
+          path: extension/coverage
+      - name: Enforce weighted repository baseline
+        run: node scripts/coverage-summary.mjs
+
   deploy:
     name: Deploy
     # The gate that did not exist. Until now `wrangler deploy` only ever ran from
     # a laptop, which means production never required these jobs to have passed —
     # or to have run at all. Every suite above must be green before this starts.
-    needs: [test-worker, test-mcp, test-cli, test-extension, lint]
+    needs: [test-worker, test-mcp, test-cli, test-extension, lint, coverage-summary]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

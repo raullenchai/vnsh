@@ -6,15 +6,10 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       include: ['src/lib/**/*.ts'],
-      reporter: ['text', 'text-summary'],
-      thresholds: {
-        statements: 70,
-        branches: 70,
-        functions: 70,
-        lines: 70,
-      },
+      reporter: ['text', 'json-summary', 'html'],
+      thresholds: { statements: 89.9, branches: 70, functions: 95.7, lines: 89.9 },
     },
   },
   resolve: {

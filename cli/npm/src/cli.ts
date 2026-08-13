@@ -841,4 +841,9 @@ program
     }
   });
 
-program.parse();
+export { program };
+
+// Importing the command graph in tests must not consume the test runner's argv
+// or stdin. The published bin still reaches this branch because Node executes
+// the compiled CommonJS module as the entry point.
+if (require.main === module) program.parse();

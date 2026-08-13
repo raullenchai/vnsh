@@ -12,7 +12,12 @@
     "test:all": "npm run test:worker && npm run test:mcp",
     "install:all": "npm install && cd worker && npm install && cd ../mcp && npm install",
     "test:cli": "cd cli/npm && npm test",
-    "test:extension": "cd extension && npm test"
+    "test:extension": "cd extension && npm test",
+    "test:coverage": "npm run coverage:worker && npm run coverage:mcp && npm run coverage:cli && npm run coverage:extension && node scripts/coverage-summary.mjs",
+    "coverage:worker": "cd worker && npm run test:coverage",
+    "coverage:mcp": "cd mcp && npm run test:coverage",
+    "coverage:cli": "cd cli/npm && npm run test:coverage",
+    "coverage:extension": "cd extension && npm run test:coverage"
   },
   "keywords": [
     "vnsh",

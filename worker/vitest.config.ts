@@ -14,9 +14,14 @@ export default defineConfig({
   test: {
     globals: true,
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      // Cloudflare's Workers pool cannot use native V8 coverage. Istanbul
+      // instruments the module before workerd evaluates it and is the provider
+      // Cloudflare documents for this integration.
+      provider: 'istanbul',
+      include: ['src/**/*.ts'],
+      reporter: ['text', 'json-summary', 'html'],
       exclude: ['node_modules/', 'test/'],
+      thresholds: { statements: 76.7, branches: 72.2, functions: 92, lines: 79.2 },
     },
   },
 });
