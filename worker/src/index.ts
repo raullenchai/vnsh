@@ -1,4 +1,4 @@
-import { currentUser, handleAccount, type AccountEnv } from './accounts';
+import { currentUser, handleAccount, migrateSessionCookie, type AccountEnv } from './accounts';
 import { handleArtifacts } from './artifacts';
 import { handleWorkspaces } from './workspaces';
 import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
@@ -2374,11 +2374,20 @@ export default {
 
     if (url.hostname === 'account.vnsh.dev' || url.hostname.startsWith('account.')) {
       if ((path === '/api/auth/request' || path === '/api/auth/device') && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
+      const hasCookieSession = /(?:^|;\s*)vnsh_session=/.test(request.headers.get('Cookie') || '');
+      const hasBearer = /^Bearer\s+/i.test(request.headers.get('Authorization') || '');
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && hasCookieSession && !hasBearer) {
+        const origin = request.headers.get('Origin');
+        if (origin !== url.origin) {
+          return Response.json({ error: 'CROSS_SITE_REQUEST', message: 'Browser account changes must come from account.vnsh.dev' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+        }
+      }
       const artifactResponse = await handleArtifacts(request, env, url);
-      if (artifactResponse) return artifactResponse;
+      if (artifactResponse) return migrateSessionCookie(request, artifactResponse);
       const workspaceResponse = await handleWorkspaces(request, env, url);
-      if (workspaceResponse) return workspaceResponse;
-      return handleAccount(request, env, url);
+      if (workspaceResponse) return migrateSessionCookie(request, workspaceResponse);
+      const accountResponse = await handleAccount(request, env, url);
+      return path === '/auth/callback' ? accountResponse : migrateSessionCookie(request, accountResponse);
     }
 
     if (request.method === 'OPTIONS') {
@@ -3706,9 +3715,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.8.0
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.0"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.8.0
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.8.1
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.1"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.8.1
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3914,8 +3923,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.8.0        pin the version
-  npm i -g vnsh-mcp@1.8.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.8.1        pin the version
+  npm i -g vnsh-mcp@1.8.1 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code

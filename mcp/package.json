@@ -1,6 +1,6 @@
 {
   "name": "vnsh-mcp",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "mcpName": "io.github.raullenchai/vnsh",
   "description": "One workspace all your AI agents can read and write — MCP server for vnsh, encrypted client-side",
   "keywords": [
@@ -48,7 +48,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

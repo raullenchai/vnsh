@@ -66,6 +66,41 @@ describe("accounts", () => {
     expect(response.status).toBe(501);
   });
 
+  it("keeps browser authority host-only and rejects cross-site mutations", async () => {
+    const raw = "csrf-browser-session";
+    const now = new Date().toISOString();
+    await env.ACCOUNTS.batch([
+      env.ACCOUNTS.prepare("INSERT INTO users VALUES(?,?,?,?)").bind("csrf-user", "csrf@example.com", "free", now),
+      env.ACCOUNTS.prepare("INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(await sha256(raw), "csrf-user", new Date(Date.now() + 60000).toISOString(), now, "csrf-session", "browser", "CSRF test", now),
+    ]);
+    const form = (origin?: string) => call(new Request("https://account.vnsh.dev/workspaces", {
+      method: "POST",
+      headers: { Cookie: `vnsh_session=${raw}`, "Content-Type": "application/x-www-form-urlencoded", ...(origin ? { Origin: origin } : {}) },
+      body: "name=Security+Review",
+    }));
+    expect(await (await form("https://evil.example")).json()).toMatchObject({ error: "CROSS_SITE_REQUEST" });
+    expect((await form()).status).toBe(403);
+    expect((await form("https://account.vnsh.dev")).status).toBe(303);
+
+    const magic = "host-only-magic-link";
+    await env.ACCOUNTS.prepare("INSERT INTO magic_links(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)")
+      .bind(await sha256(magic), "cookie@example.com", new Date(Date.now() + 60000).toISOString(), now).run();
+    const callback = await call(new Request(`https://account.vnsh.dev/auth/callback?token=${magic}`));
+    const cookies = callback.headers.getSetCookie();
+    expect(cookies.some((cookie) => cookie.includes("Domain=.vnsh.dev") && cookie.includes("Max-Age=0"))).toBe(true);
+    const active = cookies.find((cookie) => cookie.includes("Max-Age=2592000"));
+    expect(active).toContain("HttpOnly");
+    expect(active).toContain("Secure");
+    expect(active).toContain("SameSite=Lax");
+    expect(active).not.toContain("Domain=");
+
+    const migration = await call(new Request('https://account.vnsh.dev/', { headers: { Cookie: `vnsh_session=${raw}` } }));
+    const migratedCookies = migration.headers.getSetCookie();
+    expect(migratedCookies.some((cookie) => cookie.includes('Domain=.vnsh.dev') && cookie.includes('Max-Age=0'))).toBe(true);
+    expect(migratedCookies.some((cookie) => cookie.startsWith(`vnsh_session=${raw};`) && !cookie.includes('Domain='))).toBe(true);
+  });
+
   it("makes authenticated creates permanent and indexes artifacts", async () => {
     const raw = "session-token";
     const hash = await sha256(raw);
