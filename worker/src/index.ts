@@ -110,7 +110,7 @@ const corsHeaders = {
     'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
-  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent',
+  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Historical',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -306,6 +306,8 @@ type TrackedEvent =
   | 'workspace_create'
   | 'workspace_read'
   | 'workspace_update'
+  | 'workspace_restore'
+  | 'workspace_conflict'
   // Separate from workspace_update on purpose: both push the expiry out, but a
   // renew is someone saying "this still matters" about content they did not
   // change. That is the signal for whether 24h was ever the right default.
@@ -342,6 +344,8 @@ interface EventDimensions {
   // the numbers, so there is no way to tell whether the public tier — the one
   // that cost a second domain — is used at all.
   visibility?: string;
+  // 'permanent' for account-owned documents, 'anonymous' otherwise.
+  retention?: string;
 }
 
 function trackEvent(
@@ -355,7 +359,7 @@ function trackEvent(
   try {
     // Fixed slot layout so blob positions stay stable as dimensions are added:
     // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer,
-    // blob6 visibility, blob7 client version. Append only — renumbering would
+    // blob6 visibility, blob7 client version, blob8 retention. Append only — renumbering would
     // silently reinterpret every row already written.
     env.VNSH_ANALYTICS.writeDataPoint({
       blobs: [
@@ -366,6 +370,7 @@ function trackEvent(
         dims.ref || '',
         dims.visibility || '',
         getClientVersion(request),
+        dims.retention || '',
       ],
       doubles: [1],
       indexes: [event],
@@ -553,9 +558,10 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
 // H = SHA-256(W), a one-way derivation of the write token. It cannot recover the
 // root secret, cannot decrypt, and cannot forge a write.
 //
-// Phase 0 stores only the latest version at `w/{id}`; the version counter lives
-// in customMetadata so optimistic concurrency works today and per-version history
-// can be added later without changing the URL format.
+// The latest version stays at `w/{id}` for link compatibility. Before each
+// successful compare-and-swap, the previous ciphertext is archived under
+// `wh/{id}/{version}`; retention is bounded and restoration creates a new latest
+// version, so the monotonic concurrency contract never changes.
 // ---------------------------------------------------------------------------
 
 // Content-Length is supplied by the caller and can be omitted or understated, so
@@ -604,6 +610,58 @@ function tooLargeResponse(): Response {
 }
 
 const WORKSPACE_PREFIX = 'w/';
+const WORKSPACE_HISTORY_PREFIX = 'wh/';
+// Includes the current version. A version-21 workspace therefore keeps
+// archived versions 2..20 plus current 21.
+const WORKSPACE_HISTORY_LIMIT = 20;
+
+function workspaceHistoryKey(id: string, version: number): string {
+  return `${WORKSPACE_HISTORY_PREFIX}${id}/${String(version).padStart(10, '0')}`;
+}
+
+async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ prefix, cursor, limit: 1000 });
+    if (page.objects.length) await bucket.delete(page.objects.map((object) => object.key));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+}
+
+async function archiveWorkspaceVersion(
+  id: string,
+  version: number,
+  head: R2Object,
+  env: Env,
+): Promise<boolean> {
+  const current = await env.VNSH_STORE.get(WORKSPACE_PREFIX + id, {
+    onlyIf: { etagMatches: head.etag },
+  });
+  if (!current || !('body' in current)) return false;
+  const md = head.customMetadata || {};
+  await env.VNSH_STORE.put(workspaceHistoryKey(id, version), current.body, {
+    customMetadata: {
+      workspaceId: id,
+      version: String(version),
+      archivedAt: new Date().toISOString(),
+      ...(md.createdAt ? { createdAt: md.createdAt } : {}),
+      ...(md.expiresAt ? { expiresAt: md.expiresAt } : {}),
+      ...(md.permanent === '1' ? { permanent: '1', ownerId: md.ownerId || md.ownerid || '' } : {}),
+      ...(isPublicWorkspace(md) ? { public: '1' } : {}),
+    },
+  });
+  return true;
+}
+
+async function pruneWorkspaceHistory(id: string, currentVersion: number, env: Env): Promise<void> {
+  const oldestKept = Math.max(1, currentVersion - WORKSPACE_HISTORY_LIMIT + 1);
+  const page = await env.VNSH_STORE.list({ prefix: `${WORKSPACE_HISTORY_PREFIX}${id}/`, limit: 1000 });
+  const stale = page.objects.filter((object) => {
+    const version = Number(object.key.slice(object.key.lastIndexOf('/') + 1));
+    return Number.isInteger(version) && version < oldestKept;
+  });
+  if (stale.length) await env.VNSH_STORE.delete(stale.map((object) => object.key));
+}
 
 /**
  * A public workspace is stored as plaintext so that anything which speaks HTTP
@@ -982,6 +1040,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
     agent: getClientAgent(request),
     ref: getClientRef(request.headers.get('X-Vnsh-Ref')),
     visibility: isPublic ? 'public' : 'encrypted',
+    retention: owner ? 'permanent' : 'anonymous',
   });
 
   // The public URL is answered by the server rather than assembled by each
@@ -1025,6 +1084,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
   const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
   if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
     await env.VNSH_STORE.delete(key);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
@@ -1086,6 +1146,7 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
   const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
   if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
     await env.VNSH_STORE.delete(key);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
     return new Response(NOT_PUBLIC_HTML, {
       status: 410,
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -1169,6 +1230,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
   if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
     await env.VNSH_STORE.delete(key);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
@@ -1201,6 +1263,11 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     );
   }
   if (claimedVersion !== '*' && claimedVersion !== currentVersion) {
+    trackEvent(env, 'workspace_conflict', request, {
+      workspaceId: id,
+      agent: getClientAgent(request),
+      visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
+    });
     return errorResponse(
       'VERSION_CONFLICT',
       `Workspace is at version ${currentVersion}; re-read it, merge your change, then retry`,
@@ -1224,6 +1291,19 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
 
   try {
     const newContent = await readCapped(body, MAX_BLOB_SIZE);
+    // Archive exactly the object whose ETag we authenticated above. Concurrent
+    // writers may both write the same archive key, which is harmless; only one
+    // can win the latest-object CAS below.
+    const archived = await archiveWorkspaceVersion(id, Number(currentVersion), head, env);
+    if (!archived) {
+      trackEvent(env, 'workspace_conflict', request, { workspaceId: id, agent: getClientAgent(request) });
+      return errorResponse(
+        'VERSION_CONFLICT',
+        'Workspace changed while its previous version was being archived; re-read and retry',
+        412,
+        request,
+      );
+    }
     // etagMatches makes this a genuine compare-and-swap: two agents that both read
     // version 7 cannot both land a version 8.
     const written = await env.VNSH_STORE.put(key, newContent, {
@@ -1243,6 +1323,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     });
 
     if (!written) {
+      trackEvent(env, 'workspace_conflict', request, { workspaceId: id, agent: getClientAgent(request) });
       return errorResponse(
         'VERSION_CONFLICT',
         'Workspace changed during this write; re-read it, merge your change, then retry',
@@ -1260,6 +1341,14 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
       } catch (error) {
         console.error('Failed to update account document index:', error);
       }
+    }
+    try {
+      await pruneWorkspaceHistory(id, Number(nextVersion), env);
+    } catch (error) {
+      // The new current version is already committed. Retaining one extra old
+      // version is repairable; returning 500 would invite a retry that can only
+      // conflict and misreport a successful write as failed.
+      console.error('Failed to prune workspace history:', error);
     }
   } catch (err) {
     if (isTooLarge(err)) return tooLargeResponse();
@@ -1289,6 +1378,103 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
       headers: { 'Content-Type': 'application/json', ETag: `"${nextVersion}"`, ...corsHeaders },
     },
   );
+}
+
+async function handleWorkspaceHistory(id: string, request: Request, env: Env): Promise<Response> {
+  const current = await env.VNSH_STORE.head(WORKSPACE_PREFIX + id);
+  if (!current) return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  const md = current.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(WORKSPACE_PREFIX + id);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
+    return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
+  }
+
+  const archived = await env.VNSH_STORE.list({
+    prefix: `${WORKSPACE_HISTORY_PREFIX}${id}/`,
+    // A previous best-effort prune may have failed. Read the full bounded
+    // prefix and slice after numeric sorting so a stale extra object can never
+    // crowd a newer version out of the response.
+    limit: 1000,
+    include: ['customMetadata'],
+  });
+  const versions = archived.objects.map((object) => ({
+    version: Number(object.customMetadata?.version || object.key.slice(object.key.lastIndexOf('/') + 1)),
+    size: object.size,
+    archivedAt: object.customMetadata?.archivedAt || object.uploaded.toISOString(),
+    current: false,
+  }));
+  versions.push({
+    version: Number(md.version || '1'),
+    size: current.size,
+    archivedAt: current.uploaded.toISOString(),
+    current: true,
+  });
+  versions.sort((a, b) => b.version - a.version);
+  const retained = versions.slice(0, WORKSPACE_HISTORY_LIMIT);
+  return Response.json(
+    { id, limit: WORKSPACE_HISTORY_LIMIT, versions: retained },
+    { headers: { 'Cache-Control': 'private, no-store', ...corsHeaders } },
+  );
+}
+
+async function handleWorkspaceVersionGet(
+  id: string,
+  version: number,
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const current = await env.VNSH_STORE.head(WORKSPACE_PREFIX + id);
+  if (!current) return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  const md = current.customMetadata || {};
+  const expiresAtMs = md.expiresAt ? new Date(md.expiresAt).getTime() : NaN;
+  if (!isNaN(expiresAtMs) && Date.now() > expiresAtMs) {
+    await env.VNSH_STORE.delete(WORKSPACE_PREFIX + id);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
+    return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
+  }
+  const currentVersion = Number(current.customMetadata?.version || '1');
+  if (version === currentVersion) return handleWorkspaceGet(id, request, env);
+  const object = await env.VNSH_STORE.get(workspaceHistoryKey(id, version));
+  if (!object) return errorResponse('VERSION_NOT_FOUND', `Version ${version} is not retained`, 404, request);
+  return new Response(request.method === 'HEAD' ? null : object.body, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(object.size),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ETag: `"${version}"`,
+      'X-Vnsh-Historical': '1',
+      ...(isPublicWorkspace(object.customMetadata) ? { 'X-Vnsh-Public': '1' } : {}),
+      ...corsHeaders,
+    },
+  });
+}
+
+async function handleWorkspaceRestore(
+  id: string,
+  version: number,
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const object = await env.VNSH_STORE.get(workspaceHistoryKey(id, version));
+  if (!object) return errorResponse('VERSION_NOT_FOUND', `Version ${version} is not retained`, 404, request);
+  const headers = new Headers(request.headers);
+  headers.set('Content-Type', 'application/octet-stream');
+  headers.set('Content-Length', String(object.size));
+  const restored = await handleWorkspacePut(
+    id,
+    new Request(request.url, { method: 'PUT', headers, body: object.body }),
+    env,
+  );
+  if (restored.ok) {
+    trackEvent(env, 'workspace_restore', request, {
+      workspaceId: id,
+      agent: getClientAgent(request),
+    });
+  }
+  return restored;
 }
 
 /**
@@ -1326,6 +1512,7 @@ async function handleWorkspaceRenew(id: string, request: Request, env: Env): Pro
     // Renewing something already gone would be resurrection, not renewal. The
     // bytes are unreachable by policy the moment the clock passes.
     await env.VNSH_STORE.delete(key);
+    await deleteR2Prefix(env.VNSH_STORE, `${WORKSPACE_HISTORY_PREFIX}${id}/`);
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
@@ -1444,7 +1631,9 @@ READ IT using the first available method:
 
 1. If vnsh tools are installed, call vnsh_workspace_read with the COMPLETE URL,
    including everything after #. A #w= URL can also update; #r= is read-only.
-   Updates are conditional: HTTP 412 means re-read, merge, and retry.
+   Updates are conditional: HTTP 412 means re-read, merge, and retry. After a bad
+   edit, vnsh_workspace_history lists retained versions and vnsh_workspace_restore
+   restores one as a new latest version.
 
 2. With Node.js, use only built-in crypto (no package install):
 
@@ -2444,6 +2633,36 @@ export default {
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to report an event', 405);
     }
 
+    // Routes: list, read, and restore retained workspace versions.
+    const historyVersionMatch = path.match(
+      /^\/api\/workspace\/([a-zA-Z0-9]+)\/history\/(\d+)(\/restore)?$/,
+    );
+    if (historyVersionMatch && isValidWorkspaceId(historyVersionMatch[1])) {
+      const version = Number(historyVersionMatch[2]);
+      if (!Number.isSafeInteger(version) || version < 1) {
+        return errorResponse('INVALID_VERSION', 'Version must be a positive integer', 400, request);
+      }
+      const ip = getClientIp(request);
+      if (historyVersionMatch[3]) {
+        if (request.method !== 'POST') return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to restore', 405);
+        if (!(await checkRateLimit(env.UPLOAD_LIMITER, ip))) return rateLimitResponse();
+        return handleWorkspaceRestore(historyVersionMatch[1], version, request, env);
+      }
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return errorResponse('METHOD_NOT_ALLOWED', 'Use GET to read a retained version', 405);
+      }
+      if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
+      return handleWorkspaceVersionGet(historyVersionMatch[1], version, request, env);
+    }
+
+    const historyMatch = path.match(/^\/api\/workspace\/([a-zA-Z0-9]+)\/history$/);
+    if (historyMatch && isValidWorkspaceId(historyMatch[1])) {
+      if (request.method !== 'GET') return errorResponse('METHOD_NOT_ALLOWED', 'Use GET to list history', 405);
+      const ip = getClientIp(request);
+      if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
+      return handleWorkspaceHistory(historyMatch[1], request, env);
+    }
+
     // Route: POST /api/workspace/:id/renew - extend the expiry, content untouched
     const renewMatch = path.match(/^\/api\/workspace\/([a-zA-Z0-9]+)\/renew$/);
     if (renewMatch && isValidWorkspaceId(renewMatch[1])) {
@@ -2779,6 +2998,7 @@ export default {
     let deleted = 0;
     let checked = 0;
     let cursor: string | undefined;
+    const liveHistoryParents = new Map<string, boolean>();
 
     // R2 list is paginated (max 1000 per call).
     // include:['customMetadata'] is REQUIRED — without it R2 returns an empty
@@ -2796,6 +3016,21 @@ export default {
 
       for (const obj of listed.objects) {
         checked++;
+        if (obj.key.startsWith(WORKSPACE_HISTORY_PREFIX)) {
+          const id = obj.key.slice(WORKSPACE_HISTORY_PREFIX.length).split('/')[0];
+          let live = liveHistoryParents.get(id);
+          if (live === undefined) {
+            const parent = await env.VNSH_STORE.head(WORKSPACE_PREFIX + id);
+            const expiry = parent?.customMetadata?.expiresAt;
+            live = !!parent && (!expiry || now <= new Date(expiry).getTime());
+            liveHistoryParents.set(id, live);
+          }
+          if (!live) {
+            await env.VNSH_STORE.delete(obj.key);
+            deleted++;
+          }
+          continue;
+        }
         const expiresAt = obj.customMetadata?.expiresAt;
 
         if (expiresAt && now > new Date(expiresAt).getTime()) {
@@ -3647,9 +3882,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.6.0"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.6.0
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.7.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.7.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3690,10 +3925,11 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
      thing that should need their word rather than ours. If they decline,
      install the tools and stop there; that is a perfectly good outcome.
 
-3. Confirm vnsh_workspace_create, _read, _update, _renew and _open are listed, and say so.
+3. Confirm vnsh_workspace_create, _read, _update, _history, _restore, _renew and _open are listed, and say so.
 
 Tools: vnsh_workspace_create, vnsh_workspace_read, vnsh_workspace_update,
-vnsh_workspace_renew, vnsh_workspace_open, plus vnsh_read / vnsh_share /
+vnsh_workspace_history, vnsh_workspace_restore, vnsh_workspace_renew,
+vnsh_workspace_open, plus vnsh_read / vnsh_share /
 vnsh_share_file for one-shot blobs.
 
 ## When to reach for a workspace
@@ -3828,8 +4064,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0        pin the version
-  npm i -g vnsh-mcp@1.6.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0        pin the version
+  npm i -g vnsh-mcp@1.7.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code

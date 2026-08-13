@@ -36,7 +36,7 @@ beforeAll(async () => {
       name: "0001_accounts.sql",
       queries: [
         "CREATE TABLE users (id TEXT PRIMARY KEY,email TEXT UNIQUE,tier TEXT DEFAULT 'free',created_at TEXT)",
-        "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY,user_id TEXT,expires_at TEXT,created_at TEXT)",
+        "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY,user_id TEXT,expires_at TEXT,created_at TEXT,id TEXT UNIQUE,kind TEXT,label TEXT,last_used_at TEXT)",
         "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT)",
         "CREATE TABLE magic_links (token_hash TEXT PRIMARY KEY,email TEXT,expires_at TEXT,used_at TEXT,created_at TEXT)",
         "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
@@ -72,10 +72,14 @@ describe("accounts", () => {
         "free",
         new Date().toISOString(),
       ),
-      env.ACCOUNTS.prepare("INSERT INTO sessions VALUES(?,?,?,?)").bind(
+      env.ACCOUNTS.prepare("INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) VALUES(?,?,?,?,?,?,?,?)").bind(
         hash,
         "u1",
         new Date(Date.now() + 60000).toISOString(),
+        new Date().toISOString(),
+        "browser-session-1",
+        "browser",
+        "Test browser",
         new Date().toISOString(),
       ),
     ]);
@@ -247,5 +251,59 @@ describe("accounts", () => {
         .bind(body.id)
         .first(),
     ).toBeNull();
+
+    const tokenPage = await call(new Request("https://account.vnsh.dev/api/account/token", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${raw}` },
+      body: new URLSearchParams({ label: "Cursor laptop" }),
+    }));
+    expect(await tokenPage.text()).toContain("Cursor laptop");
+    const sessions = await call(new Request("https://account.vnsh.dev/api/account/sessions", {
+      headers: { Authorization: `Bearer ${raw}` },
+    }));
+    const sessionList = (await sessions.json<any>()).sessions;
+    expect(sessionList).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Cursor laptop", kind: "token", current: false }),
+      expect.objectContaining({ label: "Test browser", current: true }),
+    ]));
+    const tokenSession = sessionList.find((session: any) => session.label === "Cursor laptop");
+    expect((await call(new Request(`https://account.vnsh.dev/api/account/sessions/${tokenSession.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${raw}` },
+    }))).status).toBe(204);
+
+    const permanent = await call(new Request("https://vnsh.dev/api/workspace", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${raw}`,
+        "X-Vnsh-Write-Hash": await sha256(writeToken),
+      },
+      body: "account-v1",
+    }));
+    const permanentId = (await permanent.json<any>()).id;
+    await (await call(new Request(`https://vnsh.dev/api/workspace/${permanentId}`, {
+      method: "PUT",
+      headers: { "X-Vnsh-Write": writeToken, "If-Match": '"1"' },
+      body: "account-v2",
+    }))).arrayBuffer();
+    expect(await env.VNSH_STORE.head(`wh/${permanentId}/0000000001`)).not.toBeNull();
+
+    const mismatch = await call(new Request("https://account.vnsh.dev/account/delete", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${raw}` },
+      body: new URLSearchParams({ email: "wrong@example.com" }),
+    }));
+    expect(mismatch.status).toBe(400);
+    await mismatch.arrayBuffer();
+    const accountDelete = await call(new Request("https://account.vnsh.dev/account/delete", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${raw}` },
+      body: new URLSearchParams({ email: "u@example.com" }),
+    }));
+    expect(accountDelete.status).toBe(302);
+    await accountDelete.arrayBuffer();
+    expect(await env.VNSH_STORE.head(`w/${permanentId}`)).toBeNull();
+    expect(await env.VNSH_STORE.head(`wh/${permanentId}/0000000001`)).toBeNull();
+    expect(await env.ACCOUNTS.prepare("SELECT id FROM users WHERE id='u1'").first()).toBeNull();
   });
 });

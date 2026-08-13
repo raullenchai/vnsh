@@ -112,4 +112,12 @@ describe('the version is derived, not typed', () => {
     ) as { version: string };
     expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
+
+  it('keeps registry metadata and client headers aligned with package versions', () => {
+    const mcpPackage = json('mcp/package.json');
+    const server = json('mcp/server.json');
+    expect(server.version).toBe(mcpPackage.version);
+    expect(server.packages[0].version).toBe(mcpPackage.version);
+    expect(read('cli/npm/src/index.ts')).not.toMatch(/cli-npm\/\d+\.\d+\.\d+/);
+  });
 });

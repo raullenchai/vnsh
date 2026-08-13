@@ -229,6 +229,63 @@ describe('Workspaces', () => {
     });
   });
 
+  describe('version history', () => {
+    it('archives old ciphertext and lists newest first', async () => {
+      const { id } = await createWorkspace('v1-bytes');
+      await (await put(id, 'v2-bytes', '"1"')).arrayBuffer();
+
+      const listing = await call(new Request(`http://localhost/api/workspace/${id}/history`));
+      expect(listing.status).toBe(200);
+      expect((await listing.json() as { versions: Array<{ version: number; current: boolean }> }).versions)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ version: 2, current: true }),
+          expect.objectContaining({ version: 1, current: false }),
+        ]));
+
+      const old = await call(new Request(`http://localhost/api/workspace/${id}/history/1`));
+      expect(old.headers.get('X-Vnsh-Historical')).toBe('1');
+      expect(await old.text()).toBe('v1-bytes');
+    });
+
+    it('restores an old version as a new current version', async () => {
+      const { id } = await createWorkspace('v1-bytes');
+      await (await put(id, 'v2-bytes', '"1"')).arrayBuffer();
+      const restored = await call(new Request(
+        `http://localhost/api/workspace/${id}/history/1/restore`,
+        { method: 'POST', headers: { 'X-Vnsh-Write': WRITE_TOKEN, 'If-Match': '"2"' } },
+      ));
+      expect(restored.status).toBe(200);
+      expect((await restored.json() as { version: number }).version).toBe(3);
+      const current = await call(new Request(`http://localhost/api/workspace/${id}`));
+      expect(current.headers.get('ETag')).toBe('"3"');
+      expect(await current.text()).toBe('v1-bytes');
+    });
+
+    it('requires current write authority to restore', async () => {
+      const { id } = await createWorkspace('v1');
+      await (await put(id, 'v2', '"1"')).arrayBuffer();
+      const response = await call(new Request(
+        `http://localhost/api/workspace/${id}/history/1/restore`,
+        { method: 'POST', headers: { 'X-Vnsh-Write': 'b'.repeat(64), 'If-Match': '"2"' } },
+      ));
+      expect(response.status).toBe(403);
+      await response.arrayBuffer();
+    });
+
+    it('bounds retained versions including the current one', async () => {
+      const { id } = await createWorkspace('v1');
+      for (let version = 1; version <= 20; version++) {
+        const response = await put(id, `v${version + 1}`, `"${version}"`);
+        expect(response.status).toBe(200);
+        await response.arrayBuffer();
+      }
+      expect(await env.VNSH_STORE.head(`wh/${id}/0000000001`)).toBeNull();
+      expect(await env.VNSH_STORE.head(`wh/${id}/0000000002`)).not.toBeNull();
+      const listing = await call(new Request(`http://localhost/api/workspace/${id}/history`));
+      expect((await listing.json() as { versions: unknown[] }).versions).toHaveLength(20);
+    });
+  });
+
   describe('expiry', () => {
     it('returns 410 and deletes once past expiresAt', async () => {
       const { id } = await createWorkspace();
@@ -248,6 +305,24 @@ describe('Workspaces', () => {
       expect(response.status).toBe(410);
       await response.arrayBuffer();
       expect(await env.VNSH_STORE.head(key)).toBeNull();
+    });
+
+    it('deletes retained history when the workspace expires', async () => {
+      const { id } = await createWorkspace('v1');
+      await (await put(id, 'v2', '"1"')).arrayBuffer();
+      const key = `w/${id}`;
+      const existing = await env.VNSH_STORE.get(key);
+      const body = await existing!.arrayBuffer();
+      await env.VNSH_STORE.put(key, body, {
+        customMetadata: {
+          ...existing!.customMetadata,
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      });
+      const response = await call(new Request(`http://localhost/api/workspace/${id}`));
+      expect(response.status).toBe(410);
+      await response.arrayBuffer();
+      expect(await env.VNSH_STORE.head(`wh/${id}/0000000001`)).toBeNull();
     });
   });
 });
@@ -757,9 +832,11 @@ describe('workspace page explains itself to agents', () => {
       'vnsh_share',
       'vnsh_share_file',
       'vnsh_workspace_create',
+      'vnsh_workspace_history',
       'vnsh_workspace_open',
       'vnsh_workspace_read',
       'vnsh_workspace_renew',
+      'vnsh_workspace_restore',
       'vnsh_workspace_update',
     ];
     const html = await page();

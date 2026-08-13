@@ -50,9 +50,15 @@ there and set it as `VNSH_TOKEN`.
 
 - `GET /api/account/documents` lists the current user's workspace/artifact metadata.
 - `POST /api/account/token` creates a bearer token and shows it once.
+- `GET /api/account/sessions` lists active browser sessions, CLI devices and agent tokens.
+- `DELETE /api/account/sessions/{id}` revokes one session or token.
 - `DELETE /api/account/documents/{id}` deletes an owned document from R2 and its index row.
 - `GET /api/account/me` returns the bearer token's user.
 - `DELETE /api/account/token/current` revokes the current bearer token.
+
+The browser dashboard also supports revoking every other session and deleting
+the complete account. Account deletion removes documents, retained versions,
+sessions, pending device approvals and account rows.
 
 CLI login uses a device flow: `POST /api/auth/device` returns a 10-minute user
 code and verification URL; the browser approves it at `/device`, while the CLI
@@ -93,6 +99,23 @@ once expired — expiry is deletion, so there is nothing to extend.
 200 OK    ETag: "7"
 { "id": "k2p9xf...", "version": 7, "expires": "..." }
 ```
+
+### GET /api/workspace/:id/history
+
+Lists up to 20 retained versions, including the current version, newest first.
+The response contains version numbers, encrypted byte sizes, archive timestamps,
+and a `current` marker. It never contains plaintext or key material.
+
+### GET /api/workspace/:id/history/:version
+
+Returns the retained ciphertext for one version with `X-Vnsh-Historical: 1` and
+the requested version as its `ETag`. The same content key decrypts every version.
+
+### POST /api/workspace/:id/history/:version/restore
+
+Restores retained ciphertext as a new latest version. Requires `X-Vnsh-Write`
+and the current version in `If-Match`. The version counter always moves forward:
+restoring v2 while current is v7 creates v8. Concurrent changes return `412`.
 
 ### GET /p/:id
 

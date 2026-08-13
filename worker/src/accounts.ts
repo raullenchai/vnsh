@@ -8,6 +8,8 @@ export interface AccountUser {
   id: string;
   email: string;
   tier: string;
+  sessionId: string;
+  sessionKind: string;
 }
 
 const COOKIE = "vnsh_session";
@@ -61,11 +63,34 @@ export async function currentUser(
     ?.match(/^Bearer\s+(.+)$/i)?.[1];
   const raw = bearer || cookieValue(request);
   if (!raw || raw.length > 256) return null;
-  return env.ACCOUNTS.prepare(
-    `SELECT u.id, u.email, u.tier FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`,
+  const tokenHash = await hash(raw);
+  const now = new Date();
+  const user = await env.ACCOUNTS.prepare(
+    `SELECT u.id, u.email, u.tier, s.id AS sessionId, s.kind AS sessionKind, s.last_used_at AS lastUsedAt
+     FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`,
   )
-    .bind(await hash(raw), new Date().toISOString())
-    .first<AccountUser>();
+    .bind(tokenHash, now.toISOString())
+    .first<AccountUser & { lastUsedAt?: string }>();
+  if (user && (!user.lastUsedAt || now.getTime() - new Date(user.lastUsedAt).getTime() > 3600_000)) {
+    await env.ACCOUNTS.prepare("UPDATE sessions SET last_used_at=? WHERE token_hash=?")
+      .bind(now.toISOString(), tokenHash)
+      .run();
+  }
+  return user;
+}
+
+async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ prefix, cursor, limit: 1000 });
+    if (page.objects.length) await bucket.delete(page.objects.map((object) => object.key));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+}
+
+async function deleteDocumentObjects(bucket: R2Bucket, id: string): Promise<void> {
+  await bucket.delete(`w/${id}`);
+  await deletePrefix(bucket, `wh/${id}/`);
 }
 
 const page = (
@@ -175,10 +200,14 @@ export async function handleAccount(
     const session = token();
     const exchanged = await env.ACCOUNTS.batch([
       env.ACCOUNTS.prepare(
-        "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) SELECT ?,user_id,?,? FROM device_logins WHERE code=? AND approved_at IS NOT NULL AND consumed_at IS NULL AND expires_at>?",
+        "INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) SELECT ?,user_id,?,?,?,?,?,? FROM device_logins WHERE code=? AND approved_at IS NOT NULL AND consumed_at IS NULL AND expires_at>?",
       ).bind(
         await hash(session),
         new Date(Date.now() + 365 * 86400_000).toISOString(),
+        now,
+        crypto.randomUUID(),
+        "cli",
+        "CLI device",
         now,
         login.code,
         now,
@@ -278,24 +307,50 @@ export async function handleAccount(
       { headers: { "Cache-Control": "no-store" } },
     );
   }
+  if (url.pathname === "/api/account/sessions" && request.method === "GET") {
+    const user = await currentUser(request, env);
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const sessions = await env.ACCOUNTS.prepare(
+      "SELECT id,kind,label,created_at,last_used_at,expires_at FROM sessions WHERE user_id=? ORDER BY last_used_at DESC",
+    ).bind(user.id).all();
+    return Response.json(
+      { sessions: sessions.results.map((session: any) => ({ ...session, current: session.id === user.sessionId })) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  const sessionDeletion = url.pathname.match(/^\/api\/account\/sessions\/([0-9a-f-]{16,64})$/);
+  if (sessionDeletion && request.method === "DELETE") {
+    const user = await currentUser(request, env);
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const removed = await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE id=? AND user_id=?")
+      .bind(sessionDeletion[1], user.id).run();
+    return new Response(null, { status: removed.meta.changes ? 204 : 404 });
+  }
   if (url.pathname === "/api/account/token" && request.method === "POST") {
     const user = await currentUser(request, env);
     if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
     const raw = token();
     const now = new Date().toISOString();
+    const input = await request.formData().catch(() => new FormData());
+    const requestedLabel = String(input.get("label") || "CLI / agent token").trim();
+    const label = (requestedLabel || "CLI / agent token").slice(0, 60);
     await env.ACCOUNTS.prepare(
-      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
+      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) VALUES(?,?,?,?,?,?,?,?)",
     )
       .bind(
         await hash(raw),
         user.id,
         new Date(Date.now() + 365 * 86400_000).toISOString(),
         now,
+        crypto.randomUUID(),
+        "token",
+        label,
+        now,
       )
       .run();
     return new Response(
       page(
-        `<main><div class="eyebrow">One-time secret</div><h1>Connect your tools.</h1><p class="lede">Copy this token now. For your safety, vnsh stores only its hash and cannot show it again.</p><div class="notice"><span class="shield">◇</span><div><b>This token makes new documents permanent.</b><br>It identifies your account; content encryption still happens locally.</div></div><pre class="token">${raw}</pre><pre class="token">export VNSH_TOKEN='${raw}'</pre><div class="actions"><a class="button primary" href="/">Back to library</a><a class="button" href="https://vnsh.dev/llms.txt">Set up an agent</a></div></main>`,
+        `<main><div class="eyebrow">One-time secret</div><h1>Connect your tools.</h1><p class="lede">Copy this token now. For your safety, vnsh stores only its hash and cannot show it again.</p><div class="notice"><span class="shield">◇</span><div><b>${esc(label)}</b><br>This token makes new documents permanent; content encryption still happens locally.</div></div><pre class="token">${raw}</pre><pre class="token">export VNSH_TOKEN='${raw}'</pre><div class="actions"><a class="button primary" href="/">Back to library</a><a class="button" href="https://vnsh.dev/llms.txt">Set up an agent</a></div></main>`,
         "CLI / agent token",
       ),
       { headers: htmlHeaders },
@@ -313,7 +368,7 @@ export async function handleAccount(
       .bind(deletion[1], user.id)
       .first();
     if (!owned) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
-    await env.VNSH_STORE.delete(`w/${deletion[1]}`);
+    await deleteDocumentObjects(env.VNSH_STORE, deletion[1]);
     await env.ACCOUNTS.prepare("DELETE FROM documents WHERE id=? AND user_id=?")
       .bind(deletion[1], user.id)
       .run();
@@ -332,7 +387,7 @@ export async function handleAccount(
       .bind(formDeletion[1], user.id)
       .first();
     if (owned) {
-      await env.VNSH_STORE.delete(`w/${formDeletion[1]}`);
+      await deleteDocumentObjects(env.VNSH_STORE, formDeletion[1]);
       await env.ACCOUNTS.prepare(
         "DELETE FROM documents WHERE id=? AND user_id=?",
       )
@@ -340,6 +395,55 @@ export async function handleAccount(
         .run();
     }
     return new Response(null, { status: 302, headers: { Location: "/" } });
+  }
+  const sessionFormDeletion = url.pathname.match(/^\/sessions\/([0-9a-f-]{16,64})\/revoke$/);
+  if (sessionFormDeletion && request.method === "POST") {
+    const user = await currentUser(request, env);
+    if (!user) return new Response(null, { status: 302, headers: { Location: "/" } });
+    await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE id=? AND user_id=?")
+      .bind(sessionFormDeletion[1], user.id).run();
+    const revokedCurrent = sessionFormDeletion[1] === user.sessionId;
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        ...(revokedCurrent ? { "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` } : {}),
+      },
+    });
+  }
+  if (url.pathname === "/sessions/revoke-others" && request.method === "POST") {
+    const user = await currentUser(request, env);
+    if (!user) return new Response(null, { status: 302, headers: { Location: "/" } });
+    await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE user_id=? AND id<>?")
+      .bind(user.id, user.sessionId).run();
+    return new Response(null, { status: 302, headers: { Location: "/" } });
+  }
+  if (url.pathname === "/account/delete" && request.method === "POST") {
+    const user = await currentUser(request, env);
+    if (!user) return new Response(null, { status: 302, headers: { Location: "/" } });
+    const form = await request.formData();
+    if (String(form.get("email") || "").trim().toLowerCase() !== user.email.toLowerCase()) {
+      return new Response(
+        page('<main><div class="auth-card"><h1>Account not deleted.</h1><p>The confirmation email did not match.</p><a class="button" href="/">Back to library</a></div></main>', "Confirmation failed"),
+        { status: 400, headers: htmlHeaders },
+      );
+    }
+    const docs = await env.ACCOUNTS.prepare("SELECT id FROM documents WHERE user_id=?").bind(user.id).all<{ id: string }>();
+    for (const document of docs.results) await deleteDocumentObjects(env.VNSH_STORE, document.id);
+    await env.ACCOUNTS.batch([
+      env.ACCOUNTS.prepare("DELETE FROM device_logins WHERE user_id=?").bind(user.id),
+      env.ACCOUNTS.prepare("DELETE FROM sessions WHERE user_id=?").bind(user.id),
+      env.ACCOUNTS.prepare("DELETE FROM documents WHERE user_id=?").bind(user.id),
+      env.ACCOUNTS.prepare("DELETE FROM magic_links WHERE email=?").bind(user.email),
+      env.ACCOUNTS.prepare("DELETE FROM users WHERE id=?").bind(user.id),
+    ]);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+      },
+    });
   }
   if (url.pathname === "/api/auth/request" && request.method === "POST") {
     if (!env.EMAIL)
@@ -430,9 +534,9 @@ export async function handleAccount(
     const session = token();
     const expires = new Date(Date.now() + 30 * 86400_000).toISOString();
     await env.ACCOUNTS.prepare(
-      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
+      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) VALUES(?,?,?,?,?,?,?,?)",
     )
-      .bind(await hash(session), user!.id, expires, now)
+      .bind(await hash(session), user!.id, expires, now, crypto.randomUUID(), "browser", "Browser session", now)
       .run();
     const device = (url.searchParams.get("device") || "").toUpperCase();
     const location = /^[A-HJ-NP-Z2-9]{8}$/.test(device)
@@ -474,6 +578,9 @@ export async function handleAccount(
   )
     .bind(user.id)
     .all();
+  const sessions = await env.ACCOUNTS.prepare(
+    "SELECT id,kind,label,created_at,last_used_at,expires_at FROM sessions WHERE user_id=? ORDER BY last_used_at DESC",
+  ).bind(user.id).all();
   const formatBytes = (n: number) =>
     n < 1024
       ? `${n} B`
@@ -493,9 +600,12 @@ export async function handleAccount(
     (n: number, d: any) => n + Number(d.size),
     0,
   );
+  const sessionCards = sessions.results.map((session: any) =>
+    `<article class="card"><div class="card-top"><span class="badge workspace">${esc(session.kind)}</span><span class="visibility">${session.id === user.sessionId ? "Current" : "Active"}</span></div><div class="doc-id">${esc(session.label)}</div><div class="doc-meta">Last used ${esc(new Date(String(session.last_used_at || session.created_at)).toLocaleString("en-US", { timeZone: "UTC" }))} UTC<br>Expires ${esc(new Date(String(session.expires_at)).toLocaleDateString("en-US", { timeZone: "UTC" }))}</div><div class="card-foot"><span class="kept">${session.id === user.sessionId ? "this session" : "authorized"}</span><form method="post" action="/sessions/${esc(session.id)}/revoke" style="margin-left:auto"><button class="delete">Revoke</button></form></div></article>`,
+  ).join("");
   return new Response(
     page(
-      `<main><div class="hero-row"><div><div class="eyebrow">Private library</div><h1>Your work, still here.</h1><p class="identity"><strong>${esc(user.email)}</strong> · free preview</p></div><div class="stats"><div class="stat"><b>${docs.results.length}</b><span>Documents</span></div><div class="stat"><b>${artifactCount}</b><span>Artifacts</span></div><div class="stat"><b>${formatBytes(bytes)}</b><span>Stored</span></div></div></div><div class="notice"><span class="shield">◇</span><div><b>Keep the original document link.</b> Its fragment contains the only decryption key; vnsh stores ownership metadata, never that secret.</div></div><div class="section-head"><h2>Saved documents</h2><span>Newest first · up to 200</span></div><section class="grid">${cards || '<div class="empty"><div class="empty-mark">+_</div><h2>No saved documents yet</h2><p>Create while signed in here, or connect your CLI or agent.</p><div class="actions" style="justify-content:center"><a class="button primary" href="https://vnsh.dev">Create a workspace</a></div></div>'}</section><div class="actions"><form method="post" action="/api/account/token"><button class="button primary">Create CLI / agent token</button></form><a class="button" href="https://vnsh.dev/llms.txt">Agent setup guide</a><form method="post" action="/logout"><button class="link-button">Sign out</button></form></div></main>`,
+      `<main><div class="hero-row"><div><div class="eyebrow">Private library</div><h1>Your work, still here.</h1><p class="identity"><strong>${esc(user.email)}</strong> · free preview</p></div><div class="stats"><div class="stat"><b>${docs.results.length}</b><span>Documents</span></div><div class="stat"><b>${artifactCount}</b><span>Artifacts</span></div><div class="stat"><b>${formatBytes(bytes)}</b><span>Stored</span></div></div></div><div class="notice"><span class="shield">◇</span><div><b>Keep the original document link.</b> Its fragment contains the only decryption key; vnsh stores ownership metadata, never that secret.</div></div><div class="section-head"><h2>Saved documents</h2><span>Newest first · up to 200</span></div><section class="grid">${cards || '<div class="empty"><div class="empty-mark">+_</div><h2>No saved documents yet</h2><p>Create while signed in here, or connect your CLI or agent.</p><div class="actions" style="justify-content:center"><a class="button primary" href="https://vnsh.dev">Create a workspace</a></div></div>'}</section><div class="section-head"><h2>Devices and tokens</h2><span>${sessions.results.length} active</span></div><section class="grid">${sessionCards}</section><div class="actions"><form method="post" action="/api/account/token"><input name="label" maxlength="60" placeholder="Token name (for example, Cursor laptop)" required><button class="button primary">Create CLI / agent token</button></form><form method="post" action="/sessions/revoke-others"><button>Revoke all other sessions</button></form><a class="button" href="https://vnsh.dev/llms.txt">Agent setup guide</a><form method="post" action="/logout"><button class="link-button">Sign out</button></form></div><div class="section-head"><h2>Delete account</h2><span>Permanent and irreversible</span></div><div class="notice"><span class="shield">!</span><div><b>Deletes every saved document, retained version, device and token.</b><form method="post" action="/account/delete"><label for="delete-email">Type ${esc(user.email)} to confirm</label><input id="delete-email" name="email" type="email" autocomplete="off" required><button class="delete">Delete account and all documents</button></form></div></div></main>`,
     ),
     { headers: htmlHeaders },
   );

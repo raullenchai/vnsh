@@ -17,9 +17,44 @@ import {
   handleShare,
   handleWorkspaceCreate,
   handleWorkspaceRenew,
+  handleWorkspaceHistory,
+  handleWorkspaceRestore,
   handleWorkspaceRead,
   detectFileType,
 } from './index.js';
+
+describe('workspace history and restore', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+  const secret = generateRootSecret();
+  const editUrl = buildWorkspaceUrl('https://vnsh.dev', 'aBcDeFgHiJkL', secret);
+
+  it('lists retained versions', async () => {
+    globalThis.fetch = vi.fn(async () => Response.json({
+      id: 'aBcDeFgHiJkL', limit: 20,
+      versions: [
+        { version: 3, size: 30, archivedAt: '2026-08-13T00:00:00Z', current: true },
+        { version: 2, size: 20, archivedAt: '2026-08-12T00:00:00Z', current: false },
+      ],
+    })) as typeof fetch;
+    const result = await handleWorkspaceHistory({ url: editUrl });
+    expect((result.content[0] as { text: string }).text).toContain('v2');
+    expect(result.metadata.versions).toHaveLength(2);
+  });
+
+  it('restores with write authority and conflict protection', async () => {
+    let request: { url: string; init?: RequestInit } | undefined;
+    globalThis.fetch = vi.fn(async (input, init) => {
+      request = { url: String(input), init };
+      return Response.json({ version: 4, permanent: true });
+    }) as typeof fetch;
+    const result = await handleWorkspaceRestore({ url: editUrl, version: 1, base_version: 3 });
+    expect(request?.url).toContain('/history/1/restore');
+    expect(new Headers(request?.init?.headers).get('If-Match')).toBe('"3"');
+    expect(new Headers(request?.init?.headers).get('X-Vnsh-Write')).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.metadata).toMatchObject({ restoredVersion: 1, version: 4 });
+  });
+});
 
 describe('public workspace reads', () => {
   const originalFetch = globalThis.fetch;
@@ -896,9 +931,11 @@ describe('the registered tool names', () => {
       'vnsh_share',
       'vnsh_share_file',
       'vnsh_workspace_create',
+      'vnsh_workspace_history',
       'vnsh_workspace_open',
       'vnsh_workspace_read',
       'vnsh_workspace_renew',
+      'vnsh_workspace_restore',
       'vnsh_workspace_update',
     ]);
     // The name that was wrong, spelled out so it cannot quietly come back.

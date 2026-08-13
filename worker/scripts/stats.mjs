@@ -17,6 +17,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const ACCOUNT_ID = 'f25478810829faf5ccc86f4ed9a96ef1';
+const ACCOUNTS_DB_ID = '75cdfa36-d2e4-4489-ab8e-8fb06c0dfcd6';
 const DATASET = 'vnsh_events';
 const DAYS = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 14;
 
@@ -66,10 +67,27 @@ async function query(sql) {
   return JSON.parse(text).data ?? [];
 }
 
+async function d1Query(sql) {
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${ACCOUNTS_DB_ID}/query`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql }),
+    },
+  );
+  const body = await response.json();
+  if (!response.ok || !body.success) {
+    console.error(`D1 metrics query failed (HTTP ${response.status}).`);
+    process.exit(1);
+  }
+  return body.result?.[0]?.results ?? [];
+}
+
 const WINDOW = `timestamp > NOW() - INTERVAL '${DAYS}' DAY`;
 const n = (row) => Number(row.n);
 
-const [funnel, sources, refs, agents, visibility, daily] = await Promise.all([
+const [funnel, sources, refs, agents, visibility, retention, workspaceActivity, daily, accounts] = await Promise.all([
   query(`SELECT blob1 AS k, sum(_sample_interval) AS n FROM ${DATASET}
          WHERE ${WINDOW} GROUP BY blob1 ORDER BY n DESC FORMAT JSON`),
   query(`SELECT blob2 AS k, sum(_sample_interval) AS n FROM ${DATASET}
@@ -82,8 +100,19 @@ const [funnel, sources, refs, agents, visibility, daily] = await Promise.all([
   // fetched separately and joined here.
   query(`SELECT blob1 AS k, blob6 AS v, sum(_sample_interval) AS n FROM ${DATASET}
          WHERE ${WINDOW} AND blob6 != '' GROUP BY blob1, blob6 ORDER BY n DESC FORMAT JSON`),
+  query(`SELECT blob8 AS k, sum(_sample_interval) AS n FROM ${DATASET}
+         WHERE ${WINDOW} AND blob1 = 'workspace_create' AND blob8 != '' GROUP BY blob8 ORDER BY n DESC FORMAT JSON`),
+  query(`SELECT blob3 AS workspace, blob4 AS agent, blob1 AS event, sum(_sample_interval) AS n
+         FROM ${DATASET} WHERE ${WINDOW} AND blob3 != '' AND blob1 LIKE 'workspace%'
+         GROUP BY workspace, agent, event FORMAT JSON`),
   query(`SELECT toDate(timestamp) AS d, blob1 AS k, sum(_sample_interval) AS n FROM ${DATASET}
          WHERE ${WINDOW} GROUP BY d, blob1 ORDER BY d DESC FORMAT JSON`),
+  d1Query(`SELECT
+    (SELECT count(*) FROM users) AS users,
+    (SELECT count(*) FROM documents) AS documents,
+    (SELECT count(DISTINCT user_id) FROM documents) AS users_with_documents,
+    (SELECT count(*) FROM documents WHERE version > 1) AS edited_documents,
+    (SELECT count(*) FROM sessions WHERE expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) AS active_sessions`),
 ]);
 
 const total = Object.fromEntries(funnel.map((r) => [r.k, n(r)]));
@@ -99,7 +128,7 @@ console.log(`vnsh — last ${DAYS} days\n`);
 console.log('funnel');
 // Ordered as the journey runs, not by size: a stage that never fires is the
 // thing worth seeing, and sorting by count buries a zero at the bottom.
-for (const stage of ['page_view', 'prompt_seen', 'prompt_copy', 'workspace_create', 'workspace_update', 'workspace_read']) {
+for (const stage of ['page_view', 'prompt_seen', 'prompt_copy', 'workspace_create', 'workspace_update', 'workspace_restore', 'workspace_conflict', 'workspace_read']) {
   const count = total[stage] ?? 0;
   console.log(`  ${stage.padEnd(22)}${String(count).padStart(7)}${count === 0 ? '   <- never fired' : ''}`);
 }
@@ -124,6 +153,32 @@ table(
 table(sources, 'workspace events by client');
 table(refs, 'workspace_create by referrer');
 table(agents, 'agents seen (X-Vnsh-Agent)');
+table(retention, 'new workspaces by retention (populated after accounts metrics deployment)');
+
+const workspaces = new Map();
+for (const row of workspaceActivity) {
+  if (!workspaces.has(row.workspace)) workspaces.set(row.workspace, { agents: new Set(), events: {} });
+  const workspace = workspaces.get(row.workspace);
+  // "unknown" is the absence of an MCP initialize identity, not an agent.
+  // Counting it would turn one named agent plus anonymous HTTP traffic into a
+  // false multi-agent workspace.
+  if (row.agent && row.agent !== 'unknown') workspace.agents.add(row.agent);
+  workspace.events[row.event] = (workspace.events[row.event] ?? 0) + n(row);
+}
+const multiAgent = [...workspaces.values()].filter((workspace) => workspace.agents.size > 1).length;
+const agentAttributed = [...workspaces.values()].filter((workspace) => workspace.agents.size > 0).length;
+const updates = total.workspace_update ?? 0;
+const conflicts = total.workspace_conflict ?? 0;
+console.log('\nproduct decision signals');
+console.log(`  workspaces with agent identity ${String(agentAttributed).padStart(7)}`);
+console.log(`  touched by >1 distinct agent   ${String(multiAgent).padStart(7)}  (${pct(multiAgent, agentAttributed)})`);
+console.log(`  write conflict rate            ${String(conflicts).padStart(7)}  (${pct(conflicts, updates + conflicts)})`);
+const account = accounts[0] || {};
+console.log(`  accounts                       ${String(account.users ?? 0).padStart(7)}`);
+console.log(`  accounts with saved documents  ${String(account.users_with_documents ?? 0).padStart(7)}`);
+console.log(`  permanent documents            ${String(account.documents ?? 0).padStart(7)}`);
+console.log(`  edited permanent documents     ${String(account.edited_documents ?? 0).padStart(7)}`);
+console.log(`  active sessions/tokens         ${String(account.active_sessions ?? 0).padStart(7)}`);
 
 console.log('\nby day');
 const byDay = new Map();

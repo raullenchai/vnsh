@@ -9,7 +9,7 @@
  * - vnsh_read: Decrypt and read content from a vnsh URL
  * - vnsh_share: Encrypt and upload text content, return shareable URL
  * - vnsh_share_file: Encrypt and upload a local file, return shareable URL
- * - vnsh_workspace_create/read/update/renew/open: mutable, versioned shared workspaces
+ * - vnsh_workspace_create/read/update/history/restore/renew/open: mutable shared workspaces
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -134,6 +134,16 @@ const WorkspaceUpdateSchema = z.object({
   url: z.string(),
   content: z.string(),
   base_version: z.number().optional(),
+});
+
+const WorkspaceHistorySchema = z.object({
+  url: z.string().describe('Encrypted workspace URL with #w= or #r='),
+});
+
+const WorkspaceRestoreSchema = z.object({
+  url: z.string().describe('Workspace edit URL including #w='),
+  version: z.number().int().min(1).describe('Retained version to restore'),
+  base_version: z.number().int().min(1).optional().describe('Current version, for conflict protection'),
 });
 
 // Create MCP server
@@ -338,6 +348,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['url'],
         },
       },
+      {
+        name: 'vnsh_workspace_history',
+        description:
+          'Lists the retained versions of a workspace, newest first. Use this before restoring ' +
+          'after a bad edit or merge. The current version plus the latest historical versions are retained.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Encrypted workspace URL with #w= or #r=' },
+          },
+          required: ['url'],
+        },
+      },
+      {
+        name: 'vnsh_workspace_restore',
+        description:
+          'Restores a retained workspace version as a new latest version. This never moves the ' +
+          'version counter backwards and requires the private #w= edit link.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Workspace edit URL including #w=' },
+            version: { type: 'integer', minimum: 1, description: 'Retained version to restore' },
+            base_version: {
+              type: 'integer', minimum: 1,
+              description: 'Current version. Omit to read it immediately before restoring.',
+            },
+          },
+          required: ['url', 'version'],
+        },
+      },
     ],
   };
 });
@@ -363,6 +404,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await handleWorkspaceUpdate(args);
     } else if (name === 'vnsh_workspace_open') {
       return await handleWorkspaceOpen(args);
+    } else if (name === 'vnsh_workspace_history') {
+      return await handleWorkspaceHistory(args);
+    } else if (name === 'vnsh_workspace_restore') {
+      return await handleWorkspaceRestore(args);
     } else {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
@@ -1128,6 +1173,72 @@ export async function handleWorkspaceUpdate(args: unknown) {
       },
     ],
     metadata: { workspaceId: id, version: data.version, expires: data.expires },
+  };
+}
+
+export async function handleWorkspaceHistory(args: unknown) {
+  const { url } = WorkspaceHistorySchema.parse(args);
+  if (isPublicWorkspaceUrl(url)) {
+    throw new Error('Use the private #w= or #r= workspace link to inspect retained history.');
+  }
+  const { host, id } = parseWorkspaceUrl(url);
+  const response = await fetch(`${host}/api/workspace/${id}/history`, {
+    headers: { ...clientHeaders() },
+  });
+  if (!response.ok) throw new Error(`History failed: HTTP ${response.status} - ${await response.text()}`);
+  const data = await response.json() as {
+    id: string;
+    limit: number;
+    versions: Array<{ version: number; size: number; archivedAt: string; current: boolean }>;
+  };
+  const rows = data.versions.map((item) =>
+    `- v${item.version}: ${item.size} bytes${item.current ? ' (current)' : ` — archived ${item.archivedAt}`}`,
+  );
+  return {
+    content: [{
+      type: 'text',
+      text: `Workspace ${id} retains up to ${data.limit} versions:\n${rows.join('\n')}`,
+    }],
+    metadata: { workspaceId: id, limit: data.limit, versions: data.versions },
+  };
+}
+
+export async function handleWorkspaceRestore(args: unknown) {
+  const { url, version, base_version } = WorkspaceRestoreSchema.parse(args);
+  if (isPublicWorkspaceUrl(url)) {
+    throw new Error('Restoring needs the private edit link (#w=), not a public /p/ link.');
+  }
+  const { host, id, writeToken, canWrite } = parseWorkspaceUrl(url);
+  if (!canWrite || !writeToken) throw new Error('Restoring needs the workspace edit link (#w=).');
+  const currentVersion = base_version ?? (await fetchWorkspace(url)).version;
+  const response = await fetch(`${host}/api/workspace/${id}/history/${version}/restore`, {
+    method: 'POST',
+    headers: {
+      'X-Vnsh-Write': writeToken,
+      'If-Match': `"${currentVersion}"`,
+      ...clientHeaders(),
+    },
+  });
+  if (response.status === 412) {
+    const current = await fetchWorkspace(url);
+    return {
+      content: [{
+        type: 'text',
+        text: `Restore was not applied: workspace moved from v${currentVersion} to v${current.version}. ` +
+          `Review the current content and retry with base_version: ${current.version}.`,
+      }],
+      isError: true,
+      metadata: { workspaceId: id, conflict: true, currentVersion: current.version },
+    };
+  }
+  if (!response.ok) throw new Error(`Restore failed: HTTP ${response.status} - ${await response.text()}`);
+  const data = await response.json() as { version: number; expires?: string; permanent?: boolean };
+  return {
+    content: [{
+      type: 'text',
+      text: `Restored v${version} as new current version v${data.version}. The workspace URL is unchanged.`,
+    }],
+    metadata: { workspaceId: id, restoredVersion: version, version: data.version },
   };
 }
 

@@ -37,6 +37,8 @@ the URL does not change as the document evolves.
 | `vnsh_workspace_create` | Opens a workspace, returns an edit link and a view-only link |
 | `vnsh_workspace_read` | Reads current contents and version |
 | `vnsh_workspace_update` | Writes a new version; on a conflict returns the current contents so you can merge |
+| `vnsh_workspace_history` | Lists retained versions, newest first |
+| `vnsh_workspace_restore` | Restores an old version as a new latest version |
 | `vnsh_workspace_renew` | Extends expiry without changing content or version |
 | `vnsh_workspace_open` | Renders it locally in the browser, sandboxed |
 
