@@ -40,7 +40,9 @@ beforeAll(async () => {
         "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE magic_links (token_hash TEXT PRIMARY KEY,email TEXT,expires_at TEXT,used_at TEXT,created_at TEXT)",
         "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
-        "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT,title TEXT,summary TEXT,artifact_type TEXT DEFAULT 'document',content_type TEXT,status TEXT,visibility TEXT,current_version INTEGER,current_object_key TEXT,current_size INTEGER,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,created_at TEXT,updated_at TEXT)",
+        "CREATE TABLE workspaces (id TEXT PRIMARY KEY,owner_id TEXT,name TEXT,slug TEXT,is_default INTEGER DEFAULT 0,archived_at TEXT,created_at TEXT,updated_at TEXT,UNIQUE(owner_id,slug))",
+        "CREATE UNIQUE INDEX workspaces_one_default ON workspaces(owner_id) WHERE is_default=1",
+        "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT,title TEXT,summary TEXT,artifact_type TEXT DEFAULT 'document',content_type TEXT,status TEXT,visibility TEXT,current_version INTEGER,current_object_key TEXT,current_size INTEGER,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,workspace_id TEXT,created_at TEXT,updated_at TEXT)",
       ],
     },
   ]);
@@ -230,8 +232,11 @@ describe("accounts", () => {
     );
 
     const artifactId = "11111111-1111-4111-8111-111111111111";
-    await env.ACCOUNTS.prepare(`INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId, "u1", "Agent handoff", "Ready for human review", "handoff", "text/html; charset=utf-8", "in_review", "private", 1, `a/${artifactId}/versions/1-test`, 0, new Date().toISOString(), new Date().toISOString()).run();
+    await env.ACCOUNTS.prepare("INSERT INTO workspaces(id,owner_id,name,slug,is_default,created_at,updated_at) VALUES('personal-u1','u1','Personal','personal',1,?,?)")
+      .bind(new Date().toISOString(), new Date().toISOString()).run();
+    const personal = await env.ACCOUNTS.prepare("SELECT id FROM workspaces WHERE owner_id='u1' AND is_default=1").first<{ id: string }>();
+    await env.ACCOUNTS.prepare(`INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,workspace_id,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId, "u1", "Agent handoff", "Ready for human review", "handoff", "text/html; charset=utf-8", "in_review", "private", 1, `a/${artifactId}/versions/1-test`, 0, personal!.id, new Date().toISOString(), new Date().toISOString()).run();
 
     const dashboard = await call(
       new Request("https://account.vnsh.dev/", {
@@ -241,7 +246,7 @@ describe("accounts", () => {
     const dashboardHtml = await dashboard.text();
     expect(dashboardHtml).toContain("Work worth keeping.");
     expect(dashboardHtml).toContain("Artifacts");
-    expect(dashboardHtml).toContain("Encrypted links");
+    expect(dashboardHtml).toContain("Incognito Artifacts");
     expect(dashboardHtml).toContain("Agent handoff");
     expect(dashboardHtml).toContain("Ready for human review");
     expect(dashboardHtml).toContain(body.id);
@@ -258,13 +263,13 @@ describe("accounts", () => {
         documentLimit: 100, storageLimit: 1073741824 },
     });
 
-    const filtered = await call(new Request("https://account.vnsh.dev/?q=Agent&status=in_review", {
+    const filtered = await call(new Request("https://account.vnsh.dev/?workspace=personal-u1&q=Agent", {
       headers: { Authorization: `Bearer ${raw}` },
     }));
     const filteredHtml = await filtered.text();
     expect(filteredHtml).toContain("Agent handoff");
     expect(filteredHtml).toContain('value="Agent"');
-    expect(filteredHtml).toContain('value="in_review" selected');
+    expect(filteredHtml).toContain('name="workspace" value="personal-u1"');
 
     await env.ACCOUNTS.prepare("UPDATE documents SET size=? WHERE id=?")
       .bind(1024 * 1024 * 1024, body.id).run();

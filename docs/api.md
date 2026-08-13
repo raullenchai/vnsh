@@ -284,6 +284,25 @@ sessions additionally receive the reserved human-only capabilities such as
 operations are introduced by their respective Phase 1 bricks and are not yet
 callable in this contract slice.
 
+### Account Workspaces
+
+Account Workspaces are lightweight project containers, not Agent identities or
+workflow membership. Every account has a default `Personal` Workspace. Existing
+Account Artifacts are migrated into it, and creates that omit `workspaceId`
+remain backward compatible by targeting Personal.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/workspaces` | List the account's active Workspaces and Artifact counts. |
+| `POST /api/workspaces` | Create a Workspace. Human browser session only. |
+| `GET /api/artifacts?workspace=:id` | List Account Artifacts in one Workspace. |
+
+Include `"workspaceId": "..."` in an Artifact create body to select a
+Workspace. Artifact URLs do not contain the Workspace ID, so moving or
+reorganizing knowledge later will not invalidate an Artifact link. In this
+phase, Workspace is only an organization and discovery boundary; scoped
+read/edit capability links are a separate authorization layer.
+
 `artifactType` is one of `document`, `report`, `code`, `app`, or `handoff`.
 Every version records the authenticated session/token principal and whether it
 was a human browser session or Agent token. `harness` and `model` are optional

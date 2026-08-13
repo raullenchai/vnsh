@@ -34,7 +34,9 @@ beforeAll(async () => {
       "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
     ] },
     { name: 'artifacts.sql', queries: [
-      "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,summary TEXT,artifact_type TEXT NOT NULL DEFAULT 'document',content_type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',visibility TEXT NOT NULL DEFAULT 'private',current_version INTEGER NOT NULL DEFAULT 1,current_object_key TEXT NOT NULL,current_size INTEGER NOT NULL,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
+      "CREATE TABLE workspaces (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,name TEXT NOT NULL,slug TEXT NOT NULL,is_default INTEGER NOT NULL DEFAULT 0,archived_at TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,UNIQUE(owner_id,slug))",
+      "CREATE UNIQUE INDEX workspaces_one_default ON workspaces(owner_id) WHERE is_default=1",
+      "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,summary TEXT,artifact_type TEXT NOT NULL DEFAULT 'document',content_type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',visibility TEXT NOT NULL DEFAULT 'private',current_version INTEGER NOT NULL DEFAULT 1,current_object_key TEXT NOT NULL,current_size INTEGER NOT NULL,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,workspace_id TEXT REFERENCES workspaces(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
       "CREATE TABLE artifact_versions (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,version INTEGER NOT NULL,object_key TEXT NOT NULL UNIQUE,size INTEGER NOT NULL,author_principal_id TEXT NOT NULL,author_kind TEXT NOT NULL,change_summary TEXT,source_ref TEXT,evidence_json TEXT NOT NULL DEFAULT '[]',client_harness TEXT,client_model TEXT,content_type TEXT,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,version))",
       "CREATE TABLE artifact_access (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,principal_type TEXT NOT NULL,principal_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,principal_type,principal_id))",
     ] },
@@ -53,21 +55,36 @@ describe('account Artifacts V1 contract', () => {
   });
 
   it('creates, lists and reads a permanent versioned Artifact', async () => {
+    const initialSpaces = await call(new Request('https://account.vnsh.dev/api/workspaces', { headers: { Authorization: 'Bearer agent-token' } }));
+    expect(await initialSpaces.json<any>()).toMatchObject({ workspaces: [{ name: 'Personal', isDefault: true, artifactCount: 0 }] });
+    const forbiddenSpace = await call(new Request('https://account.vnsh.dev/api/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer agent-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Agent-owned' }),
+    }));
+    expect(forbiddenSpace.status).toBe(403);
+    const spaceResponse = await call(new Request('https://account.vnsh.dev/api/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Launch Project' }),
+    }));
+    expect(spaceResponse.status).toBe(201);
+    const workspace = (await spaceResponse.json<any>()).workspace;
+    expect(workspace).toMatchObject({ name: 'Launch Project', slug: 'launch-project', isDefault: false });
+
     const created = await call(new Request('https://account.vnsh.dev/api/artifacts', {
       method: 'POST',
       headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Launch brief', summary: 'Human-readable release evidence', artifactType: 'report', content: '<h1>Ready</h1>', contentType: 'text/html; charset=utf-8', changeSummary: 'Initial evidence', sourceRef: 'https://github.com/raullenchai/vnsh/pull/66', evidence: ['Worker tests passed'], harness: 'Browser', model: 'none' }),
+      body: JSON.stringify({ workspaceId: workspace.id, title: 'Launch brief', summary: 'Human-readable release evidence', artifactType: 'report', content: '<h1>Ready</h1>', contentType: 'text/html; charset=utf-8', changeSummary: 'Initial evidence', sourceRef: 'https://github.com/raullenchai/vnsh/pull/66', evidence: ['Worker tests passed'], harness: 'Browser', model: 'none' }),
     }));
     expect(created.status).toBe(201);
     expect(created.headers.get('ETag')).toBe('"1"');
     const artifact = (await created.json<any>()).artifact;
-    expect(artifact).toMatchObject({ title: 'Launch brief', summary: 'Human-readable release evidence', artifactType: 'report', status: 'draft', visibility: 'private', version: 1 });
+    expect(artifact).toMatchObject({ title: 'Launch brief', summary: 'Human-readable release evidence', artifactType: 'report', status: 'draft', visibility: 'private', version: 1, workspace: { id: workspace.id, name: 'Launch Project' } });
     expect(artifact.capabilities).toContain('approve');
     expect(artifact.capabilities).toContain('publish');
     expect(artifact.id).toMatch(/^[0-9a-f-]{36}$/);
 
     const listed = await call(new Request('https://account.vnsh.dev/api/artifacts', { headers: { Authorization: 'Bearer human-token' } }));
     expect((await listed.json<any>()).artifacts).toEqual(expect.arrayContaining([expect.objectContaining({ id: artifact.id })]));
+    const scoped = await call(new Request(`https://account.vnsh.dev/api/artifacts?workspace=${workspace.id}`, { headers: { Authorization: 'Bearer agent-token' } }));
+    expect((await scoped.json<any>()).artifacts).toHaveLength(1);
 
     const read = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, { headers: { Authorization: 'Bearer agent-token' } }));
     expect(read.headers.get('ETag')).toBe('"1"');
@@ -138,6 +155,27 @@ describe('account Artifacts V1 contract', () => {
   });
 
   it('validates titles, media types, preconditions and methods', async () => {
+    expect((await call(new Request('https://account.vnsh.dev/api/workspaces'))).status).toBe(401);
+    expect((await call(new Request('https://account.vnsh.dev/api/workspaces', { method: 'PUT', headers: { Authorization: 'Bearer human-token' } }))).status).toBe(405);
+    const emptyWorkspace = await call(new Request('https://account.vnsh.dev/api/workspaces', { method: 'POST', headers: { Authorization: 'Bearer human-token' } }));
+    expect(await emptyWorkspace.json()).toMatchObject({ error: 'EMPTY_BODY' });
+    const invalidWorkspace = await call(new Request('https://account.vnsh.dev/api/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: '{',
+    }));
+    expect(await invalidWorkspace.json()).toMatchObject({ error: 'INVALID_BODY' });
+    const formWorkspace = await call(new Request('https://account.vnsh.dev/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Product+Notes',
+    }));
+    expect(formWorkspace.status).toBe(303);
+    expect(formWorkspace.headers.get('Location')).toMatch(/^\/?\?workspace=/);
+    const duplicateWorkspace = await call(new Request('https://account.vnsh.dev/api/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Product Notes' }),
+    }));
+    expect(await duplicateWorkspace.json<any>()).toMatchObject({ workspace: { slug: 'product-notes-2' } });
+    const missingWorkspaceArtifact = await call(new Request('https://account.vnsh.dev/api/artifacts', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: 'missing', title: 'Lost', content: 'x' }),
+    }));
+    expect(await missingWorkspaceArtifact.json()).toMatchObject({ error: 'WORKSPACE_NOT_FOUND' });
     const invalid = await call(new Request('https://account.vnsh.dev/api/artifacts', {
       method: 'POST', headers: { Authorization: 'Bearer human-token' }, body: JSON.stringify({ title: '', content: 'x' }),
     }));
