@@ -154,6 +154,7 @@ describe('account Artifacts V1 contract', () => {
     const capabilityRead = await call(new Request(readCapability.url));
     expect(capabilityRead.status).toBe(200);
     expect(capabilityRead.headers.get('X-Vnsh-Capability')).toBe('read');
+    expect(capabilityRead.headers.get('Link')).toContain('llms.txt#account-artifact-capability-links');
     expect(capabilityRead.headers.get('ETag')).toBe('"2"');
     expect(await capabilityRead.text()).toContain('Smoke passed.');
     const readWrite = await call(new Request(readCapability.url, { method: 'PUT', headers: { 'If-Match': '"2"', 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'blocked' }) }));
@@ -187,7 +188,11 @@ describe('account Artifacts V1 contract', () => {
       method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'role=read&label=One-time+handoff',
     }));
     expect(formCapability.status).toBe(201);
-    expect(await formCapability.text()).toContain('stores only a hash');
+    const formCapabilityHtml = await formCapability.text();
+    expect(formCapabilityHtml).toContain('stores only a hash');
+    expect(formCapabilityHtml).toContain('Copy link');
+    expect(formCapabilityHtml).toContain('navigator.clipboard.writeText');
+    expect(formCapability.headers.get('Content-Security-Policy')).toMatch(/script-src 'nonce-[A-Za-z0-9_-]+'/);
     const revoked = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities/${readCapability.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer human-token' } }));
     expect(revoked.status).toBe(204);
     expect((await call(new Request(readCapability.url))).status).toBe(404);

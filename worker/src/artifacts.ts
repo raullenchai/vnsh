@@ -404,7 +404,9 @@ async function manageCapabilities(id: string, request: Request, env: AccountEnv,
     VALUES(?,?,?,?,?,?,?)`).bind(row.id, id, await tokenHash(raw), role, row.label, user.sessionId, row.createdAt).run();
   const shareUrl = `${new URL(request.url).origin}/c/${raw}`;
   if (!(request.headers.get('Content-Type') || '').includes('application/json')) {
-    return new Response(`<!doctype html><meta charset="utf-8"><title>Sharing link · vnsh</title><style>body{background:#080a0e;color:#f1f4f8;font:16px system-ui;max-width:720px;margin:80px auto;padding:24px}code{display:block;padding:18px;background:#151a23;border:1px solid #303846;border-radius:12px;word-break:break-all;color:#4ade80}a{color:#4ade80}</style><h1>${role === 'edit' ? 'Edit' : 'Read'} link created</h1><p>Copy it now. vnsh stores only a hash and cannot show this exact link again.</p><code>${esc(shareUrl)}</code><p><a href="/artifacts/${esc(id)}">Back to Artifact</a></p>`, { status: 201, headers: artifactHtmlHeaders });
+    const nonce = capabilityToken().slice(0, 22);
+    const headers = { ...artifactHtmlHeaders, 'Content-Security-Policy': `${artifactHtmlHeaders['Content-Security-Policy']}; script-src 'nonce-${nonce}'` };
+    return new Response(`<!doctype html><meta charset="utf-8"><title>Sharing link · vnsh</title><style>body{background:#080a0e;color:#f1f4f8;font:16px system-ui;max-width:720px;margin:80px auto;padding:24px}input{display:block;width:100%;padding:18px;background:#151a23;border:1px solid #303846;border-radius:12px;color:#4ade80;font:14px ui-monospace,monospace}button{margin:14px 0;padding:12px 18px;border:0;border-radius:9px;background:#4ade80;color:#06140d;font-weight:800;cursor:pointer}a{color:#4ade80}</style><h1>${role === 'edit' ? 'Edit' : 'Read'} link created</h1><p>Copy it now. vnsh stores only a hash and cannot show this exact link again.</p><input id="share" readonly value="${esc(shareUrl)}" aria-label="Artifact sharing link"><button id="copy" type="button">Copy link</button><p><a href="/artifacts/${esc(id)}">Back to Artifact</a></p><script nonce="${nonce}">document.getElementById('copy').addEventListener('click',async function(){const input=document.getElementById('share');try{await navigator.clipboard.writeText(input.value);this.textContent='Copied ✓'}catch{input.select();this.textContent='Press Ctrl/Cmd+C'}})</script>`, { status: 201, headers });
   }
   return Response.json({ capability: { ...row, url: shareUrl } }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
 }
@@ -445,12 +447,13 @@ async function useCapability(raw: string, request: Request, env: AccountEnv, con
     ...renderedContentHeaders(artifact.content_type), ETag: `"${artifact.current_version}"`,
     'X-Vnsh-Artifact-Id': artifact.id, 'X-Vnsh-Artifact-Title': encodeURIComponent(artifact.title),
     'X-Vnsh-Capability': capability.role, 'X-Vnsh-Workspace': encodeURIComponent(artifact.workspace_name || 'Personal'),
+    Link: '<https://vnsh.dev/llms.txt#account-artifact-capability-links>; rel="describedby"; type="text/plain"',
     Allow: capability.role === 'edit' ? 'GET, HEAD, PUT' : 'GET, HEAD',
   };
   const accept = request.headers.get('Accept') || '';
   if (!contentOnly && accept.includes('text/html')) {
     const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(artifact.title)} · vnsh</title><style>body{margin:0;background:#edf1ef;font:14px system-ui;color:#14201c}header{height:60px;background:white;border-bottom:1px solid #dce4e0;display:flex;align-items:center;padding:0 20px;gap:12px}b{font-size:15px}span{color:#6d7a74}iframe{display:block;width:calc(100% - 24px);height:calc(100vh - 84px);margin:12px;border:1px solid #cad5cf;border-radius:10px;background:white}</style><header><b>${esc(artifact.title)}</b><span>${esc(artifact.workspace_name || 'Personal')} · v${artifact.current_version} · ${capability.role} link</span></header><iframe title="Artifact content" sandbox src="/c/${esc(raw)}/content"></iframe>`;
-    return new Response(request.method === 'HEAD' ? null : html, { headers: artifactHtmlHeaders });
+    return new Response(request.method === 'HEAD' ? null : html, { headers: { ...artifactHtmlHeaders, Link: headers.Link, 'X-Vnsh-Capability': capability.role } });
   }
   return new Response(request.method === 'HEAD' ? null : object.body, { headers });
 }
