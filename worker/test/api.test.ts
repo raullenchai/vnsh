@@ -415,6 +415,16 @@ describe('llms.txt states the trust boundary', () => {
     expect(await response.text()).toBe('');
   });
 
+  it('documents self-describing Account Artifact capability links', async () => {
+    const text = await llms();
+    expect(text).toContain('## Account Artifact capability links');
+    expect(text).toContain('https://account.vnsh.dev/c/{bearer-token}');
+    expect(text).toContain('X-Vnsh-Capability');
+    expect(text).toContain('If-Match: "<current ETag version>"');
+    expect(text).toContain('412 VERSION_CONFLICT');
+    expect(text).toMatch(/not host-blind encryption/i);
+  });
+
   it('distinguishes what is verifiable from what is merely true today', async () => {
     const text = await llms();
     expect(text).toMatch(/the boundary is the client, not the transport/i);

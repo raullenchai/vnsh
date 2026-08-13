@@ -3787,6 +3787,31 @@ or set artifact=true in the MCP create tool for a rendered /artifact/{id} URL.
 The account stores ownership metadata, never the URL fragment or content key,
 so keep the returned link; a lost encrypted link cannot be recovered by vnsh.
 
+## Account Artifact capability links
+
+These are a separate, service-readable collaboration mode. They look like:
+
+  https://account.vnsh.dev/c/{bearer-token}
+
+If a user gives you one, GET it directly: no vnsh install, login, fragment key,
+or JavaScript is required. The response body is the current Artifact content.
+Read X-Vnsh-Capability as read or edit, ETag as the current version, and Allow
+as the methods this link grants. The URL authorizes only this one Artifact.
+
+For an edit link, create a new immutable version with:
+
+  PUT https://account.vnsh.dev/c/{bearer-token}
+  If-Match: "<current ETag version>"
+  Content-Type: application/json
+
+  {"content":"replacement UTF-8 content","contentType":"text/plain; charset=utf-8","changeSummary":"what changed"}
+
+Re-read before writing. A stale If-Match returns 412 VERSION_CONFLICT; merge the
+current content and retry. A read link returns 403 READ_ONLY. A revoked or
+unknown link returns 404. Treat the complete URL as a secret: anyone holding it
+has its read or edit authority. This mode is not host-blind encryption; vnsh can
+read Account Artifact content so authorized humans and Agents can collaborate.
+
 ## Public workspaces — no key, no runtime, no setup
 
 A person opening an encrypted link has a browser doing the decryption for them.
