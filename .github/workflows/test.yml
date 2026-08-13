@@ -208,14 +208,15 @@ jobs:
           cache: 'npm'
           cache-dependency-path: worker/package-lock.json
 
-      # The API token is stored as a repository secret. Additive D1 migrations
-      # run before the Worker that uses them; Wrangler captures a backup and
-      # rolls back a failed migration. An applied additive schema remains safe
-      # if the subsequent Worker upload fails and the previous version stays up.
+      # Worker deploy and D1 migration are separate least-privilege credentials.
+      # When the D1 secret is configured, additive migrations run before code;
+      # otherwise the operator must apply them first with an authorized Wrangler
+      # login. The Worker-only token must not silently gain database access.
       - name: Deploy worker
         id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN is not set, so nothing was deployed. Add the secret to gate production on this workflow."
@@ -224,7 +225,11 @@ jobs:
           fi
           cd worker
           npm ci
-          npx wrangler d1 migrations apply ACCOUNTS --remote
+          if [ -n "$CLOUDFLARE_D1_TOKEN" ]; then
+            CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_TOKEN" npx wrangler d1 migrations apply ACCOUNTS --remote
+          else
+            echo "::notice::CLOUDFLARE_D1_TOKEN is not set; D1 migrations must already be applied before this deploy."
+          fi
           npx wrangler deploy
           echo "deployed=true" >> "$GITHUB_OUTPUT"
 
