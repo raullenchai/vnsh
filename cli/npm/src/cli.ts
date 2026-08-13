@@ -89,6 +89,12 @@ interface WorkspaceResponse {
   url?: string;
 }
 
+interface WorkspaceHistoryResponse {
+  id: string;
+  limit: number;
+  versions: Array<{ version: number; size: number; archivedAt: string; current: boolean }>;
+}
+
 /** Read a file, or stdin when no path is given. Enforces the size ceiling. */
 async function readInput(input: string | undefined, label: string): Promise<Buffer> {
   if (input) {
@@ -333,6 +339,54 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
       ? result.url || `${host}/p/${link.id}`
       : buildWorkspaceUrl(host, link.id, link.secret as Buffer).replace('/w/', artifact ? '/artifact/' : '/w/'),
   );
+}
+
+async function listWorkspaceHistory(url: string, options: UploadOptions): Promise<void> {
+  if (isPublicUrl(url)) error('Use the private edit or view link to inspect workspace history.');
+  const link = parseWorkspaceUrl(url);
+  const host = options.host || link.host;
+  const response = await fetch(`${host}/api/workspace/${link.id}/history`, {
+    headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+  });
+  if (!response.ok) error(`Could not read history (HTTP ${response.status}): ${await response.text()}`);
+  const data = await response.json() as WorkspaceHistoryResponse;
+  console.log(`Workspace ${data.id} — retained versions (max ${data.limit})`);
+  for (const item of data.versions) {
+    console.log(
+      `v${String(item.version).padEnd(5)} ${formatBytes(item.size).padEnd(10)} ` +
+      `${item.current ? 'current' : item.archivedAt}`,
+    );
+  }
+}
+
+async function restoreWorkspace(url: string, versionRaw: string, options: UploadOptions): Promise<void> {
+  if (!/^\d+$/.test(versionRaw) || Number(versionRaw) < 1) error('Version must be a positive integer.');
+  if (isPublicUrl(url)) error('Restoring needs the private edit link (#w=), not the public /p/ link.');
+  const link = parseWorkspaceUrl(url);
+  if (!link.canWrite || !link.writeToken) error('Restoring needs the edit link (#w=).');
+  const host = options.host || link.host;
+  const current = await fetch(`${host}/api/workspace/${link.id}`, {
+    method: 'HEAD',
+    headers: { 'X-Vnsh-Client': `cli-npm/${VERSION}` },
+  });
+  if (!current.ok) error(`Could not read current version (HTTP ${current.status}).`);
+  const etag = current.headers.get('ETag');
+  if (!etag) error('Server did not return the current version.');
+  const response = await fetch(
+    `${host}/api/workspace/${link.id}/history/${Number(versionRaw)}/restore`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Vnsh-Client': `cli-npm/${VERSION}`,
+        'X-Vnsh-Write': link.writeToken,
+        'If-Match': etag,
+      },
+    },
+  );
+  if (response.status === 412) error('Workspace changed before restore. Re-run the command against the latest version.');
+  if (!response.ok) error(`Restore failed (HTTP ${response.status}): ${await response.text()}`);
+  const data = await response.json() as WorkspaceResponse;
+  console.log(colors.green(`✓ Restored v${Number(versionRaw)} as new version v${data.version}`));
 }
 
 /** True for a public workspace link: /p/{id}, and never carrying a key. */
@@ -734,6 +788,30 @@ program
   .action(async (url: string, file: string | undefined, options: UploadOptions) => {
     try {
       await writeWorkspace(url, file, { ...program.opts(), ...options });
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('history <url>')
+  .description('List retained versions of a workspace')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (url: string, options: UploadOptions) => {
+    try {
+      await listWorkspaceHistory(url, { ...program.opts(), ...options });
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('restore <url> <version>')
+  .description('Restore a retained workspace version as a new latest version (needs #w=)')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (url: string, version: string, options: UploadOptions) => {
+    try {
+      await restoreWorkspace(url, version, { ...program.opts(), ...options });
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }

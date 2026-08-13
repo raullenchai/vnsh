@@ -27,6 +27,7 @@ export {
 } from './crypto.js';
 
 const DEFAULT_HOST = process.env.VNSH_HOST || 'https://vnsh.dev';
+const VERSION = String(require('../package.json').version || '0.0.0');
 
 interface ShareOptions {
   host?: string;
@@ -71,7 +72,7 @@ export async function share(
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
-      'X-Vnsh-Client': 'cli-npm/2.0.0',
+      'X-Vnsh-Client': `cli-npm/${VERSION}`,
     },
     body: encrypted,
   });

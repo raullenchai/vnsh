@@ -8,14 +8,14 @@ encrypts and decrypts before content crosses the vnsh service boundary.
 Pin the reviewed release:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0
+claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0
 ```
 
 For Cursor, OpenHands, Cline, Windsurf, or another MCP client, use this server
 entry in the client's project configuration:
 
 ```json
-{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.6.0"]}}
+{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.7.0"]}}
 ```
 
 An unpinned `npx -y vnsh-mcp` tracks new releases. That is convenient, but the
@@ -28,6 +28,8 @@ MCP process handles plaintext, so pin or build from source if you review it.
 | `vnsh_workspace_create` | Create an encrypted or explicitly public mutable workspace; accepts `ttl` up to 168 hours |
 | `vnsh_workspace_read` | Read encrypted `#w`/`#r` links or public `/p/` links and return the current version |
 | `vnsh_workspace_update` | Conditionally replace content; conflicts include the current version and content for merging |
+| `vnsh_workspace_history` | List the current and retained historical versions |
+| `vnsh_workspace_restore` | Restore a retained version as a new latest version using an edit link |
 | `vnsh_workspace_renew` | Extend expiry using an edit link without changing content or version |
 | `vnsh_workspace_open` | Save locally and open untrusted content inside a network-disabled sandbox |
 | `vnsh_share` | Create an encrypted, immutable text blob |

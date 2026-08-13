@@ -53,7 +53,7 @@ describe('POST /api/event', () => {
     // blob7 is the client version, appended after blob6. A beacon from the page
     // sends 'web' with no version, so it is empty here — the slot existing at
     // all is what makes a client rollout observable.
-    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w', '', '']);
+    expect(point.blobs).toEqual(['prompt_copy', 'web', '', '', 'w', '', '', '']);
     expect(point.indexes).toEqual(['prompt_copy']);
   });
 

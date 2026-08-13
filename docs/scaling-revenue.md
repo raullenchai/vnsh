@@ -58,7 +58,7 @@ Add `X-Vnsh-Client` header to all clients for source attribution:
 | Client | Header Value |
 |--------|-------------|
 | CLI (bash) | `cli/2.0.0` |
-| CLI (npm) | `cli-npm/2.0.0` |
+| CLI (npm) | `cli-npm/<package version>` |
 | MCP server | `mcp/1.2.0` |
 | Chrome Extension | `extension/1.0.0` |
 | Web viewer | `web/1.0` |

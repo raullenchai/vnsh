@@ -10,11 +10,16 @@ vn ./report.html
 vn read "https://vnsh.dev/w/<id>#r=<key>"
 vn write "https://vnsh.dev/w/<id>#w=<secret>" ./revised.html
 vn renew -t 168 "https://vnsh.dev/w/<id>#w=<secret>"
+vn history "https://vnsh.dev/w/<id>#r=<key>"
+vn restore "https://vnsh.dev/w/<id>#w=<secret>" 3
 ```
 
 Workspaces expire 24 hours after their latest write by default. Use `--ttl 168`
 when creating one for a seven-day lifetime; writes preserve the chosen lifetime.
 `vn renew` extends expiry without changing content or its version.
+The current version plus the latest 19 previous versions are retained. Restoring
+an old version creates a new latest version, so concurrent-edit protection stays
+monotonic.
 
 Run `vn login` to connect your account through a browser. Once signed in, new
 workspaces and artifacts are kept until you delete them. `vn whoami` shows the
