@@ -1,6 +1,6 @@
 {
   "name": "vnsh",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "One workspace all your AI agents can read and write — encrypted in your terminal, gone 24h after the last edit",
   "keywords": [
     "vnsh",

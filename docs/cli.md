@@ -41,6 +41,7 @@ command | vn           Encrypt and upload from stdin
 vn read <URL>          Decrypt and display content from a vnsh URL
 vn write <URL> [FILE]  Replace a workspace's contents (needs the edit link)
 vn renew <URL>         Keep a workspace alive longer without changing it
+vn init [DIRECTORY]    Add standing vnsh instructions to a project
 vn --version           Show version
 vn --help              Show help
 ```
@@ -77,6 +78,18 @@ vn logout
 
 For CI and other non-interactive environments, create an agent token on the
 account page and provide it as `VNSH_TOKEN`; it overrides the saved CLI login.
+
+Free-preview accounts can keep up to 100 documents and 1 GB total. The byte
+limit includes the current object and all retained versions. The account API
+and Dashboard expose the detailed counters.
+
+## Project integration
+
+Run `vn init .` once in a repository. It updates existing `AGENTS.md` and/or
+`CLAUDE.md` files, creating `AGENTS.md` if neither exists. The managed section
+teaches agents when to create a handoff, how to read a complete encrypted URL,
+and how to avoid leaking its fragment. Re-running the command refreshes that
+section without changing surrounding project instructions.
 
 ## Examples
 

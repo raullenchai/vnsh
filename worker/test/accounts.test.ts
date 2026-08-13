@@ -37,7 +37,7 @@ beforeAll(async () => {
       queries: [
         "CREATE TABLE users (id TEXT PRIMARY KEY,email TEXT UNIQUE,tier TEXT DEFAULT 'free',created_at TEXT)",
         "CREATE TABLE sessions (token_hash TEXT PRIMARY KEY,user_id TEXT,expires_at TEXT,created_at TEXT,id TEXT UNIQUE,kind TEXT,label TEXT,last_used_at TEXT)",
-        "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT)",
+        "CREATE TABLE documents (id TEXT PRIMARY KEY,user_id TEXT,kind TEXT,visibility TEXT,size INTEGER,version INTEGER,created_at TEXT,updated_at TEXT,plaintext_name TEXT,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE magic_links (token_hash TEXT PRIMARY KEY,email TEXT,expires_at TEXT,used_at TEXT,created_at TEXT)",
         "CREATE TABLE device_logins (code TEXT PRIMARY KEY,secret_hash TEXT UNIQUE,user_id TEXT,expires_at TEXT,approved_at TEXT,consumed_at TEXT,created_at TEXT)",
       ],
@@ -198,11 +198,11 @@ describe("accounts", () => {
     expect(await update.json()).toMatchObject({ version: 2, permanent: true });
     expect(
       await env.ACCOUNTS.prepare(
-        "SELECT size,version FROM documents WHERE id=?",
+        "SELECT size,version,history_size,history_versions FROM documents WHERE id=?",
       )
         .bind(body.id)
         .first(),
-    ).toMatchObject({ size: 14, version: 2 });
+    ).toMatchObject({ size: 14, version: 2, history_size: 10, history_versions: 1 });
     const updatedMetadata = (await env.VNSH_STORE.head(`w/${body.id}`))
       ?.customMetadata;
     expect(updatedMetadata).toMatchObject({ permanent: "1" });
@@ -235,8 +235,36 @@ describe("accounts", () => {
     const dashboardHtml = await dashboard.text();
     expect(dashboardHtml).toContain("Your work, still here.");
     expect(dashboardHtml).toContain(body.id);
+    expect(dashboardHtml).toContain("Stored incl. history");
+    expect(dashboardHtml).toContain("1 retained versions");
     expect(dashboardHtml).toContain("Confirm delete");
     expect(dashboardHtml).not.toContain("ciphertext");
+
+    const usageResponse = await call(new Request("https://account.vnsh.dev/api/account/me", {
+      headers: { Authorization: `Bearer ${raw}` },
+    }));
+    expect(await usageResponse.json<any>()).toMatchObject({
+      usage: { documents: 1, currentBytes: 14, historyBytes: 10, totalBytes: 24,
+        documentLimit: 100, storageLimit: 1073741824 },
+    });
+
+    await env.ACCOUNTS.prepare("UPDATE documents SET size=? WHERE id=?")
+      .bind(1024 * 1024 * 1024, body.id).run();
+    const full = await call(new Request("https://vnsh.dev/api/workspace", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${raw}`, "X-Vnsh-Write-Hash": await sha256(writeToken) },
+      body: "one byte too many",
+    }));
+    expect(full.status).toBe(403);
+    expect(await full.json<any>()).toMatchObject({ error: "ACCOUNT_QUOTA_EXCEEDED" });
+    const fullUpdate = await call(new Request(`https://vnsh.dev/api/workspace/${body.id}`, {
+      method: "PUT",
+      headers: { "X-Vnsh-Write": writeToken, "If-Match": '"2"' },
+      body: "would exceed quota",
+    }));
+    expect(fullUpdate.status).toBe(403);
+    expect((await env.VNSH_STORE.head(`w/${body.id}`))?.customMetadata?.version).toBe("2");
+    await env.ACCOUNTS.prepare("UPDATE documents SET size=? WHERE id=?").bind(14, body.id).run();
 
     const deleted = await call(
       new Request(`https://account.vnsh.dev/api/account/documents/${body.id}`, {

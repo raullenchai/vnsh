@@ -1,4 +1,17 @@
 import { currentUser, handleAccount, type AccountEnv } from './accounts';
+import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
+import { getClientAgent, getClientRef, handleEvent, trackEvent } from './analytics';
+import {
+  WORKSPACE_HISTORY_LIMIT,
+  WORKSPACE_HISTORY_PREFIX,
+  WORKSPACE_PREFIX,
+  archiveWorkspaceVersion,
+  deleteR2Prefix,
+  isTooLarge,
+  pruneWorkspaceHistory,
+  readCapped,
+  workspaceHistoryKey,
+} from './workspace-storage';
 
 /**
  * vnsh Worker - Host-Blind Data Tunnel API
@@ -107,7 +120,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public',
+    'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Project, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
   'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Historical',
@@ -254,152 +267,6 @@ function getClientIp(request: Request): string {
   return request.headers.get('CF-Connecting-IP') || 'unknown';
 }
 
-// Which agent is behind the client. All MCP clients share one server and would
-// otherwise be indistinguishable as "mcp", which would make "how many agents
-// touched this workspace" unanswerable — the question Phase 0 exists to answer.
-// Client-supplied, so it is constrained on the way in and only ever used as a
-// grouping label.
-function getClientAgent(request: Request): string {
-  const raw = request.headers.get('X-Vnsh-Agent') || '';
-  const clean = raw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  return clean ? clean.slice(0, 32) : 'unknown';
-}
-
-// Parse X-Vnsh-Client header for source attribution
-function getClientSource(request: Request): string {
-  const header = request.headers.get('X-Vnsh-Client') || '';
-  const source = header.split('/')[0]; // e.g. "cli/2.0.0" -> "cli"
-  const valid = ['cli', 'cli-npm', 'mcp', 'extension', 'web', 'pipe'];
-  return valid.includes(source) ? source : 'unknown';
-}
-
-/**
- * The version half of the same header, which used to be split off and dropped.
- *
- * Keeping only the name makes a rollout unobservable: "mcp called us 400 times"
- * reads identically before and after a fix ships, so there is no way to tell a
- * fixed client from a broken one still in the field. That mattered the first
- * time a real bug was fixed in the MCP server and the question "did anyone pick
- * it up" had no answer.
- *
- * Client-controlled, so it is constrained rather than stored verbatim.
- */
-function getClientVersion(request: Request): string {
-  const header = request.headers.get('X-Vnsh-Client') || '';
-  const version = header.split('/')[1] || '';
-  return version.replace(/[^0-9A-Za-z.\-]/g, '').slice(0, 24);
-}
-
-// Usage analytics via Workers Analytics Engine. writeDataPoint is non-blocking and
-// fire-and-forget (no await / waitUntil needed) with a high write allowance, so it
-// replaces the racy read-modify-write KV counters. Schema:
-//   blob1 = event type, blob2 = client source, blob3 = workspace id (workspace
-//   events only), double1 = count, index1 = event type (sampling key).
-//   timestamp is added automatically.
-//
-// blob3 exists to answer the one question v2 is built to test: has a single
-// workspace been written by more than one distinct source? Without it we cannot
-// distinguish "three agents collaborated" from "one agent wrote three times".
-type TrackedEvent =
-  | 'upload'
-  | 'read'
-  | 'workspace_create'
-  | 'workspace_read'
-  | 'workspace_update'
-  | 'workspace_restore'
-  | 'workspace_conflict'
-  // Separate from workspace_update on purpose: both push the expiry out, but a
-  // renew is someone saying "this still matters" about content they did not
-  // change. That is the signal for whether 24h was ever the right default.
-  | 'workspace_renew'
-  // Client-side-only conversions. These produce no other request, so the page
-  // reports them explicitly via POST /api/event.
-  | 'page_view'
-  // Fired when the setup CTA actually enters the viewport. Without it, a zero
-  // on prompt_copy has two incompatible readings — nobody scrolled that far, or
-  // everybody saw it and passed — and those call for opposite fixes.
-  | 'prompt_seen'
-  | 'prompt_copy';
-
-// Events a page is allowed to report for itself. Everything else is inferred
-// from a real request, and must not be forgeable through the beacon.
-const BEACON_EVENTS: readonly TrackedEvent[] = ['page_view', 'prompt_seen', 'prompt_copy'];
-
-// Where the visitor came from, for the reader -> creator funnel. 'w' means they
-// arrived from someone else's workspace page, which is the whole growth loop:
-// the link is the advertisement. Without this dimension a create from a reader
-// and a create from a cold visitor are indistinguishable.
-const REFERRERS = ['w', 'home', 'direct'] as const;
-
-function getClientRef(value: string | null): string {
-  const ref = (value || '').toLowerCase();
-  return (REFERRERS as readonly string[]).includes(ref) ? ref : 'direct';
-}
-
-interface EventDimensions {
-  workspaceId?: string;
-  agent?: string;
-  ref?: string;
-  // 'public' or 'encrypted'. Without it the two tiers are indistinguishable in
-  // the numbers, so there is no way to tell whether the public tier — the one
-  // that cost a second domain — is used at all.
-  visibility?: string;
-  // 'permanent' for account-owned documents, 'anonymous' otherwise.
-  retention?: string;
-}
-
-function trackEvent(
-  env: Env,
-  event: TrackedEvent,
-  request: Request,
-  dims: EventDimensions = {},
-): void {
-  const source = getClientSource(request);
-  if (!env.VNSH_ANALYTICS) return; // Analytics Engine not bound yet — no-op.
-  try {
-    // Fixed slot layout so blob positions stay stable as dimensions are added:
-    // blob1 event, blob2 source, blob3 workspace, blob4 agent, blob5 referrer,
-    // blob6 visibility, blob7 client version, blob8 retention. Append only — renumbering would
-    // silently reinterpret every row already written.
-    env.VNSH_ANALYTICS.writeDataPoint({
-      blobs: [
-        event,
-        source,
-        dims.workspaceId || '',
-        dims.agent || '',
-        dims.ref || '',
-        dims.visibility || '',
-        getClientVersion(request),
-        dims.retention || '',
-      ],
-      doubles: [1],
-      indexes: [event],
-    });
-  } catch (err) {
-    // Best-effort analytics: never let metrics affect the response.
-    console.error('Analytics write failed:', err);
-  }
-}
-
-/**
- * POST /api/event — the page reporting a conversion it alone can observe.
- *
- * Deliberately minimal: an event name from a fixed whitelist and a referrer
- * bucket, nothing identifying. Always answers 204, even on garbage input, so a
- * measurement problem can never surface as a user-visible error.
- */
-async function handleEvent(request: Request, env: Env): Promise<Response> {
-  const noContent = new Response(null, { status: 204, headers: corsHeaders });
-  try {
-    const body = (await request.json()) as { event?: string; ref?: string };
-    const event = body?.event as TrackedEvent;
-    if (!BEACON_EVENTS.includes(event)) return noContent;
-    trackEvent(env, event, request, { ref: getClientRef(body?.ref ?? null) });
-  } catch {
-    // Malformed body: count nothing, tell the caller nothing.
-  }
-  return noContent;
-}
 
 // Handle CORS preflight
 function handleOptions(headers: Record<string, string> = corsHeaders): Response {
@@ -572,95 +439,12 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
 // known length, and any stream we wrap to count bytes no longer has one. At a 25MB
 // ceiling against the 128MB isolate limit that trade is safe, and it is the only
 // way to bound a body whose declared length we cannot trust.
-async function readCapped(body: ReadableStream<Uint8Array>, max: number): Promise<Uint8Array> {
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > max) throw new Error('PAYLOAD_TOO_LARGE');
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
-
-function isTooLarge(err: unknown): boolean {
-  return err instanceof Error && err.message === 'PAYLOAD_TOO_LARGE';
-}
-
 function tooLargeResponse(): Response {
   return errorResponse(
     'PAYLOAD_TOO_LARGE',
     `Maximum size is ${MAX_BLOB_SIZE / 1024 / 1024}MB`,
     413,
   );
-}
-
-const WORKSPACE_PREFIX = 'w/';
-const WORKSPACE_HISTORY_PREFIX = 'wh/';
-// Includes the current version. A version-21 workspace therefore keeps
-// archived versions 2..20 plus current 21.
-const WORKSPACE_HISTORY_LIMIT = 20;
-
-function workspaceHistoryKey(id: string, version: number): string {
-  return `${WORKSPACE_HISTORY_PREFIX}${id}/${String(version).padStart(10, '0')}`;
-}
-
-async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<void> {
-  let cursor: string | undefined;
-  do {
-    const page = await bucket.list({ prefix, cursor, limit: 1000 });
-    if (page.objects.length) await bucket.delete(page.objects.map((object) => object.key));
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
-}
-
-async function archiveWorkspaceVersion(
-  id: string,
-  version: number,
-  head: R2Object,
-  env: Env,
-): Promise<boolean> {
-  const current = await env.VNSH_STORE.get(WORKSPACE_PREFIX + id, {
-    onlyIf: { etagMatches: head.etag },
-  });
-  if (!current || !('body' in current)) return false;
-  const md = head.customMetadata || {};
-  await env.VNSH_STORE.put(workspaceHistoryKey(id, version), current.body, {
-    customMetadata: {
-      workspaceId: id,
-      version: String(version),
-      archivedAt: new Date().toISOString(),
-      ...(md.createdAt ? { createdAt: md.createdAt } : {}),
-      ...(md.expiresAt ? { expiresAt: md.expiresAt } : {}),
-      ...(md.permanent === '1' ? { permanent: '1', ownerId: md.ownerId || md.ownerid || '' } : {}),
-      ...(isPublicWorkspace(md) ? { public: '1' } : {}),
-    },
-  });
-  return true;
-}
-
-async function pruneWorkspaceHistory(id: string, currentVersion: number, env: Env): Promise<void> {
-  const oldestKept = Math.max(1, currentVersion - WORKSPACE_HISTORY_LIMIT + 1);
-  const page = await env.VNSH_STORE.list({ prefix: `${WORKSPACE_HISTORY_PREFIX}${id}/`, limit: 1000 });
-  const stale = page.objects.filter((object) => {
-    const version = Number(object.key.slice(object.key.lastIndexOf('/') + 1));
-    return Number.isInteger(version) && version < oldestKept;
-  });
-  if (stale.length) await env.VNSH_STORE.delete(stale.map((object) => object.key));
 }
 
 /**
@@ -1010,6 +794,10 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
   const createdAt = new Date().toISOString();
   try {
     const bytes = await readCapped(body, MAX_BLOB_SIZE);
+    if (owner) {
+      const quota = await canCreateDocument(env, owner, bytes.byteLength);
+      if (!quota.allowed) return quotaResponse(quota.usage);
+    }
     await env.VNSH_STORE.put(WORKSPACE_PREFIX + id, bytes, {
       customMetadata: {
         writeHash,
@@ -1291,10 +1079,23 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
 
   try {
     const newContent = await readCapped(body, MAX_BLOB_SIZE);
+    const ownerId = md.ownerId || md.ownerid || '';
+    if (permanent && ownerId) {
+      // The old current object remains counted as history; the new current
+      // object is the net storage increase for this version.
+      const quota = await canArchiveVersion(env, ownerId, newContent.byteLength);
+      if (!quota.allowed) return quotaResponse(quota.usage);
+    }
     // Archive exactly the object whose ETag we authenticated above. Concurrent
     // writers may both write the same archive key, which is harmless; only one
     // can win the latest-object CAS below.
-    const archived = await archiveWorkspaceVersion(id, Number(currentVersion), head, env);
+    const archived = await archiveWorkspaceVersion(
+      id,
+      Number(currentVersion),
+      head,
+      env.VNSH_STORE,
+      isPublicWorkspace(md),
+    );
     if (!archived) {
       trackEvent(env, 'workspace_conflict', request, { workspaceId: id, agent: getClientAgent(request) });
       return errorResponse(
@@ -1336,14 +1137,31 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
       // must not turn a successful CAS write into an apparent failure that the
       // caller retries as a conflict. The index is repairable metadata.
       try {
-        await env.ACCOUNTS.prepare('UPDATE documents SET size=?,version=?,updated_at=? WHERE id=?')
-          .bind(newContent.byteLength, Number(nextVersion), new Date().toISOString(), id).run();
+        await env.ACCOUNTS.prepare(
+          'UPDATE documents SET size=?,version=?,updated_at=?,history_size=history_size+?,history_versions=history_versions+1 WHERE id=?',
+        ).bind(
+          newContent.byteLength,
+          Number(nextVersion),
+          new Date().toISOString(),
+          head.size,
+          id,
+        ).run();
       } catch (error) {
         console.error('Failed to update account document index:', error);
       }
     }
     try {
-      await pruneWorkspaceHistory(id, Number(nextVersion), env);
+      const stale = await pruneWorkspaceHistory(id, Number(nextVersion), env.VNSH_STORE);
+      if (permanent && stale.length) {
+        const removedBytes = stale.reduce((total, object) => total + object.size, 0);
+        try {
+          await env.ACCOUNTS.prepare(
+            'UPDATE documents SET history_size=MAX(0,history_size-?),history_versions=MAX(0,history_versions-?) WHERE id=?',
+          ).bind(removedBytes, stale.length, id).run();
+        } catch (error) {
+          console.error('Failed to update pruned history usage:', error);
+        }
+      }
     } catch (error) {
       // The new current version is already committed. Retaining one extra old
       // version is repairable; returning 500 would invite a retry that can only
@@ -2628,7 +2446,7 @@ export default {
       if (request.method === 'POST') {
         const ip = getClientIp(request);
         if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
-        return handleEvent(request, env);
+        return handleEvent(request, env, corsHeaders);
       }
       return errorResponse('METHOD_NOT_ALLOWED', 'Use POST to report an event', 405);
     }
