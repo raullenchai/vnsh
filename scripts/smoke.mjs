@@ -26,8 +26,20 @@
  * that can only run inside a workflow is a check nobody ever runs by hand.
  */
 import crypto from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
 
 const HOST = (process.argv[2] || process.env.VNSH_HOST || 'https://vnsh.dev').replace(/\/$/, '');
+
+function rawGet(url, headers) {
+  return new Promise((resolve, reject) => {
+    const transport = url.startsWith('https:') ? https : http;
+    transport.get(url, { headers }, (response) => {
+      response.resume();
+      response.on('end', () => resolve(response));
+    }).on('error', reject);
+  });
+}
 const CONTENT_HOST = process.env.VNSH_CONTENT_HOST
   || (HOST === 'https://vnsh.dev' ? 'https://vnshcontent.dev' : HOST);
 
@@ -240,9 +252,16 @@ async function main() {
       guide.includes('you already hold the key'));
     check('the guide names the key derivation', guide.includes('vnsh/enc/v2'));
 
-    const asBrowser = await fetch(`${HOST}/w/${wsId}`, { headers: { Accept: 'text/html' } });
+    // Node's fetch forcibly replaces Sec-Fetch-Mode with `cors`; use the raw
+    // HTTP client so this request actually models a top-level navigation.
+    const asBrowser = await rawGet(`${HOST}/w/${wsId}`, {
+        Accept: 'text/html',
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/127 Safari/537.36',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Dest': 'document',
+    });
     check('a browser still gets the application',
-      (asBrowser.headers.get('content-type') || '').includes('text/html'));
+      (asBrowser.headers['content-type'] || '').includes('text/html'));
 
     // The card is the one surface every recipient of a shared link sees, and
     // several preview fetchers ask for */*.
