@@ -627,7 +627,10 @@ program
   .option('-H, --host <url>', 'Override API host')
   .action(async (url: string, options: UploadOptions) => {
     try {
-      await renewWorkspace(url, options);
+      // `--ttl` and `--host` also exist on the root command. Commander accepts
+      // them around the subcommand but may store them on the parent, so merge
+      // both scopes instead of silently dropping a valid option.
+      await renewWorkspace(url, { ...program.opts(), ...options });
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }
@@ -639,7 +642,7 @@ program
   .option('-H, --host <url>', 'Override API host')
   .action(async (url: string, file: string | undefined, options: UploadOptions) => {
     try {
-      await writeWorkspace(url, file, options);
+      await writeWorkspace(url, file, { ...program.opts(), ...options });
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }
