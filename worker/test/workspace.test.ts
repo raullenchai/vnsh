@@ -523,6 +523,15 @@ describe('agent attribution', () => {
 });
 
 describe('homepage', () => {
+  it('offers an unmistakable account sign-in on desktop and mobile', async () => {
+    const html = await (await call(new Request('http://localhost/'))).text();
+
+    expect(html).toContain('<a class="nav-sign-in" href="https://account.vnsh.dev">Sign in</a>');
+    expect(html).toContain('Sign in to your account');
+    expect(html).toContain('Want permanent, organized Artifacts?');
+    expect(html).toContain('.nav-links > a:not(.nav-sign-in) { display: none; }');
+  });
+
   it('can create a workspace, not just an immutable drop', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
