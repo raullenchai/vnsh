@@ -1,4 +1,4 @@
-import { currentUser, handleAccount, type AccountEnv } from './accounts';
+import { currentUser, handleAccount, migrateSessionCookie, type AccountEnv } from './accounts';
 import { handleArtifacts } from './artifacts';
 import { handleWorkspaces } from './workspaces';
 import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
@@ -2374,11 +2374,20 @@ export default {
 
     if (url.hostname === 'account.vnsh.dev' || url.hostname.startsWith('account.')) {
       if ((path === '/api/auth/request' || path === '/api/auth/device') && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
+      const hasCookieSession = /(?:^|;\s*)vnsh_session=/.test(request.headers.get('Cookie') || '');
+      const hasBearer = /^Bearer\s+/i.test(request.headers.get('Authorization') || '');
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && hasCookieSession && !hasBearer) {
+        const origin = request.headers.get('Origin');
+        if (origin !== url.origin) {
+          return Response.json({ error: 'CROSS_SITE_REQUEST', message: 'Browser account changes must come from account.vnsh.dev' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+        }
+      }
       const artifactResponse = await handleArtifacts(request, env, url);
-      if (artifactResponse) return artifactResponse;
+      if (artifactResponse) return migrateSessionCookie(request, artifactResponse);
       const workspaceResponse = await handleWorkspaces(request, env, url);
-      if (workspaceResponse) return workspaceResponse;
-      return handleAccount(request, env, url);
+      if (workspaceResponse) return migrateSessionCookie(request, workspaceResponse);
+      const accountResponse = await handleAccount(request, env, url);
+      return path === '/auth/callback' ? accountResponse : migrateSessionCookie(request, accountResponse);
     }
 
     if (request.method === 'OPTIONS') {

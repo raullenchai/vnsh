@@ -18,10 +18,10 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function addSession(raw: string, id: string, kind: 'browser' | 'token') {
+async function addSession(raw: string, id: string, kind: 'browser' | 'token', userId = 'artifact-user') {
   const now = new Date().toISOString();
   await env.ACCOUNTS.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at,id,kind,label,last_used_at) VALUES(?,?,?,?,?,?,?,?)')
-    .bind(await sha256(raw), 'artifact-user', new Date(Date.now() + 60_000).toISOString(), now, id, kind, kind, now).run();
+    .bind(await sha256(raw), userId, new Date(Date.now() + 60_000).toISOString(), now, id, kind, kind, now).run();
 }
 
 beforeAll(async () => {
@@ -44,8 +44,11 @@ beforeAll(async () => {
   ]);
   await env.ACCOUNTS.prepare('INSERT INTO users VALUES(?,?,?,?)')
     .bind('artifact-user', 'artifacts@example.com', 'free', new Date().toISOString()).run();
+  await env.ACCOUNTS.prepare('INSERT INTO users VALUES(?,?,?,?)')
+    .bind('other-user', 'other@example.com', 'free', new Date().toISOString()).run();
   await addSession('human-token', 'human-session', 'browser');
   await addSession('agent-token', 'agent-session', 'token');
+  await addSession('other-token', 'other-session', 'browser', 'other-user');
 });
 
 describe('account Artifacts V1 contract', () => {
@@ -55,9 +58,46 @@ describe('account Artifacts V1 contract', () => {
     expect(await response.json()).toMatchObject({ error: 'UNAUTHORIZED' });
   });
 
+  it('prevents cross-account access and escapes untrusted metadata', async () => {
+    const title = '</title><script>globalThis.pwned=true</script>';
+    const created = await call(new Request('https://account.vnsh.dev/api/artifacts', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, summary: '<img src=x onerror=alert(1)>', content: '<script>parent.location="https://evil.example"</script>', contentType: 'text/html; charset=utf-8' }),
+    }));
+    expect(created.status).toBe(201);
+    const artifact = (await created.json<any>()).artifact;
+
+    for (const path of [
+      `/api/artifacts/${artifact.id}`,
+      `/api/artifacts/${artifact.id}/versions`,
+      `/api/artifacts/${artifact.id}/capabilities`,
+      `/artifacts/${artifact.id}`,
+      `/artifacts/${artifact.id}/content`,
+    ]) {
+      const response = await call(new Request(`https://account.vnsh.dev${path}`, { headers: { Authorization: 'Bearer other-token' } }));
+      expect(response.status, path).toBe(404);
+    }
+    const otherUpdate = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, {
+      method: 'PUT', headers: { Authorization: 'Bearer other-token', 'If-Match': '"1"', 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'stolen' }),
+    }));
+    expect(otherUpdate.status).toBe(404);
+    const otherDelete = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer other-token' } }));
+    expect(otherDelete.status).toBe(404);
+
+    const ownerPage = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}`, { headers: { Authorization: 'Bearer human-token' } }));
+    const html = await ownerPage.text();
+    expect(html).toContain('&lt;/title&gt;&lt;script&gt;globalThis.pwned=true&lt;/script&gt;');
+    expect(html).not.toContain('<script>globalThis.pwned=true</script>');
+    const content = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}/content`, { headers: { Authorization: 'Bearer human-token' } }));
+    expect(await content.text()).toContain('<script>parent.location');
+    expect(content.headers.get('Content-Security-Policy')).toContain("sandbox; default-src 'none'");
+    expect(content.headers.get('Content-Security-Policy')).not.toContain('allow-scripts');
+  });
+
   it('creates, lists and reads a permanent versioned Artifact', async () => {
     const initialSpaces = await call(new Request('https://account.vnsh.dev/api/workspaces', { headers: { Authorization: 'Bearer agent-token' } }));
-    expect(await initialSpaces.json<any>()).toMatchObject({ workspaces: [{ name: 'Personal', isDefault: true, artifactCount: 0 }] });
+    expect(await initialSpaces.json<any>()).toMatchObject({ workspaces: [{ name: 'Personal', isDefault: true }] });
     const forbiddenSpace = await call(new Request('https://account.vnsh.dev/api/workspaces', {
       method: 'POST', headers: { Authorization: 'Bearer agent-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Agent-owned' }),
     }));

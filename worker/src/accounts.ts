@@ -56,6 +56,24 @@ function cookieValue(request: Request): string | null {
   return match ? match[1] : null;
 }
 
+function sessionCookieHeaders(value: string, maxAge: number): Headers {
+  const headers = new Headers();
+  // Expire the former parent-domain cookie while moving sessions to a
+  // host-only cookie. This keeps account authority off every other subdomain.
+  headers.append("Set-Cookie", `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+  headers.append("Set-Cookie", `${COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`);
+  return headers;
+}
+
+export function migrateSessionCookie(request: Request, response: Response): Response {
+  if (!['GET', 'HEAD'].includes(request.method) || request.headers.has('Authorization')) return response;
+  const raw = cookieValue(request);
+  if (!raw || raw.length > 256) return response;
+  const headers = new Headers(response.headers);
+  for (const cookie of sessionCookieHeaders(raw, 2592000).getSetCookie()) headers.append('Set-Cookie', cookie);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export async function currentUser(
   request: Request,
   env: AccountEnv,
@@ -412,12 +430,11 @@ export async function handleAccount(
     await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE id=? AND user_id=?")
       .bind(sessionFormDeletion[1], user.id).run();
     const revokedCurrent = sessionFormDeletion[1] === user.sessionId;
+    const headers = revokedCurrent ? sessionCookieHeaders("", 0) : new Headers();
+    headers.set("Location", "/");
     return new Response(null, {
       status: 302,
-      headers: {
-        Location: "/",
-        ...(revokedCurrent ? { "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` } : {}),
-      },
+      headers,
     });
   }
   if (url.pathname === "/sessions/revoke-others" && request.method === "POST") {
@@ -448,13 +465,9 @@ export async function handleAccount(
       env.ACCOUNTS.prepare("DELETE FROM magic_links WHERE email=?").bind(user.email),
       env.ACCOUNTS.prepare("DELETE FROM users WHERE id=?").bind(user.id),
     ]);
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: "/",
-        "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
-      },
-    });
+    const headers = sessionCookieHeaders("", 0);
+    headers.set("Location", "/");
+    return new Response(null, { status: 302, headers });
   }
   if (url.pathname === "/api/auth/request" && request.method === "POST") {
     if (!env.EMAIL)
@@ -556,13 +569,9 @@ export async function handleAccount(
     const location = /^[A-HJ-NP-Z2-9]{8}$/.test(device)
       ? `/device?code=${device}`
       : "/";
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: location,
-        "Set-Cookie": `${COOKIE}=${session}; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
-      },
-    });
+    const headers = sessionCookieHeaders(session, 2592000);
+    headers.set("Location", location);
+    return new Response(null, { status: 302, headers });
   }
   if (url.pathname === "/logout" && request.method === "POST") {
     const raw = cookieValue(request);
@@ -570,13 +579,9 @@ export async function handleAccount(
       await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE token_hash=?")
         .bind(await hash(raw))
         .run();
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: "/",
-        "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
-      },
-    });
+    const headers = sessionCookieHeaders("", 0);
+    headers.set("Location", "/");
+    return new Response(null, { status: 302, headers });
   }
   const user = await currentUser(request, env);
   if (!user)
