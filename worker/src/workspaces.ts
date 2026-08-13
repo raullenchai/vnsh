@@ -16,6 +16,10 @@ function error(code: string, message: string, status: number): Response {
   return Response.json({ error: code, message }, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
+function formError(message: string): Response {
+  return new Response(null, { status: 303, headers: { Location: `/?workspace_error=${encodeURIComponent(message)}` } });
+}
+
 function slugify(name: string): string {
   return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'workspace';
 }
@@ -67,7 +71,15 @@ async function create(request: Request, env: AccountEnv, user: AccountUser): Pro
     if (isTooLarge(cause)) return error('PAYLOAD_TOO_LARGE', 'Workspace request must be at most 4KB', 413);
     return error('INVALID_BODY', 'Workspace request body is invalid', 400);
   }
-  if (!name || name.length > 80) return error('INVALID_NAME', 'Workspace name must be between 1 and 80 characters', 400);
+  const isJson = (request.headers.get('Content-Type') || '').includes('application/json');
+  if (!name || name.length > 80) return isJson
+    ? error('INVALID_NAME', 'Workspace name must be between 1 and 80 characters', 400)
+    : formError('Enter a Workspace name between 1 and 80 characters.');
+  const duplicate = await env.ACCOUNTS.prepare('SELECT id FROM workspaces WHERE owner_id=? AND archived_at IS NULL AND lower(name)=lower(?)')
+    .bind(user.id, name).first<{ id: string }>();
+  if (duplicate) return isJson
+    ? error('WORKSPACE_EXISTS', 'A Workspace with this name already exists', 409)
+    : formError(`“${name}” already exists. Choose a different name.`);
   const count = await env.ACCOUNTS.prepare('SELECT COUNT(*) AS count FROM workspaces WHERE owner_id=? AND archived_at IS NULL')
     .bind(user.id).first<{ count: number }>();
   if (Number(count?.count || 0) >= 20) return error('WORKSPACE_LIMIT', 'Free preview supports up to 20 Workspaces', 403);
@@ -78,7 +90,7 @@ async function create(request: Request, env: AccountEnv, user: AccountUser): Pro
     try {
       await env.ACCOUNTS.prepare('INSERT INTO workspaces(id,owner_id,name,slug,is_default,created_at,updated_at) VALUES(?,?,?,?,0,?,?)')
         .bind(row.id, row.owner_id, row.name, row.slug, now, now).run();
-      if (!(request.headers.get('Content-Type') || '').includes('application/json')) return new Response(null, { status: 303, headers: { Location: `/?workspace=${row.id}` } });
+      if (!isJson) return new Response(null, { status: 303, headers: { Location: `/?workspace=${row.id}` } });
       return Response.json({ workspace: present(row) }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
     } catch (cause) {
       if (attempt === 4) { console.error('Failed to create Workspace', cause); return error('CREATE_FAILED', 'Could not create Workspace', 500); }

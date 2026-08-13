@@ -435,7 +435,12 @@ async function resolveCapability(raw: string, env: AccountEnv): Promise<{ capabi
 
 async function useCapability(raw: string, request: Request, env: AccountEnv, contentOnly: boolean): Promise<Response> {
   const resolved = await resolveCapability(raw, env);
-  if (!resolved) return jsonError('NOT_FOUND', 'Sharing link not found or revoked', 404);
+  if (!resolved) {
+    if ((request.headers.get('Accept') || '').includes('text/html')) {
+      return new Response('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Link unavailable · vnsh</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#edf1ef;color:#14201c;font:16px system-ui}.card{max-width:520px;margin:24px;padding:34px;background:white;border:1px solid #dce4e0;border-radius:16px}h1{font-size:25px}p{color:#62706a;line-height:1.6}</style><main class="card"><h1>This sharing link no longer works.</h1><p>It may have been revoked by its owner. Ask the person who shared it to create a new link. Your account and device are fine.</p></main>', { status: 404, headers: artifactHtmlHeaders });
+    }
+    return jsonError('NOT_FOUND', 'Sharing link not found or revoked. Ask the owner to create a new link.', 404);
+  }
   const { capability, artifact } = resolved;
   await env.ACCOUNTS.prepare('UPDATE artifact_capabilities SET last_used_at=? WHERE id=?').bind(new Date().toISOString(), capability.id).run();
   if (request.method === 'PUT') {

@@ -202,6 +202,9 @@ describe('account Artifacts V1 contract', () => {
     const revoked = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities/${readCapability.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer human-token' } }));
     expect(revoked.status).toBe(204);
     expect((await call(new Request(readCapability.url))).status).toBe(404);
+    const revokedBrowser = await call(new Request(readCapability.url, { headers: { Accept: 'text/html' } }));
+    expect(revokedBrowser.status).toBe(404);
+    expect(await revokedBrowser.text()).toContain('Ask the person who shared it to create a new link');
 
     const agentDelete = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer agent-token' } }));
     expect(agentDelete.status).toBe(403);
@@ -230,7 +233,18 @@ describe('account Artifacts V1 contract', () => {
     const duplicateWorkspace = await call(new Request('https://account.vnsh.dev/api/workspaces', {
       method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Product Notes' }),
     }));
-    expect(await duplicateWorkspace.json<any>()).toMatchObject({ workspace: { slug: 'product-notes-2' } });
+    expect(duplicateWorkspace.status).toBe(409);
+    expect(await duplicateWorkspace.json<any>()).toMatchObject({ error: 'WORKSPACE_EXISTS' });
+    const duplicateWorkspaceForm = await call(new Request('https://account.vnsh.dev/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Product+Notes',
+    }));
+    expect(duplicateWorkspaceForm.status).toBe(303);
+    expect(duplicateWorkspaceForm.headers.get('Location')).toContain('workspace_error=');
+    const emptyWorkspaceForm = await call(new Request('https://account.vnsh.dev/workspaces', {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=',
+    }));
+    expect(emptyWorkspaceForm.status).toBe(303);
+    expect(emptyWorkspaceForm.headers.get('Location')).toContain('workspace_error=');
     const missingWorkspaceArtifact = await call(new Request('https://account.vnsh.dev/api/artifacts', {
       method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: 'missing', title: 'Lost', content: 'x' }),
     }));
