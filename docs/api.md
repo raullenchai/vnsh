@@ -246,6 +246,7 @@ session cookie or `Authorization: Bearer <agent-token>`, and return
 | `GET /api/artifacts` | List up to 100 Artifacts accessible to the current account principal. |
 | `GET /api/artifacts/:uuid` | Read current metadata and string content. `ETag` is the version. |
 | `PUT /api/artifacts/:uuid` | Create the next immutable version. Requires numeric `If-Match`. |
+| `GET /api/artifacts/:uuid/versions` | List up to 100 newest immutable versions and their provenance. |
 | `DELETE /api/artifacts/:uuid` | Delete all versions. Human browser session only. |
 
 Create and update bodies are JSON:
@@ -253,9 +254,15 @@ Create and update bodies are JSON:
 ```json
 {
   "title": "Launch readiness brief",
+  "summary": "Production-verified release evidence",
+  "artifactType": "report",
   "content": "<h1>Ready</h1>",
   "contentType": "text/html; charset=utf-8",
-  "changeSummary": "Added production smoke evidence"
+  "changeSummary": "Added production smoke evidence",
+  "sourceRef": "https://github.com/raullenchai/vnsh/pull/66",
+  "evidence": ["Worker tests passed", "40/40 smoke checks"],
+  "harness": "Codex CLI",
+  "model": "GPT-5"
 }
 ```
 
@@ -267,6 +274,13 @@ sessions additionally receive the reserved human-only capabilities such as
 `approve`, `publish`, access management, and deletion. Review and publication
 operations are introduced by their respective Phase 1 bricks and are not yet
 callable in this contract slice.
+
+`artifactType` is one of `document`, `report`, `code`, `app`, or `handoff`.
+Every version records the authenticated session/token principal and whether it
+was a human browser session or Agent token. `harness` and `model` are optional
+client annotations, not authenticated claims; history responses return them
+under `clientAnnotations` with `verified: false`. Evidence is bounded to 20
+strings so an Agent cannot turn version metadata into an unbounded context dump.
 
 Updates use optimistic concurrency:
 
