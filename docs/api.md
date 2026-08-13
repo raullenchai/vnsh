@@ -249,6 +249,15 @@ session cookie or `Authorization: Bearer <agent-token>`, and return
 | `GET /api/artifacts/:uuid/versions` | List up to 100 newest immutable versions and their provenance. |
 | `DELETE /api/artifacts/:uuid` | Delete all versions. Human browser session only. |
 
+Signed-in humans use the Artifact Library at `/`. Each card opens
+`/artifacts/:uuid`, a control shell with immutable version history and a
+human-only delete action. Artifact content is rendered by
+`/artifacts/:uuid/content?version=N` inside an iframe with both the HTML
+`sandbox` attribute and a CSP sandbox. The rendered document has an opaque
+origin and cannot run scripts, use account cookies/storage, submit forms, or
+contact the network. Agents should continue to use the JSON API rather than
+the browser shell.
+
 Create and update bodies are JSON:
 
 ```json

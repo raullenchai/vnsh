@@ -229,13 +229,21 @@ describe("accounts", () => {
       ]),
     );
 
+    const artifactId = "11111111-1111-4111-8111-111111111111";
+    await env.ACCOUNTS.prepare(`INSERT INTO artifacts(id,owner_id,title,summary,artifact_type,content_type,status,visibility,current_version,current_object_key,current_size,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(artifactId, "u1", "Agent handoff", "Ready for human review", "handoff", "text/html; charset=utf-8", "in_review", "private", 1, `a/${artifactId}/versions/1-test`, 0, new Date().toISOString(), new Date().toISOString()).run();
+
     const dashboard = await call(
       new Request("https://account.vnsh.dev/", {
         headers: { Authorization: `Bearer ${raw}` },
       }),
     );
     const dashboardHtml = await dashboard.text();
-    expect(dashboardHtml).toContain("Your work, still here.");
+    expect(dashboardHtml).toContain("Work worth keeping.");
+    expect(dashboardHtml).toContain("Artifacts");
+    expect(dashboardHtml).toContain("Encrypted links");
+    expect(dashboardHtml).toContain("Agent handoff");
+    expect(dashboardHtml).toContain("Ready for human review");
     expect(dashboardHtml).toContain(body.id);
     expect(dashboardHtml).toContain("Stored incl. history");
     expect(dashboardHtml).toContain("1 retained versions");
@@ -246,9 +254,17 @@ describe("accounts", () => {
       headers: { Authorization: `Bearer ${raw}` },
     }));
     expect(await usageResponse.json<any>()).toMatchObject({
-      usage: { documents: 1, currentBytes: 14, historyBytes: 10, totalBytes: 24,
+      usage: { documents: 2, currentBytes: 14, historyBytes: 10, totalBytes: 24,
         documentLimit: 100, storageLimit: 1073741824 },
     });
+
+    const filtered = await call(new Request("https://account.vnsh.dev/?q=Agent&status=in_review", {
+      headers: { Authorization: `Bearer ${raw}` },
+    }));
+    const filteredHtml = await filtered.text();
+    expect(filteredHtml).toContain("Agent handoff");
+    expect(filteredHtml).toContain('value="Agent"');
+    expect(filteredHtml).toContain('value="in_review" selected');
 
     await env.ACCOUNTS.prepare("UPDATE documents SET size=? WHERE id=?")
       .bind(1024 * 1024 * 1024, body.id).run();
