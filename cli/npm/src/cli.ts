@@ -129,8 +129,11 @@ async function readInput(input: string | undefined, label: string): Promise<Buff
  */
 function ttlQuery(raw: string | undefined): string {
   if (!raw) return '';
-  const ttl = parseInt(raw, 10);
-  if (isNaN(ttl) || ttl < 1 || ttl > 168) {
+  if (!/^\d+$/.test(raw)) {
+    error('TTL must be a whole number of hours between 1 and 168');
+  }
+  const ttl = Number(raw);
+  if (ttl < 1 || ttl > 168) {
     error('TTL must be between 1 and 168 hours (168 = 7 days)');
   }
   return `?ttl=${ttl}`;
@@ -141,7 +144,8 @@ function humanExpiry(iso: string): string {
   const hours = (new Date(iso).getTime() - Date.now()) / 3600000;
   if (!isFinite(hours) || hours <= 0) return '';
   if (hours >= 47) return `in ${Math.round(hours / 24)} days`;
-  return `in ${Math.max(1, Math.round(hours))} hours`;
+  const rounded = Math.max(1, Math.round(hours));
+  return `in ${rounded} ${rounded === 1 ? 'hour' : 'hours'}`;
 }
 
 async function createWorkspace(input: string | undefined, options: UploadOptions): Promise<void> {

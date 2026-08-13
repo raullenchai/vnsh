@@ -37,6 +37,26 @@ describe('public workspace reads', () => {
     expect((workspace.content[0] as { text: string }).text).toContain('# public plan');
     expect(workspace.metadata).toMatchObject({ version: 4, public: true, canWrite: false });
   });
+
+  it('accepts Cloudflare weak ETags without producing NaN', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('public plan', {
+      status: 200,
+      headers: { ETag: 'W/"7"', 'Content-Type': 'text/plain' },
+    })) as typeof fetch;
+    const result = await handleWorkspaceRead({
+      url: 'https://vnshcontent.dev/p/aBcDeFgHiJkL',
+    });
+    expect(result.metadata).toMatchObject({ version: 7 });
+    expect((result.content[0] as { text: string }).text).toContain('version 7');
+  });
+
+  it('rejects invalid workspace TTLs before making a request', async () => {
+    globalThis.fetch = vi.fn() as typeof fetch;
+    await expect(handleWorkspaceCreate({ content: 'x', ttl: 0 })).rejects.toThrow();
+    await expect(handleWorkspaceCreate({ content: 'x', ttl: 1.5 })).rejects.toThrow();
+    await expect(handleWorkspaceCreate({ content: 'x', ttl: 169 })).rejects.toThrow();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('detectImageType', () => {

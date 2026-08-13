@@ -75,12 +75,12 @@ its own instruction file so it keeps using workspaces afterwards. By hand
 instead:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0
+claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1
 ```
 
 The server exposes `vnsh_workspace_create`, `vnsh_workspace_read`,
-`vnsh_workspace_update` and `vnsh_workspace_open`, plus `vnsh_share` and
-`vnsh_read` for one-shot content.
+`vnsh_workspace_update`, `vnsh_workspace_renew` and `vnsh_workspace_open`, plus
+`vnsh_share`, `vnsh_share_file` and `vnsh_read` for one-shot content.
 
 ### From the terminal
 
@@ -218,7 +218,7 @@ key nor send anything anywhere.
   write restarts it, so a workspace edited daily stays alive.
 - **The boundary is the client, not the transport.** Whatever encrypts holds your
   plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
-  latest published version on every start; pin it (`vnsh-mcp@1.5.0`), install it
+  latest published version on every start; pin it (`vnsh-mcp@1.5.1`), install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh**, by design. That is the tier.
 - **Metadata is not private.** Times, sizes and addresses exist for any hosted

@@ -188,6 +188,27 @@ describe('Retention', () => {
       expect(hoursOut(after.expires)).toBeGreaterThan(167);
     });
 
+    it('replaces lower-cased production metadata when changing lifetime', async () => {
+      const id = 'LowerMeta123';
+      await env.VNSH_STORE.put(`w/${id}`, 'ciphertext', {
+        customMetadata: {
+          writeHash: await sha256Hex(WRITE_TOKEN),
+          version: '1',
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 2 * HOUR).toISOString(),
+          ttlhours: '2',
+        },
+      });
+
+      const response = await renew(id, { ttl: '3' });
+      expect(response.status).toBe(200);
+      const body = await response.json<{ expires: string }>();
+      expect(hoursOut(body.expires)).toBeGreaterThan(2.9);
+      expect(hoursOut(body.expires)).toBeLessThanOrEqual(3);
+      const metadata = (await env.VNSH_STORE.head(`w/${id}`))?.customMetadata || {};
+      expect(metadata.ttlHours || metadata.ttlhours).toBe('3');
+    });
+
     it('leaves the content byte-identical', async () => {
       const body = 'ciphertext-that-must-not-change';
       const { id } = await createWorkspace({ body, ttl: '48' });

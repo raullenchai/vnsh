@@ -47,6 +47,14 @@ async function createPublic(body = '<!DOCTYPE html><h1>published</h1>') {
 }
 
 describe('the content domain serves published documents and nothing else', () => {
+  it('advertises only read-only methods during preflight', async () => {
+    const response = await call(new Request(`https://${CONTENT_HOST}/p/aaaaaaaaaaaa`, {
+      method: 'OPTIONS',
+    }));
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Methods')).toBe('GET, HEAD, OPTIONS');
+  });
+
   it('serves a public document', async () => {
     const body = '<!DOCTYPE html><h1>published</h1>';
     const { id } = await createPublic(body);
