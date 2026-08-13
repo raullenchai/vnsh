@@ -4,122 +4,317 @@ export interface AccountEnv {
   VNSH_STORE: R2Bucket;
 }
 
-export interface AccountUser { id: string; email: string; tier: string }
+export interface AccountUser {
+  id: string;
+  email: string;
+  tier: string;
+}
 
-const COOKIE = 'vnsh_session';
+const COOKIE = "vnsh_session";
 const enc = new TextEncoder();
-const esc = (value: unknown) => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+const esc = (value: unknown) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]!,
+  );
 
 function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function token(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 async function hash(value: string): Promise<string> {
-  return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(value))));
+  return hex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(value))),
+  );
 }
 
 function cookieValue(request: Request): string | null {
-  const match = request.headers.get('Cookie')?.match(/(?:^|;\s*)vnsh_session=([^;]+)/);
+  const match = request.headers
+    .get("Cookie")
+    ?.match(/(?:^|;\s*)vnsh_session=([^;]+)/);
   return match ? match[1] : null;
 }
 
-export async function currentUser(request: Request, env: AccountEnv): Promise<AccountUser | null> {
-  const bearer = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1];
+export async function currentUser(
+  request: Request,
+  env: AccountEnv,
+): Promise<AccountUser | null> {
+  const bearer = request.headers
+    .get("Authorization")
+    ?.match(/^Bearer\s+(.+)$/i)?.[1];
   const raw = bearer || cookieValue(request);
   if (!raw || raw.length > 256) return null;
-  return env.ACCOUNTS.prepare(`SELECT u.id, u.email, u.tier FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`)
-    .bind(await hash(raw), new Date().toISOString()).first<AccountUser>();
+  return env.ACCOUNTS.prepare(
+    `SELECT u.id, u.email, u.tier FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`,
+  )
+    .bind(await hash(raw), new Date().toISOString())
+    .first<AccountUser>();
 }
 
-const page = (body: string) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>vnsh account</title><style>body{font:16px system-ui;max-width:760px;margin:8vh auto;padding:24px;color:#18212f}input,button{font:inherit;padding:10px}input{width:min(420px,90%)}li{margin:12px 0}code{font-size:13px}</style>${body}`;
+const page = (
+  body: string,
+  title = "Your library",
+) => `<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#080a0e"><title>${esc(title)} · vnsh</title>
+<style>
+:root{color-scheme:dark;--bg:#080a0e;--panel:#10141b;--panel2:#151a23;--line:#262d39;--ink:#f1f4f8;--muted:#929dac;--dim:#687384;--green:#4ade80;--amber:#f0b54a;--red:#fb7185;--shadow:0 22px 70px rgba(0,0,0,.32)}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;min-height:100vh;color:var(--ink);font:15px/1.55 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:radial-gradient(900px 500px at 15% -10%,rgba(74,222,128,.1),transparent 60%),radial-gradient(700px 450px at 100% 0,rgba(240,181,74,.08),transparent 55%),var(--bg)}a{color:inherit}.shell{width:min(1120px,calc(100% - 40px));margin:auto}.topbar{height:72px;display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,.07)}.brand{font:700 19px ui-monospace,SFMono-Regular,Menlo,monospace;text-decoration:none;letter-spacing:-.05em}.brand i{color:var(--green);font-style:normal}.topnav{margin-left:auto;display:flex;align-items:center;gap:22px}.topnav a,.link-button{color:var(--muted);text-decoration:none;font-size:13px}.topnav a:hover,.link-button:hover{color:var(--ink)}
+main{padding:68px 0 90px}.eyebrow{display:flex;align-items:center;gap:8px;color:var(--green);font:700 12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.12em}.eyebrow:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 14px currentColor}h1{font-size:clamp(34px,6vw,62px);letter-spacing:-.055em;line-height:1.02;margin:18px 0 14px;max-width:800px}h2{font-size:19px;letter-spacing:-.025em;margin:0}.lede{color:var(--muted);font-size:17px;max-width:660px;margin:0}.hero-row{display:flex;justify-content:space-between;align-items:flex-end;gap:32px}.identity{color:var(--muted);margin:10px 0 0}.identity strong{color:var(--ink)}
+.stats{display:flex;border:1px solid var(--line);border-radius:14px;background:rgba(16,20,27,.72);overflow:hidden}.stat{padding:15px 22px;min-width:110px}.stat+.stat{border-left:1px solid var(--line)}.stat b{display:block;font-size:21px}.stat span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.09em}.notice{display:flex;gap:14px;margin:34px 0;padding:17px 19px;border:1px solid rgba(74,222,128,.22);border-radius:14px;background:rgba(74,222,128,.055);color:var(--muted)}.notice b{color:var(--ink)}.shield{color:var(--green);font-size:18px}.section-head{display:flex;justify-content:space-between;align-items:center;margin:42px 0 16px}.section-head span{color:var(--dim);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{position:relative;min-height:180px;padding:21px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(145deg,rgba(21,26,35,.96),rgba(13,17,23,.96));box-shadow:0 1px 0 rgba(255,255,255,.025);transition:transform .15s,border-color .15s}.card:hover{transform:translateY(-2px);border-color:#394353}.card-top{display:flex;align-items:center;gap:10px}.badge{padding:4px 8px;border-radius:999px;background:rgba(240,181,74,.1);color:var(--amber);font:700 10px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em}.badge.workspace{color:#9aa8ff;background:rgba(120,135,255,.1)}.visibility{color:var(--dim);font-size:12px;margin-left:auto}.doc-id{font:600 16px ui-monospace,SFMono-Regular,Menlo,monospace;margin:26px 0 5px;letter-spacing:.02em}.doc-meta{color:var(--muted);font-size:13px}.card-foot{position:absolute;left:21px;right:21px;bottom:18px;display:flex;align-items:center}.kept{color:var(--green);font-size:12px}.danger{margin-left:auto}.danger summary{list-style:none;color:var(--dim);cursor:pointer;font-size:12px}.danger summary::-webkit-details-marker{display:none}.danger[open]{display:flex;align-items:center;gap:8px}.danger[open] summary{color:var(--red)}
+.empty{grid-column:1/-1;text-align:center;padding:70px 24px;border:1px dashed #303846;border-radius:18px;background:rgba(16,20,27,.55)}.empty-mark{width:48px;height:48px;margin:0 auto 18px;display:grid;place-items:center;border:1px solid var(--line);border-radius:14px;color:var(--green);font:700 20px ui-monospace,monospace}.empty p{color:var(--muted);margin:8px 0 0}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:38px}.button,button{appearance:none;border:1px solid var(--line);border-radius:10px;background:#171d26;color:var(--ink);font:inherit;font-size:13px;font-weight:650;padding:10px 14px;cursor:pointer;text-decoration:none}.button:hover,button:hover{border-color:#465164;background:#1c2430}.button.primary{background:var(--ink);color:#090b0f;border-color:var(--ink)}.button.primary:hover{background:#dce2e9}.delete{padding:6px 9px;color:#fecdd3;border-color:rgba(251,113,133,.28);background:rgba(251,113,133,.08)}.link-button{background:none;border:0;padding:10px}
+.auth-wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:stretch;max-width:940px;margin:30px auto 0}.auth-copy,.auth-card{border:1px solid var(--line);border-radius:22px;background:rgba(16,20,27,.82);box-shadow:var(--shadow)}.auth-copy{padding:48px;background:linear-gradient(145deg,rgba(74,222,128,.08),rgba(16,20,27,.9) 42%)}.auth-copy h1{font-size:46px}.auth-card{padding:42px;display:flex;flex-direction:column;justify-content:center}.auth-card h2{font-size:24px}.auth-card p{color:var(--muted)}label{display:block;color:var(--muted);font-size:12px;margin:22px 0 7px}input{width:100%;border:1px solid #323b49;border-radius:10px;background:#0c1016;color:var(--ink);font:15px inherit;padding:13px 14px;outline:none}input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.1)}.auth-card button{width:100%;margin-top:12px;background:var(--green);color:#071109;border-color:var(--green);font-weight:750}.fine{font-size:12px!important;color:var(--dim)!important;margin-top:18px!important}.token{padding:22px;border:1px solid rgba(240,181,74,.28);background:#0b0e13;border-radius:14px;overflow:auto;color:#ffe1a3;font:13px/1.7 ui-monospace,monospace;word-break:break-all}.footer{border-top:1px solid rgba(255,255,255,.07);padding:26px 0 40px;color:var(--dim);font-size:12px}
+@media(max-width:760px){.shell{width:min(100% - 28px,1120px)}.topbar{height:62px}.topnav a:first-child{display:none}main{padding:42px 0 64px}.hero-row{display:block}.stats{margin-top:26px;width:100%}.stat{flex:1;min-width:0;padding:13px}.grid{grid-template-columns:1fr}.auth-wrap{grid-template-columns:1fr}.auth-copy{padding:30px}.auth-copy h1{font-size:38px}.auth-card{padding:28px}.notice{font-size:13px}}
+</style></head><body><div class="shell"><header class="topbar"><a class="brand" href="https://vnsh.dev">vnsh<i>_</i></a><nav class="topnav"><a href="https://vnsh.dev">Create workspace</a><a href="https://vnsh.dev/llms.txt">Agent setup</a></nav></header>${body}<footer class="footer">Host-blind by design · Your keys never enter your account.</footer></div></body></html>`;
 const htmlHeaders = {
-  'Content-Type': 'text/html; charset=utf-8',
-  'Cache-Control': 'no-store',
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-  'Referrer-Policy': 'no-referrer',
-  'X-Content-Type-Options': 'nosniff',
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store",
+  "Content-Security-Policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
 };
 
-export async function handleAccount(request: Request, env: AccountEnv, url: URL): Promise<Response> {
-  if (url.pathname === '/api/account/documents' && request.method === 'GET') {
+export async function handleAccount(
+  request: Request,
+  env: AccountEnv,
+  url: URL,
+): Promise<Response> {
+  if (url.pathname === "/api/account/documents" && request.method === "GET") {
     const user = await currentUser(request, env);
-    if (!user) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-    const docs = await env.ACCOUNTS.prepare('SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200').bind(user.id).all();
-    return Response.json({ user, documents: docs.results }, { headers: { 'Cache-Control': 'no-store' } });
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const docs = await env.ACCOUNTS.prepare(
+      "SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
+    )
+      .bind(user.id)
+      .all();
+    return Response.json(
+      { user, documents: docs.results },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
-  if (url.pathname === '/api/account/token' && request.method === 'POST') {
+  if (url.pathname === "/api/account/token" && request.method === "POST") {
     const user = await currentUser(request, env);
-    if (!user) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-    const raw = token(); const now = new Date().toISOString();
-    await env.ACCOUNTS.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)')
-      .bind(await hash(raw), user.id, new Date(Date.now() + 365 * 86400_000).toISOString(), now).run();
-    return new Response(page(`<h1>CLI / agent token</h1><p>Copy this now. It is shown once.</p><pre>${raw}</pre><p><code>export VNSH_TOKEN='${raw}'</code></p><a href="/">Back to account</a>`), { headers: htmlHeaders });
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const raw = token();
+    const now = new Date().toISOString();
+    await env.ACCOUNTS.prepare(
+      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
+    )
+      .bind(
+        await hash(raw),
+        user.id,
+        new Date(Date.now() + 365 * 86400_000).toISOString(),
+        now,
+      )
+      .run();
+    return new Response(
+      page(
+        `<main><div class="eyebrow">One-time secret</div><h1>Connect your tools.</h1><p class="lede">Copy this token now. For your safety, vnsh stores only its hash and cannot show it again.</p><div class="notice"><span class="shield">◇</span><div><b>This token makes new documents permanent.</b><br>It identifies your account; content encryption still happens locally.</div></div><pre class="token">${raw}</pre><pre class="token">export VNSH_TOKEN='${raw}'</pre><div class="actions"><a class="button primary" href="/">Back to library</a><a class="button" href="https://vnsh.dev/llms.txt">Set up an agent</a></div></main>`,
+        "CLI / agent token",
+      ),
+      { headers: htmlHeaders },
+    );
   }
-  const deletion = url.pathname.match(/^\/api\/account\/documents\/([0-9A-Za-z]{12})$/);
-  if (deletion && request.method === 'DELETE') {
+  const deletion = url.pathname.match(
+    /^\/api\/account\/documents\/([0-9A-Za-z]{12})$/,
+  );
+  if (deletion && request.method === "DELETE") {
     const user = await currentUser(request, env);
-    if (!user) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
-    const owned = await env.ACCOUNTS.prepare('SELECT id FROM documents WHERE id=? AND user_id=?').bind(deletion[1], user.id).first();
-    if (!owned) return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+    if (!user) return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const owned = await env.ACCOUNTS.prepare(
+      "SELECT id FROM documents WHERE id=? AND user_id=?",
+    )
+      .bind(deletion[1], user.id)
+      .first();
+    if (!owned) return Response.json({ error: "NOT_FOUND" }, { status: 404 });
     await env.VNSH_STORE.delete(`w/${deletion[1]}`);
-    await env.ACCOUNTS.prepare('DELETE FROM documents WHERE id=? AND user_id=?').bind(deletion[1], user.id).run();
+    await env.ACCOUNTS.prepare("DELETE FROM documents WHERE id=? AND user_id=?")
+      .bind(deletion[1], user.id)
+      .run();
     return new Response(null, { status: 204 });
   }
-  const formDeletion = url.pathname.match(/^\/documents\/([0-9A-Za-z]{12})\/delete$/);
-  if (formDeletion && request.method === 'POST') {
+  const formDeletion = url.pathname.match(
+    /^\/documents\/([0-9A-Za-z]{12})\/delete$/,
+  );
+  if (formDeletion && request.method === "POST") {
     const user = await currentUser(request, env);
-    if (!user) return new Response(null, { status: 302, headers: { Location: '/' } });
-    const owned = await env.ACCOUNTS.prepare('SELECT id FROM documents WHERE id=? AND user_id=?').bind(formDeletion[1], user.id).first();
+    if (!user)
+      return new Response(null, { status: 302, headers: { Location: "/" } });
+    const owned = await env.ACCOUNTS.prepare(
+      "SELECT id FROM documents WHERE id=? AND user_id=?",
+    )
+      .bind(formDeletion[1], user.id)
+      .first();
     if (owned) {
       await env.VNSH_STORE.delete(`w/${formDeletion[1]}`);
-      await env.ACCOUNTS.prepare('DELETE FROM documents WHERE id=? AND user_id=?').bind(formDeletion[1], user.id).run();
+      await env.ACCOUNTS.prepare(
+        "DELETE FROM documents WHERE id=? AND user_id=?",
+      )
+        .bind(formDeletion[1], user.id)
+        .run();
     }
-    return new Response(null, { status: 302, headers: { Location: '/' } });
+    return new Response(null, { status: 302, headers: { Location: "/" } });
   }
-  if (url.pathname === '/api/auth/request' && request.method === 'POST') {
-    if (!env.EMAIL) return Response.json({ error: 'EMAIL_NOT_CONFIGURED' }, { status: 501 });
+  if (url.pathname === "/api/auth/request" && request.method === "POST") {
+    if (!env.EMAIL)
+      return Response.json({ error: "EMAIL_NOT_CONFIGURED" }, { status: 501 });
     const data = await request.formData();
-    const email = String(data.get('email') || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: 'INVALID_EMAIL' }, { status: 400 });
-    const raw = token(); const now = new Date(); const expires = new Date(now.getTime() + 15 * 60_000);
-    await env.ACCOUNTS.prepare('INSERT INTO magic_links(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)')
-      .bind(await hash(raw), email, expires.toISOString(), now.toISOString()).run();
+    const email = String(data.get("email") || "")
+      .trim()
+      .toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return Response.json({ error: "INVALID_EMAIL" }, { status: 400 });
+    const raw = token();
+    const now = new Date();
+    const expires = new Date(now.getTime() + 15 * 60_000);
+    await env.ACCOUNTS.prepare(
+      "INSERT INTO magic_links(token_hash,email,expires_at,created_at) VALUES(?,?,?,?)",
+    )
+      .bind(await hash(raw), email, expires.toISOString(), now.toISOString())
+      .run();
     const link = `https://account.vnsh.dev/auth/callback?token=${encodeURIComponent(raw)}`;
     try {
-      await env.EMAIL.send({ to: email, from: { email: 'login@vnsh.dev', name: 'vnsh' }, subject: 'Sign in to vnsh', text: `Sign in to vnsh: ${link}\n\nThis link expires in 15 minutes.`, html: `<p><a href="${link}">Sign in to vnsh</a></p><p>This link expires in 15 minutes.</p>` });
+      await env.EMAIL.send({
+        to: email,
+        from: { email: "login@vnsh.dev", name: "vnsh" },
+        subject: "Sign in to vnsh",
+        text: `Sign in to vnsh: ${link}\n\nThis link expires in 15 minutes.`,
+        html: `<p><a href="${link}">Sign in to vnsh</a></p><p>This link expires in 15 minutes.</p>`,
+      });
     } catch (error) {
-      await env.ACCOUNTS.prepare('DELETE FROM magic_links WHERE token_hash=?').bind(await hash(raw)).run();
-      console.error('Failed to send sign-in email:', error);
-      return Response.json({ error: 'EMAIL_SEND_FAILED' }, { status: 502 });
+      await env.ACCOUNTS.prepare("DELETE FROM magic_links WHERE token_hash=?")
+        .bind(await hash(raw))
+        .run();
+      console.error("Failed to send sign-in email:", error);
+      return Response.json({ error: "EMAIL_SEND_FAILED" }, { status: 502 });
     }
-    return new Response(page('<h1>Check your email</h1><p>The sign-in link expires in 15 minutes.</p>'), { headers: htmlHeaders });
+    return new Response(
+      page(
+        '<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">Link sent</div><h1>Check your inbox.</h1><p class="lede">We sent a secure sign-in link. It expires in 15 minutes and works only once.</p></section><section class="auth-card"><div class="empty-mark">↗</div><h2>Open the email on this device</h2><p>You can close this tab after signing in. If it does not arrive, check spam or request another link.</p><a class="button" href="/">Use another email</a></section></div></main>',
+        "Check your email",
+      ),
+      { headers: htmlHeaders },
+    );
   }
-  if (url.pathname === '/auth/callback' && request.method === 'GET') {
-    const raw = url.searchParams.get('token') || ''; const now = new Date().toISOString(); const h = await hash(raw);
-    const link = await env.ACCOUNTS.prepare('SELECT email FROM magic_links WHERE token_hash=? AND used_at IS NULL AND expires_at>?').bind(h, now).first<{email:string}>();
-    if (!link) return new Response(page('<h1>Link expired</h1><a href="/">Try again</a>'), { status: 400, headers: { 'Content-Type': 'text/html' } });
+  if (url.pathname === "/auth/callback" && request.method === "GET") {
+    const raw = url.searchParams.get("token") || "";
+    const now = new Date().toISOString();
+    const h = await hash(raw);
+    const link = await env.ACCOUNTS.prepare(
+      "SELECT email FROM magic_links WHERE token_hash=? AND used_at IS NULL AND expires_at>?",
+    )
+      .bind(h, now)
+      .first<{ email: string }>();
+    if (!link)
+      return new Response(
+        page(
+          '<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">Sign-in stopped</div><h1>This link is no longer valid.</h1><p class="lede">Magic links expire after 15 minutes and can only be used once.</p></section><section class="auth-card"><h2>Request a fresh link</h2><p>No account data was changed.</p><a class="button primary" href="/">Back to sign in</a></section></div></main>',
+          "Link expired",
+        ),
+        { status: 400, headers: htmlHeaders },
+      );
     const id = crypto.randomUUID();
-    const consumed = await env.ACCOUNTS.prepare('UPDATE magic_links SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>?')
-      .bind(now, h, now).run();
-    if (consumed.meta.changes !== 1) return new Response(page('<h1>Link expired</h1><a href="/">Try again</a>'), { status: 400, headers: htmlHeaders });
-    await env.ACCOUNTS.prepare('INSERT INTO users(id,email,created_at) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING').bind(id, link.email, now).run();
-    const user = await env.ACCOUNTS.prepare('SELECT id FROM users WHERE email=?').bind(link.email).first<{id:string}>();
-    const session = token(); const expires = new Date(Date.now() + 30 * 86400_000).toISOString();
-    await env.ACCOUNTS.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').bind(await hash(session), user!.id, expires, now).run();
-    return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': `${COOKIE}=${session}; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000` } });
+    const consumed = await env.ACCOUNTS.prepare(
+      "UPDATE magic_links SET used_at=? WHERE token_hash=? AND used_at IS NULL AND expires_at>?",
+    )
+      .bind(now, h, now)
+      .run();
+    if (consumed.meta.changes !== 1)
+      return new Response(
+        page(
+          '<main><div class="auth-card"><h1>Link already used.</h1><p>Request a new sign-in link to continue.</p><a class="button primary" href="/">Back to sign in</a></div></main>',
+          "Link already used",
+        ),
+        { status: 400, headers: htmlHeaders },
+      );
+    await env.ACCOUNTS.prepare(
+      "INSERT INTO users(id,email,created_at) VALUES(?,?,?) ON CONFLICT(email) DO NOTHING",
+    )
+      .bind(id, link.email, now)
+      .run();
+    const user = await env.ACCOUNTS.prepare(
+      "SELECT id FROM users WHERE email=?",
+    )
+      .bind(link.email)
+      .first<{ id: string }>();
+    const session = token();
+    const expires = new Date(Date.now() + 30 * 86400_000).toISOString();
+    await env.ACCOUNTS.prepare(
+      "INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
+    )
+      .bind(await hash(session), user!.id, expires, now)
+      .run();
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        "Set-Cookie": `${COOKIE}=${session}; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+      },
+    });
   }
-  if (url.pathname === '/logout' && request.method === 'POST') {
-    const raw = cookieValue(request); if (raw) await env.ACCOUNTS.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await hash(raw)).run();
-    return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` } });
+  if (url.pathname === "/logout" && request.method === "POST") {
+    const raw = cookieValue(request);
+    if (raw)
+      await env.ACCOUNTS.prepare("DELETE FROM sessions WHERE token_hash=?")
+        .bind(await hash(raw))
+        .run();
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: "/",
+        "Set-Cookie": `${COOKIE}=; Domain=.vnsh.dev; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
+      },
+    });
   }
   const user = await currentUser(request, env);
-  if (!user) return new Response(page('<h1>vnsh account</h1><p>Signed-in workspaces and artifacts are kept until you delete them.</p><form method="post" action="/api/auth/request"><input type="email" name="email" required placeholder="you@example.com"><button>Send magic link</button></form>'), { headers: htmlHeaders });
-  const docs = await env.ACCOUNTS.prepare('SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200').bind(user.id).all();
-  const items = docs.results.map((d: any) => `<li>${esc(d.kind)} <code>${esc(d.id)}</code> · v${Number(d.version)} · ${Number(d.size)} bytes <form style="display:inline" method="post" action="/documents/${esc(d.id)}/delete"><button>Delete</button></form></li>`).join('');
-  return new Response(page(`<h1>Your vnsh</h1><p>${esc(user.email)} · free preview · permanent storage</p><p>Keep each document link: its decryption key stays in the URL and is never stored in your account.</p><ul>${items || '<li>No saved documents yet.</li>'}</ul><form method="post" action="/api/account/token"><button>Create CLI / agent token</button></form><form method="post" action="/logout"><button>Sign out</button></form>`), { headers: htmlHeaders });
+  if (!user)
+    return new Response(
+      page(
+        '<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">Permanent library</div><h1>Your work should outlive the handoff.</h1><p class="lede">Keep signed-in workspaces and artifacts until you delete them—without giving vnsh your encryption keys.</p><div class="notice"><span class="shield">◇</span><div><b>Host-blind stays host-blind.</b><br>Your account stores ownership metadata. The key remains only in the document link.</div></div></section><section class="auth-card"><h2>Sign in to vnsh</h2><p>No password. We will email you a secure, single-use link.</p><form method="post" action="/api/auth/request"><label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com"><button>Send magic link →</button></form><p class="fine">Free preview · Permanent storage · Delete anytime</p></section></div></main>',
+        "Sign in",
+      ),
+      { headers: htmlHeaders },
+    );
+  const docs = await env.ACCOUNTS.prepare(
+    "SELECT id,kind,visibility,size,version,created_at,updated_at FROM documents WHERE user_id=? ORDER BY updated_at DESC LIMIT 200",
+  )
+    .bind(user.id)
+    .all();
+  const formatBytes = (n: number) =>
+    n < 1024
+      ? `${n} B`
+      : n < 1048576
+        ? `${(n / 1024).toFixed(1)} KB`
+        : `${(n / 1048576).toFixed(1)} MB`;
+  const cards = docs.results
+    .map(
+      (d: any) =>
+        `<article class="card"><div class="card-top"><span class="badge ${d.kind === "workspace" ? "workspace" : ""}">${esc(d.kind)}</span><span class="visibility">${d.visibility === "public" ? "Public" : "Encrypted"}</span></div><div class="doc-id">${esc(d.id)}</div><div class="doc-meta">Version ${Number(d.version)} · ${formatBytes(Number(d.size))} · updated ${esc(new Date(String(d.updated_at)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }))}</div><div class="card-foot"><span class="kept">∞ kept permanently</span><details class="danger"><summary>Delete…</summary><form method="post" action="/documents/${esc(d.id)}/delete"><button class="delete">Confirm delete</button></form></details></div></article>`,
+    )
+    .join("");
+  const artifactCount = docs.results.filter(
+    (d: any) => d.kind === "artifact",
+  ).length;
+  const bytes = docs.results.reduce(
+    (n: number, d: any) => n + Number(d.size),
+    0,
+  );
+  return new Response(
+    page(
+      `<main><div class="hero-row"><div><div class="eyebrow">Private library</div><h1>Your work, still here.</h1><p class="identity"><strong>${esc(user.email)}</strong> · free preview</p></div><div class="stats"><div class="stat"><b>${docs.results.length}</b><span>Documents</span></div><div class="stat"><b>${artifactCount}</b><span>Artifacts</span></div><div class="stat"><b>${formatBytes(bytes)}</b><span>Stored</span></div></div></div><div class="notice"><span class="shield">◇</span><div><b>Keep the original document link.</b> Its fragment contains the only decryption key; vnsh stores ownership metadata, never that secret.</div></div><div class="section-head"><h2>Saved documents</h2><span>Newest first · up to 200</span></div><section class="grid">${cards || '<div class="empty"><div class="empty-mark">+_</div><h2>No saved documents yet</h2><p>Create while signed in here, or connect your CLI or agent.</p><div class="actions" style="justify-content:center"><a class="button primary" href="https://vnsh.dev">Create a workspace</a></div></div>'}</section><div class="actions"><form method="post" action="/api/account/token"><button class="button primary">Create CLI / agent token</button></form><a class="button" href="https://vnsh.dev/llms.txt">Agent setup guide</a><form method="post" action="/logout"><button class="link-button">Sign out</button></form></div></main>`,
+    ),
+    { headers: htmlHeaders },
+  );
 }
