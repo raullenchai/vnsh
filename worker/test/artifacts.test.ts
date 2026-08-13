@@ -124,6 +124,15 @@ describe('account Artifacts V1 contract', () => {
 
     const listed = await call(new Request('https://account.vnsh.dev/api/artifacts', { headers: { Authorization: 'Bearer human-token' } }));
     expect((await listed.json<any>()).artifacts).toEqual(expect.arrayContaining([expect.objectContaining({ id: artifact.id })]));
+    const searched = await call(new Request('https://account.vnsh.dev/api/artifacts?q=release%20evidence&type=report&status=draft', { headers: { Authorization: 'Bearer human-token' } }));
+    expect(await searched.json<any>()).toMatchObject({
+      artifacts: [expect.objectContaining({ id: artifact.id })],
+      filters: { q: 'release evidence', type: 'report', status: 'draft' },
+    });
+    const literalWildcard = await call(new Request('https://account.vnsh.dev/api/artifacts?q=%25', { headers: { Authorization: 'Bearer human-token' } }));
+    expect((await literalWildcard.json<any>()).artifacts).toHaveLength(0);
+    expect((await call(new Request('https://account.vnsh.dev/api/artifacts?status=owned', { headers: { Authorization: 'Bearer human-token' } }))).status).toBe(400);
+    expect((await call(new Request(`https://account.vnsh.dev/api/artifacts?q=${'x'.repeat(201)}`, { headers: { Authorization: 'Bearer human-token' } }))).status).toBe(400);
     const scoped = await call(new Request(`https://account.vnsh.dev/api/artifacts?workspace=${workspace.id}`, { headers: { Authorization: 'Bearer agent-token' } }));
     expect((await scoped.json<any>()).artifacts).toHaveLength(1);
 

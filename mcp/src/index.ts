@@ -158,7 +158,13 @@ const ArtifactCreateSchema = z.object({
   evidence: z.array(z.string().max(1000)).max(20).optional(),
   host: z.string().optional(),
 });
-const ArtifactListSchema = z.object({ workspace_id: z.string().optional(), search: z.string().optional(), host: z.string().optional() });
+const ArtifactListSchema = z.object({
+  workspace_id: z.string().optional(),
+  search: z.string().max(200).optional(),
+  status: z.enum(['draft', 'in_review', 'approved', 'changes_requested']).optional(),
+  artifact_type: z.enum(['document', 'report', 'code', 'app', 'handoff']).optional(),
+  host: z.string().optional(),
+});
 const ArtifactReadSchema = z.object({ artifact_id: ArtifactIdSchema, host: z.string().optional() });
 const ArtifactUpdateSchema = z.object({
   artifact_id: ArtifactIdSchema,
@@ -289,6 +295,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: 'object', properties: {
             workspace_id: { type: 'string', description: 'Only this Account Workspace' },
             search: { type: 'string', description: 'Search title and summary' },
+            status: { type: 'string', enum: ['draft', 'in_review', 'approved', 'changes_requested'] },
+            artifact_type: { type: 'string', enum: ['document', 'report', 'code', 'app', 'handoff'] },
             host: { type: 'string', description: 'Override the vnsh host URL' },
           },
         },
@@ -995,6 +1003,8 @@ export async function handleArtifactList(args: unknown) {
   const query = new URLSearchParams();
   if (input.workspace_id) query.set('workspace', input.workspace_id);
   if (input.search) query.set('q', input.search);
+  if (input.status) query.set('status', input.status);
+  if (input.artifact_type) query.set('type', input.artifact_type);
   const response = await fetch(`${host}/api/artifacts${query.size ? `?${query}` : ''}`, { headers: clientHeaders() });
   if (!response.ok) return artifactError(response, 'List Artifacts');
   const data = await response.json() as { artifacts: AccountArtifact[] };

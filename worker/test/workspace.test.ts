@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import worker from '../src/index';
+import vectors from '../../test-vectors/vnsh-compat.json';
 
 // The workspace route now content-negotiates: only real browser navigations
 // get the application. A suite asserting the browser page has to identify one.
@@ -49,6 +50,19 @@ function put(id: string, body: string, ifMatch: string, token = WRITE_TOKEN) {
 
 describe('Workspaces', () => {
   describe('POST /api/workspace', () => {
+    it('accepts the repository-wide client compatibility vector', async () => {
+      const vector = vectors.workspaceV2;
+      const payload = Uint8Array.from(atob(vector.payloadBase64), (char) => char.charCodeAt(0));
+      const created = await call(new Request('http://localhost/api/workspace', {
+        method: 'POST', headers: { 'X-Vnsh-Write-Hash': vector.writeHash }, body: payload,
+      }));
+      expect(created.status).toBe(201);
+      const { id } = await created.json<{ id: string }>();
+      const updated = await call(new Request(`http://localhost/api/workspace/${id}`, {
+        method: 'PUT', headers: { 'X-Vnsh-Write': vector.writeToken, 'If-Match': '"1"' }, body: payload,
+      }));
+      expect(updated.status).toBe(200);
+    });
     it('creates a workspace at version 1', async () => {
       const { response, id, version, expires } = await createWorkspace();
 

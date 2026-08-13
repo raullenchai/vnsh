@@ -6,12 +6,12 @@
     "url": "https://github.com/raullenchai/vnsh",
     "source": "github"
   },
-  "version": "1.8.1",
+  "version": "1.8.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "vnsh-mcp",
-      "version": "1.8.1",
+      "version": "1.8.2",
       "transport": {
         "type": "stdio"
       }

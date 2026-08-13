@@ -16,6 +16,9 @@ import {
 const SECRET = base64urlToBytes('ABEiM0RVZneImaq7zN3u_wARIjNEVWZ3iJmqu8zd7v8');
 const HOST = 'https://vnsh.dev';
 const ID = 'aBcDeFgHiJkL';
+const vectors = JSON.parse(readFileSync(new URL('../../test-vectors/vnsh-compat.json', import.meta.url), 'utf8')) as {
+  workspaceV2: Record<string, string>;
+};
 
 const hex = (b: Uint8Array) =>
   Array.from(b)
@@ -23,6 +26,18 @@ const hex = (b: Uint8Array) =>
     .join('');
 
 describe('key schedule', () => {
+  it('matches the repository-wide compatibility contract', async () => {
+    const vector = vectors.workspaceV2;
+    const secret = Uint8Array.from(Buffer.from(vector.secretHex, 'hex'));
+    const derived = await deriveWorkspaceKeys(secret);
+    expect(hex(derived.key)).toBe(vector.keyHex);
+    expect(derived.writeToken).toBe(vector.writeToken);
+    expect(derived.writeHash).toBe(vector.writeHash);
+    expect(buildWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.editUrl);
+    expect(await buildReadOnlyWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.readUrl);
+    const plaintext = await decryptWorkspace(Uint8Array.from(Buffer.from(vector.payloadBase64, 'base64')), derived.key);
+    expect(new TextDecoder().decode(plaintext)).toBe(vector.plaintext);
+  });
   /**
    * These are the same vectors the CLI pins, derived from the same secret. This
    * is now the fourth implementation of this key schedule, and the only thing

@@ -200,6 +200,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -225,10 +227,14 @@ jobs:
           fi
           cd worker
           npm ci
+          migration_changes=$(git diff --name-only HEAD^ HEAD -- migrations/)
           if [ -n "$CLOUDFLARE_D1_TOKEN" ]; then
             CLOUDFLARE_API_TOKEN="$CLOUDFLARE_D1_TOKEN" npx wrangler d1 migrations apply ACCOUNTS --remote
+          elif [ -n "$migration_changes" ]; then
+            echo "::error::This release changes D1 migrations, but CLOUDFLARE_D1_TOKEN is not configured. Refusing a partial deploy."
+            exit 1
           else
-            echo "::notice::CLOUDFLARE_D1_TOKEN is not set; D1 migrations must already be applied before this deploy."
+            echo "No D1 migration changed in this release."
           fi
           npx wrangler deploy
           echo "deployed=true" >> "$GITHUB_OUTPUT"

@@ -96,6 +96,50 @@ interface WorkspaceHistoryResponse {
   versions: Array<{ version: number; size: number; archivedAt: string; current: boolean }>;
 }
 
+type AccountArtifact = {
+  id: string;
+  title: string;
+  summary: string | null;
+  artifactType: string;
+  contentType: string;
+  status: string;
+  visibility: string;
+  version: number;
+  size: number;
+  workspace?: { id: string | null; name: string };
+};
+
+function requireAccountToken(host: string): string {
+  const token = loadToken(host);
+  if (!token) error('Account Artifacts require a login. Run `vn login` first.');
+  return token;
+}
+
+async function accountApi(host: string, endpoint: string, init: RequestInit = {}): Promise<Response> {
+  const token = requireAccountToken(host);
+  return fetch(`${accountOrigin(host)}${endpoint}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      ...init.headers,
+    },
+  });
+}
+
+async function accountApiError(response: Response, action: string): Promise<never> {
+  let detail: { error?: string; message?: string; currentVersion?: number; nextAction?: string } = {};
+  try { detail = await response.json() as typeof detail; } catch { /* plain-text error */ }
+  if (response.status === 401) error('Your login expired. Run `vn login` again.');
+  const current = detail.currentVersion ? ` Current version: ${detail.currentVersion}.` : '';
+  const next = detail.nextAction ? ` ${detail.nextAction}` : '';
+  error(`${action} failed (HTTP ${response.status}${detail.error ? ` ${detail.error}` : ''}): ${detail.message || response.statusText}.${current}${next}`);
+}
+
+function artifactLine(artifact: AccountArtifact): string {
+  return `${artifact.id}  v${artifact.version}  ${artifact.status.padEnd(17)}  ${artifact.title}  [${artifact.workspace?.name || 'Personal'}]`;
+}
+
 /** Read a file, or stdin when no path is given. Enforces the size ceiling. */
 async function readInput(input: string | undefined, label: string): Promise<Buffer> {
   if (input) {
@@ -746,6 +790,119 @@ program
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }
+  });
+
+const artifactCommand = program
+  .command('artifact')
+  .description('Create, find, read and update permanent Account Artifacts');
+
+artifactCommand
+  .command('create [file]')
+  .description('Create a permanent Artifact from a UTF-8 file or stdin')
+  .requiredOption('--title <title>', 'Human-readable title')
+  .option('--summary <summary>', 'Short searchable description')
+  .option('--type <type>', 'document, report, code, app, or handoff', 'document')
+  .option('--content-type <mime>', 'Rendered MIME type', 'text/markdown; charset=utf-8')
+  .option('--workspace <id>', 'Account Workspace ID (default: Personal)')
+  .option('--change-summary <text>', 'What the initial version establishes')
+  .option('--json', 'Print machine-readable JSON')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (file: string | undefined, options: { title: string; summary?: string; type: string; contentType: string; workspace?: string; changeSummary?: string; json?: boolean; host?: string }) => {
+    try {
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const bytes = await readInput(file, 'Reading Artifact content from');
+      let content: string;
+      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+      catch { error('Account Artifact content must be valid UTF-8. Use an Incognito workspace for binary files.'); }
+      const response = await accountApi(host, '/api/artifacts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: options.title, summary: options.summary, artifactType: options.type, contentType: options.contentType, workspaceId: options.workspace, changeSummary: options.changeSummary, content, harness: `vn/${VERSION}` }),
+      });
+      if (!response.ok) return accountApiError(response, 'Create Artifact');
+      const data = await response.json() as { artifact: AccountArtifact };
+      if (options.json) console.log(JSON.stringify(data));
+      else {
+        console.log(colors.green('✓ Account Artifact created permanently'));
+        console.log(artifactLine(data.artifact));
+        console.log(`${accountOrigin(host)}/artifacts/${data.artifact.id}`);
+      }
+    } catch (e) { error(e instanceof Error ? e.message : String(e)); }
+  });
+
+artifactCommand
+  .command('list')
+  .alias('search')
+  .description('List or search permanent Account Artifacts')
+  .option('-q, --query <text>', 'Search title and summary')
+  .option('--status <status>', 'draft, in_review, approved, or changes_requested')
+  .option('--type <type>', 'document, report, code, app, or handoff')
+  .option('--workspace <id>', 'Only this Account Workspace')
+  .option('--json', 'Print machine-readable JSON')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (options: { query?: string; status?: string; type?: string; workspace?: string; json?: boolean; host?: string }) => {
+    try {
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const query = new URLSearchParams();
+      if (options.query) query.set('q', options.query);
+      if (options.status) query.set('status', options.status);
+      if (options.type) query.set('type', options.type);
+      if (options.workspace) query.set('workspace', options.workspace);
+      const response = await accountApi(host, `/api/artifacts${query.size ? `?${query}` : ''}`);
+      if (!response.ok) return accountApiError(response, 'List Artifacts');
+      const data = await response.json() as { artifacts: AccountArtifact[] };
+      if (options.json) console.log(JSON.stringify(data));
+      else if (!data.artifacts.length) console.log('No Account Artifacts matched.');
+      else for (const artifact of data.artifacts) console.log(artifactLine(artifact));
+    } catch (e) { error(e instanceof Error ? e.message : String(e)); }
+  });
+
+artifactCommand
+  .command('read <id>')
+  .description('Read the current content and version of an Account Artifact')
+  .option('--json', 'Print metadata and content as JSON')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (id: string, options: { json?: boolean; host?: string }) => {
+    try {
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const response = await accountApi(host, `/api/artifacts/${encodeURIComponent(id)}`);
+      if (!response.ok) return accountApiError(response, 'Read Artifact');
+      const data = await response.json() as { artifact: AccountArtifact; content: string };
+      if (options.json) console.log(JSON.stringify(data));
+      else {
+        info(`${data.artifact.title} · version ${data.artifact.version}`);
+        process.stdout.write(data.content);
+      }
+    } catch (e) { error(e instanceof Error ? e.message : String(e)); }
+  });
+
+artifactCommand
+  .command('update <id> [file]')
+  .description('Create a new immutable Artifact version from a UTF-8 file or stdin')
+  .requiredOption('--base-version <number>', 'Version this edit was based on')
+  .option('--title <title>', 'Replace the title')
+  .option('--summary <summary>', 'Replace the summary')
+  .option('--content-type <mime>', 'Rendered MIME type')
+  .option('--change-summary <text>', 'What changed in this version')
+  .option('--json', 'Print machine-readable JSON')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (id: string, file: string | undefined, options: { baseVersion: string; title?: string; summary?: string; contentType?: string; changeSummary?: string; json?: boolean; host?: string }) => {
+    try {
+      if (!/^\d+$/.test(options.baseVersion) || Number(options.baseVersion) < 1) error('--base-version must be a positive whole number');
+      const host = options.host || program.opts().host || DEFAULT_HOST;
+      const bytes = await readInput(file, 'Reading Artifact update from');
+      let content: string;
+      try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+      catch { error('Account Artifact content must be valid UTF-8.'); }
+      const response = await accountApi(host, `/api/artifacts/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'If-Match': `"${Number(options.baseVersion)}"` },
+        body: JSON.stringify({ content, title: options.title, summary: options.summary, contentType: options.contentType, changeSummary: options.changeSummary, harness: `vn/${VERSION}` }),
+      });
+      if (!response.ok) return accountApiError(response, 'Update Artifact');
+      const data = await response.json() as { artifact: AccountArtifact };
+      if (options.json) console.log(JSON.stringify(data));
+      else console.log(colors.green(`✓ Updated ${data.artifact.title} to version ${data.artifact.version}`));
+    } catch (e) { error(e instanceof Error ? e.message : String(e)); }
   });
 
 program

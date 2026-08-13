@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as cli from './crypto.js';
 import * as mcp from '../../../mcp/src/crypto.js';
+
+const vectors = JSON.parse(readFileSync(new URL('../../../test-vectors/vnsh-compat.json', import.meta.url), 'utf8')) as {
+  workspaceV2: Record<string, string>;
+};
 
 // A fixed secret so the vectors below are stable across runs and across
 // packages. Never use a hard-coded secret for anything real.
@@ -8,7 +13,24 @@ const SECRET = Buffer.from('00112233445566778899aabbccddeeff00112233445566778899
 const HOST = 'https://vnsh.dev';
 const ID = 'aBcDeFgHiJkL';
 
+it('matches the repository-wide legacy v1 compatibility contract', () => {
+  const vector = (vectors as { legacyV1: Record<string, string> }).legacyV1;
+  const ciphertext = cli.encrypt(Buffer.from(vector.plaintext), Buffer.from(vector.keyHex, 'hex'), Buffer.from(vector.ivHex, 'hex'));
+  expect(ciphertext.toString('base64')).toBe(vector.ciphertextBase64);
+});
+
 describe('workspace key schedule', () => {
+  it('matches the repository-wide compatibility contract', () => {
+    const vector = vectors.workspaceV2;
+    const secret = Buffer.from(vector.secretHex, 'hex');
+    const derived = cli.deriveWorkspaceKeys(secret);
+    expect(derived.key.toString('hex')).toBe(vector.keyHex);
+    expect(derived.writeToken).toBe(vector.writeToken);
+    expect(derived.writeHash).toBe(vector.writeHash);
+    expect(cli.buildWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.editUrl);
+    expect(cli.buildReadOnlyWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.readUrl);
+    expect(cli.decryptWorkspace(Buffer.from(vector.payloadBase64, 'base64'), derived.key).toString('utf8')).toBe(vector.plaintext);
+  });
   it('derives the same keys from the same secret every time', () => {
     const a = cli.deriveWorkspaceKeys(SECRET);
     const b = cli.deriveWorkspaceKeys(SECRET);

@@ -295,7 +295,7 @@ remain backward compatible by targeting Personal.
 |---|---|
 | `GET /api/workspaces` | List the account's active Workspaces and Artifact counts. |
 | `POST /api/workspaces` | Create a Workspace. Human browser session only. |
-| `GET /api/artifacts?workspace=:id` | List Account Artifacts in one Workspace. |
+| `GET /api/artifacts?workspace=:id&q=:text&status=:status&type=:type` | List or filter Account Artifacts by Workspace and searchable metadata. |
 
 Include `"workspaceId": "..."` in an Artifact create body to select a
 Workspace. Artifact URLs do not contain the Workspace ID, so moving or

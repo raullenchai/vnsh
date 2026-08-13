@@ -75,7 +75,7 @@ its own instruction file so it keeps using workspaces afterwards. By hand
 instead:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.8.1
+claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2
 ```
 
 The server exposes `vnsh_artifact_create`, `vnsh_artifact_list`,
@@ -238,6 +238,17 @@ boundary—vnsh can technically read account Artifact content. It is never
 silently substituted for an anonymous encrypted workspace, and only a human
 may approve or publish by default.
 
+```sh
+vn login
+vn artifact create report.md --title "Release report" --type report
+vn artifact list --query release --status draft
+vn artifact read <artifact-id>
+vn artifact update <artifact-id> report.md --base-version 1 --change-summary "Verified production"
+```
+
+Add `--json` to any Artifact command when another program or Agent will consume
+the result.
+
 **What holds.** vnsh cannot read encrypted content, cannot write to it, and
 cannot recover a write token from anything it stores. Rendered content runs with
 no same-origin access and no network, so a hostile document can neither reach the
@@ -250,7 +261,7 @@ key nor send anything anywhere.
   write restarts it, so a workspace edited daily stays alive.
 - **The boundary is the client, not the transport.** Whatever encrypts holds your
   plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
-  latest published version on every start; pin it (`vnsh-mcp@1.8.1`), install it
+  latest published version on every start; pin it (`vnsh-mcp@1.8.2`), install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh**, by design. That is the tier.
 - **Metadata is not private.** Times, sizes and addresses exist for any hosted
