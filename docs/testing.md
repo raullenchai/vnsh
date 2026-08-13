@@ -4,6 +4,34 @@ Written after a session in which the test suite was green the whole time and
 the product was not. Every method below exists because something got past the
 previous one.
 
+## Coverage gates
+
+Run every package and print a weighted repository summary:
+
+```bash
+npm run test:coverage
+```
+
+Each package writes `coverage/coverage-summary.json` plus an HTML report and
+enforces its measured baseline in Vitest. CI runs these coverage commands—not a
+separate test-only path—and uploads each HTML report. Baselines are ratchets:
+raise them when coverage improves; do not lower them to make a change pass.
+All four packages use Istanbul instrumentation so results are stable between
+the Node versions developers use and the Workers runtime; native V8 coverage is
+not supported by Cloudflare's Vitest pool.
+
+| Package | Statements | Branches | Functions | Lines |
+|---|---:|---:|---:|---:|
+| Worker | 76.7% | 72.2% | 92.0% | 79.2% |
+| MCP | 62.3% | 57.9% | 84.4% | 63.6% |
+| CLI | 44.0% | 29.4% | 61.9% | 45.6% |
+| Extension | 89.9% | 70.0% | 95.7% | 89.9% |
+| Weighted repository | 66.4% | 59.1% | 82.9% | 68.2% |
+
+The next target is 70% repository statements/lines and 80% branches. The main
+remaining gaps are CLI command paths, MCP open/error paths, and account UI/auth
+branches; add focused behavior tests rather than excluding those files.
+
 The organising idea: **a test that cannot fail against the broken version is
 not a test.** Most of what follows is about closing the gap between what a
 test observes and what a user gets.

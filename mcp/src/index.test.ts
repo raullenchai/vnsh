@@ -21,7 +21,20 @@ import {
   handleWorkspaceRestore,
   handleWorkspaceRead,
   detectFileType,
+  sandboxHtml,
 } from './index.js';
+
+describe('local HTML sandbox', () => {
+  it('encodes hostile HTML instead of interpolating executable markup', () => {
+    const hostile = '<script>parent.postMessage("leak", "*")</script></script>';
+    const wrapped = sandboxHtml(hostile);
+    expect(wrapped).not.toContain(hostile);
+    expect(wrapped).toContain(Buffer.from(hostile).toString('base64'));
+    expect(wrapped).toContain("f.setAttribute('sandbox', 'allow-scripts')");
+    expect(wrapped).toContain("default-src 'none'");
+    expect(wrapped).toContain('noopener,noreferrer');
+  });
+});
 
 describe('workspace history and restore', () => {
   const originalFetch = globalThis.fetch;
