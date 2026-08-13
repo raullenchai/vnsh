@@ -1015,10 +1015,14 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
-  const object = request.method === 'HEAD' ? head : await env.VNSH_STORE.get(key);
-  if (!object) {
-    // Rare race: deleted between head and get.
-    return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+  let body: ReadableStream | null = null;
+  if (request.method !== 'HEAD') {
+    const object = await env.VNSH_STORE.get(key);
+    if (!object) {
+      // Rare race: deleted between head and get.
+      return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
+    }
+    body = object.body;
   }
 
   trackEvent(env, 'workspace_read', request, {
@@ -1027,11 +1031,11 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
   });
 
-  return new Response(request.method === 'HEAD' ? null : object.body, {
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'application/octet-stream',
-      'Content-Length': String(object.size),
+      'Content-Length': String(head.size),
       'Cache-Control': 'private, no-store, no-cache',
       'X-Content-Type-Options': 'nosniff',
       // The version IS the ETag — one concept, not two.
