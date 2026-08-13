@@ -93,6 +93,10 @@ async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
 async function deleteDocumentObjects(bucket: R2Bucket, id: string): Promise<void> {
   await bucket.delete(`w/${id}`);
   await deletePrefix(bucket, `wh/${id}/`);
+  // Account Artifacts keep immutable versions under their own prefix. Older
+  // permanent workspaces have no objects here, so this is safe during the
+  // migration window where both document models appear in the same index.
+  await deletePrefix(bucket, `a/${id}/`);
 }
 
 const page = (
@@ -109,7 +113,7 @@ main{padding:68px 0 90px}.eyebrow{display:flex;align-items:center;gap:8px;color:
 .empty{grid-column:1/-1;text-align:center;padding:70px 24px;border:1px dashed #303846;border-radius:18px;background:rgba(16,20,27,.55)}.empty-mark{width:48px;height:48px;margin:0 auto 18px;display:grid;place-items:center;border:1px solid var(--line);border-radius:14px;color:var(--green);font:700 20px ui-monospace,monospace}.empty p{color:var(--muted);margin:8px 0 0}.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:38px}.button,button{appearance:none;border:1px solid var(--line);border-radius:10px;background:#171d26;color:var(--ink);font:inherit;font-size:13px;font-weight:650;padding:10px 14px;cursor:pointer;text-decoration:none}.button:hover,button:hover{border-color:#465164;background:#1c2430}.button.primary{background:var(--ink);color:#090b0f;border-color:var(--ink)}.button.primary:hover{background:#dce2e9}.delete{padding:6px 9px;color:#fecdd3;border-color:rgba(251,113,133,.28);background:rgba(251,113,133,.08)}.link-button{background:none;border:0;padding:10px}
 .auth-wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:stretch;max-width:940px;margin:30px auto 0}.auth-copy,.auth-card{border:1px solid var(--line);border-radius:22px;background:rgba(16,20,27,.82);box-shadow:var(--shadow)}.auth-copy{padding:48px;background:linear-gradient(145deg,rgba(74,222,128,.08),rgba(16,20,27,.9) 42%)}.auth-copy h1{font-size:46px}.auth-card{padding:42px;display:flex;flex-direction:column;justify-content:center}.auth-card h2{font-size:24px}.auth-card p{color:var(--muted)}label{display:block;color:var(--muted);font-size:12px;margin:22px 0 7px}input{width:100%;border:1px solid #323b49;border-radius:10px;background:#0c1016;color:var(--ink);font:15px inherit;padding:13px 14px;outline:none}input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.1)}.auth-card button{width:100%;margin-top:12px;background:var(--green);color:#071109;border-color:var(--green);font-weight:750}.fine{font-size:12px!important;color:var(--dim)!important;margin-top:18px!important}.token{padding:22px;border:1px solid rgba(240,181,74,.28);background:#0b0e13;border-radius:14px;overflow:auto;color:#ffe1a3;font:13px/1.7 ui-monospace,monospace;word-break:break-all}.footer{border-top:1px solid rgba(255,255,255,.07);padding:26px 0 40px;color:var(--dim);font-size:12px}
 @media(max-width:760px){.shell{width:min(100% - 28px,1120px)}.topbar{height:62px}.topnav a:first-child{display:none}main{padding:42px 0 64px}.hero-row{display:block}.stats{margin-top:26px;width:100%}.stat{flex:1;min-width:0;padding:13px}.grid{grid-template-columns:1fr}.auth-wrap{grid-template-columns:1fr}.auth-copy{padding:30px}.auth-copy h1{font-size:38px}.auth-card{padding:28px}.notice{font-size:13px}}
-</style></head><body><div class="shell"><header class="topbar"><a class="brand" href="https://vnsh.dev">vnsh<i>_</i></a><nav class="topnav"><a href="https://vnsh.dev">Create workspace</a><a href="https://vnsh.dev/llms.txt">Agent setup</a></nav></header>${body}<footer class="footer">Host-blind by design · Your keys never enter your account.</footer></div></body></html>`;
+</style></head><body><div class="shell"><header class="topbar"><a class="brand" href="https://vnsh.dev">vnsh<i>_</i></a><nav class="topnav"><a href="https://vnsh.dev">Create workspace</a><a href="https://vnsh.dev/llms.txt">Agent setup</a></nav></header>${body}<footer class="footer">Two explicit modes · Host-blind encrypted links or account-authorized Artifacts.</footer></div></body></html>`;
 const htmlHeaders = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",
@@ -433,6 +437,8 @@ export async function handleAccount(
     }
     const docs = await env.ACCOUNTS.prepare("SELECT id FROM documents WHERE user_id=?").bind(user.id).all<{ id: string }>();
     for (const document of docs.results) await deleteDocumentObjects(env.VNSH_STORE, document.id);
+    const artifacts = await env.ACCOUNTS.prepare("SELECT id FROM artifacts WHERE owner_id=?").bind(user.id).all<{ id: string }>();
+    for (const artifact of artifacts.results) await deletePrefix(env.VNSH_STORE, `a/${artifact.id}/`);
     await env.ACCOUNTS.batch([
       env.ACCOUNTS.prepare("DELETE FROM device_logins WHERE user_id=?").bind(user.id),
       env.ACCOUNTS.prepare("DELETE FROM sessions WHERE user_id=?").bind(user.id),
@@ -571,7 +577,7 @@ export async function handleAccount(
   if (!user)
     return new Response(
       page(
-        '<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">Permanent library</div><h1>Your work should outlive the handoff.</h1><p class="lede">Keep signed-in workspaces and artifacts until you delete them—without giving vnsh your encryption keys.</p><div class="notice"><span class="shield">◇</span><div><b>Host-blind stays host-blind.</b><br>Your account stores ownership metadata. The key remains only in the document link.</div></div></section><section class="auth-card"><h2>Sign in to vnsh</h2><p>No password. We will email you a secure, single-use link.</p><form method="post" action="/api/auth/request"><label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com"><button>Send magic link →</button></form><p class="fine">Free preview · Permanent storage · Delete anytime</p></section></div></main>',
+        '<main><div class="auth-wrap"><section class="auth-copy"><div class="eyebrow">Permanent library</div><h1>Your work should outlive the handoff.</h1><p class="lede">Keep work until you delete it, then choose the boundary that fits each handoff.</p><div class="notice"><span class="shield">◇</span><div><b>Two explicit modes.</b><br>Encrypted links stay host-blind with keys only in the URL. Account Artifacts are readable by vnsh so authorized Agents can discover and collaborate on them.</div></div></section><section class="auth-card"><h2>Sign in to vnsh</h2><p>No password. We will email you a secure, single-use link.</p><form method="post" action="/api/auth/request"><label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required placeholder="you@example.com"><button>Send magic link →</button></form><p class="fine">Free preview · Permanent storage · Delete anytime</p></section></div></main>',
         "Sign in",
       ),
       { headers: htmlHeaders },

@@ -14,11 +14,15 @@ export interface AccountUsage {
 
 export async function accountUsage(env: AccountEnv, userId: string): Promise<AccountUsage> {
   const row = await env.ACCOUNTS.prepare(
-    `SELECT COUNT(*) AS documents,
-            COALESCE(SUM(size), 0) AS currentBytes,
-            COALESCE(SUM(history_size), 0) AS historyBytes
-       FROM documents WHERE user_id=?`,
-  ).bind(userId).first<{ documents: number; currentBytes: number; historyBytes: number }>();
+    `SELECT
+       (SELECT COUNT(*) FROM documents WHERE user_id=?) +
+       (SELECT COUNT(*) FROM artifacts WHERE owner_id=?) AS documents,
+       (SELECT COALESCE(SUM(size),0) FROM documents WHERE user_id=?) +
+       (SELECT COALESCE(SUM(current_size),0) FROM artifacts WHERE owner_id=?) AS currentBytes,
+       (SELECT COALESCE(SUM(history_size),0) FROM documents WHERE user_id=?) +
+       (SELECT COALESCE(SUM(history_size),0) FROM artifacts WHERE owner_id=?) AS historyBytes`,
+  ).bind(userId, userId, userId, userId, userId, userId)
+    .first<{ documents: number; currentBytes: number; historyBytes: number }>();
   const currentBytes = Number(row?.currentBytes || 0);
   const historyBytes = Number(row?.historyBytes || 0);
   return {

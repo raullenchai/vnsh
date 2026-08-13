@@ -1,4 +1,5 @@
 import { currentUser, handleAccount, type AccountEnv } from './accounts';
+import { handleArtifacts } from './artifacts';
 import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
 import { getClientAgent, getClientRef, handleEvent, trackEvent } from './analytics';
 import {
@@ -2372,6 +2373,8 @@ export default {
 
     if (url.hostname === 'account.vnsh.dev' || url.hostname.startsWith('account.')) {
       if ((path === '/api/auth/request' || path === '/api/auth/device') && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
+      const artifactResponse = await handleArtifacts(request, env, url);
+      if (artifactResponse) return artifactResponse;
       return handleAccount(request, env, url);
     }
 
