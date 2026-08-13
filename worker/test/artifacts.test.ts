@@ -116,7 +116,11 @@ describe('account Artifacts V1 contract', () => {
     const shell = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}?version=1`, { headers: { Authorization: 'Bearer human-token' } }));
     expect(shell.status).toBe(200);
     expect(shell.headers.get('Content-Security-Policy')).toContain("frame-src 'self'");
-    expect(await shell.text()).toContain(`/artifacts/${artifact.id}/content?version=1`);
+    const shellHtml = await shell.text();
+    expect(shellHtml).toContain(`/artifacts/${artifact.id}/content?version=1`);
+    expect(shellHtml).toContain('View only — cannot make changes');
+    expect(shellHtml).toContain('Can edit — creates a new version');
+    expect(shellHtml).toContain('Create private link');
 
     const agentShell = await call(new Request(`https://account.vnsh.dev/artifacts/${artifact.id}`, { headers: { Authorization: 'Bearer agent-token' } }));
     expect(agentShell.status).toBe(403);
@@ -143,7 +147,8 @@ describe('account Artifacts V1 contract', () => {
       method: 'PUT', headers: { Authorization: 'Bearer agent-token', 'If-Match': '"1"' }, body: JSON.stringify({ content: 'stale' }),
     }));
     expect(stale.status).toBe(412);
-    expect(await stale.json()).toMatchObject({ error: 'VERSION_CONFLICT' });
+    expect(stale.headers.get('ETag')).toBe('"2"');
+    expect(await stale.json()).toMatchObject({ error: 'VERSION_CONFLICT', currentVersion: 2, nextAction: expect.stringContaining('GET this same URL') });
 
     const readCapabilityResponse = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, {
       method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'read', label: 'Reviewer' }),
@@ -170,6 +175,7 @@ describe('account Artifacts V1 contract', () => {
     const browserCapability = await call(new Request(readCapability.url, { headers: { Accept: 'text/html' } }));
     const browserShell = await browserCapability.text();
     expect(browserShell).toContain('sandbox');
+    expect(browserShell).toContain('View only. Ask the owner for an edit link');
     expect(browserShell).toContain(`${new URL(readCapability.url).pathname}/content`);
     const browserContent = await call(new Request(`${readCapability.url}/content`, { headers: { Accept: 'text/html' } }));
     expect(browserContent.headers.get('Content-Security-Policy')).toContain("sandbox; default-src 'none'");
