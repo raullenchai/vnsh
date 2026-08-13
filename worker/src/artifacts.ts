@@ -202,12 +202,33 @@ async function createArtifact(request: Request, env: AccountEnv, user: AccountUs
 }
 
 async function listArtifacts(request: Request, env: AccountEnv, user: AccountUser): Promise<Response> {
-  const workspaceId = new URL(request.url).searchParams.get('workspace');
+  const params = new URL(request.url).searchParams;
+  const workspaceId = params.get('workspace');
   if (workspaceId && !(await ownedWorkspace(env, user.id, workspaceId))) return jsonError('WORKSPACE_NOT_FOUND', 'Workspace not found', 404);
+  const q = (params.get('q') || '').trim();
+  if (q.length > 200) return jsonError('INVALID_SEARCH', 'q must be at most 200 characters', 400);
+  const status = params.get('status');
+  if (status && !['draft', 'in_review', 'approved', 'changes_requested'].includes(status)) {
+    return jsonError('INVALID_STATUS', 'status must be draft, in_review, approved, or changes_requested', 400);
+  }
+  const artifactType = params.get('type');
+  if (artifactType && !['document', 'report', 'code', 'app', 'handoff'].includes(artifactType)) {
+    return jsonError('INVALID_ARTIFACT_TYPE', 'type must be document, report, code, app, or handoff', 400);
+  }
+  const escaped = q.replace(/[\\%_]/g, (char) => `\\${char}`);
+  const pattern = q ? `%${escaped}%` : null;
   const result = await env.ACCOUNTS.prepare(`SELECT a.*,w.name AS workspace_name FROM artifacts a
-    LEFT JOIN workspaces w ON w.id=a.workspace_id WHERE a.owner_id=? AND (? IS NULL OR a.workspace_id=?) ORDER BY a.updated_at DESC LIMIT 100`)
-    .bind(user.id, workspaceId, workspaceId).all<ArtifactRow>();
-  return Response.json({ artifacts: result.results.map((row) => present(row, user)) }, { headers: { 'Cache-Control': 'no-store' } });
+    LEFT JOIN workspaces w ON w.id=a.workspace_id WHERE a.owner_id=?
+    AND (? IS NULL OR a.workspace_id=?)
+    AND (? IS NULL OR a.status=?)
+    AND (? IS NULL OR a.artifact_type=?)
+    AND (? IS NULL OR a.title LIKE ? ESCAPE '\\' OR COALESCE(a.summary,'') LIKE ? ESCAPE '\\')
+    ORDER BY a.updated_at DESC LIMIT 100`)
+    .bind(user.id, workspaceId, workspaceId, status, status, artifactType, artifactType, pattern, pattern, pattern).all<ArtifactRow>();
+  return Response.json({
+    artifacts: result.results.map((row) => present(row, user)),
+    filters: { q: q || null, workspace: workspaceId, status, type: artifactType },
+  }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 async function getArtifact(id: string, env: AccountEnv, user: AccountUser): Promise<Response> {

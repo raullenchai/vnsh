@@ -8,7 +8,7 @@ describe('extracted Worker modules', () => {
     const request = new Request('https://vnsh.dev/api/workspace', {
       headers: {
         'X-Vnsh-Agent': ' Cursor Agent / Personal Project! ',
-        'X-Vnsh-Client': 'cli-npm/2.7.0',
+        'X-Vnsh-Client': 'cli-npm/2.7.1',
         'X-Vnsh-Project': '1',
       },
     });

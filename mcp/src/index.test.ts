@@ -54,10 +54,14 @@ describe('Account Artifact tools', () => {
   });
 
   it('lists and reads discoverable knowledge without pasted URLs', async () => {
+    let listTarget = '';
     globalThis.fetch = vi.fn(async (input) => String(input).includes('?')
-      ? Response.json({ artifacts: [artifact] })
+      ? (listTarget = String(input), Response.json({ artifacts: [artifact] }))
       : Response.json({ artifact, content: '# Ready' })) as typeof fetch;
-    const listed = await handleArtifactList({ search: 'launch' });
+    const listed = await handleArtifactList({ search: 'launch', status: 'draft', artifact_type: 'report' });
+    expect(listTarget).toContain('q=launch');
+    expect(listTarget).toContain('status=draft');
+    expect(listTarget).toContain('type=report');
     expect(listed.content[0].text).toContain(artifact.id);
     const read = await handleArtifactRead({ artifact_id: artifact.id });
     expect(read.content[0].text).toContain('base_version: 1');

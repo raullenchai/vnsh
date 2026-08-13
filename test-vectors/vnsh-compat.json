@@ -1,0 +1,20 @@
+{
+  "legacyV1": {
+    "keyHex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "ivHex": "fedcba9876543210fedcba9876543210",
+    "plaintext": "Hello World",
+    "ciphertextBase64": "H3GCiWU7aSviQLVlPaR2Rw=="
+  },
+  "workspaceV2": {
+    "host": "https://vnsh.dev",
+    "id": "aBcDeFgHiJkL",
+    "secretHex": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+    "keyHex": "dd532139b5f51705c86b30be89d66e6d701cf22867d58eefe753a1abc5841345",
+    "writeToken": "e48c25fb8e0ab2b77e9a1abd9dbff8efce50a916fe3a9176cf99a8e159d34511",
+    "writeHash": "57e4916cd70c4ade1d9f765a233128c516dc37fa37b4446b63307283451f1d28",
+    "editUrl": "https://vnsh.dev/w/aBcDeFgHiJkL#w=ABEiM0RVZneImaq7zN3u_wARIjNEVWZ3iJmqu8zd7v8",
+    "readUrl": "https://vnsh.dev/w/aBcDeFgHiJkL#r=3VMhObX1FwXIazC-idZubXAc8ihn1Y7v51Ohq8WEE0U",
+    "plaintext": "vnsh compatibility 中文 🔑",
+    "payloadBase64": "AAECAwQFBgcICQoL9e1zEf5QeMkpqE1pvOddo7iCrxJGRG51lYKYtU716S1LLfly953PG8VoX4utFg=="
+  }
+}

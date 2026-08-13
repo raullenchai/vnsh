@@ -33,6 +33,20 @@ workspaces and artifacts are kept until you delete them. `vn whoami` shows the
 active account and `vn logout` revokes the saved credential. Automation can use
 `VNSH_TOKEN` instead.
 
+Signed-in users can also work with permanent, service-readable Account
+Artifacts that other authorized Agents can discover without a fragment key:
+
+```bash
+vn artifact create report.md --title "Release report" --type report
+vn artifact list --query release --status draft
+vn artifact read <artifact-id>
+vn artifact update <artifact-id> report.md --base-version 1 --change-summary "Verified production"
+```
+
+Use `--json` for automation. Account Artifacts are intentionally distinct from
+host-blind encrypted workspaces: vnsh can read their content to provide account
+discovery and versioning.
+
 ## Link permissions
 
 | Link | Read | Write |

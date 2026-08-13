@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   generateKey,
   generateIV,
@@ -17,9 +18,21 @@ import {
   encryptWorkspace,
   decryptWorkspace,
   buildWorkspaceUrl,
+  buildReadOnlyWorkspaceUrl,
   parseWorkspaceUrl,
 } from './crypto.js';
 import { createHash } from 'crypto';
+
+const vectors = JSON.parse(readFileSync(new URL('../../test-vectors/vnsh-compat.json', import.meta.url), 'utf8')) as {
+  workspaceV2: Record<string, string>;
+  legacyV1: Record<string, string>;
+};
+
+it('matches the repository-wide legacy v1 compatibility contract', () => {
+  const vector = vectors.legacyV1;
+  const ciphertext = encrypt(vector.plaintext, Buffer.from(vector.keyHex, 'hex'), Buffer.from(vector.ivHex, 'hex'));
+  expect(ciphertext.toString('base64')).toBe(vector.ciphertextBase64);
+});
 
 describe('generateKey', () => {
   it('generates a 32-byte key', () => {
@@ -245,6 +258,17 @@ describe('OpenSSL compatibility', () => {
 });
 
 describe('workspace crypto (v2)', () => {
+  it('matches the repository-wide compatibility contract', () => {
+    const vector = vectors.workspaceV2;
+    const secret = Buffer.from(vector.secretHex, 'hex');
+    const derived = deriveWorkspaceKeys(secret);
+    expect(derived.key.toString('hex')).toBe(vector.keyHex);
+    expect(derived.writeToken).toBe(vector.writeToken);
+    expect(derived.writeHash).toBe(vector.writeHash);
+    expect(buildWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.editUrl);
+    expect(buildReadOnlyWorkspaceUrl(vector.host, vector.id, secret)).toBe(vector.readUrl);
+    expect(decryptWorkspace(Buffer.from(vector.payloadBase64, 'base64'), derived.key).toString('utf8')).toBe(vector.plaintext);
+  });
   it('round-trips content through AES-256-GCM', () => {
     const secret = generateRootSecret();
     const { key } = deriveWorkspaceKeys(secret);

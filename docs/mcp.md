@@ -8,14 +8,14 @@ encrypts and decrypts before content crosses the vnsh service boundary.
 Pin the reviewed release:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.8.1
+claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2
 ```
 
 For Cursor, OpenHands, Cline, Windsurf, or another MCP client, use this server
 entry in the client's project configuration:
 
 ```json
-{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.1"]}}
+{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.2"]}}
 ```
 
 An unpinned `npx -y vnsh-mcp` tracks new releases. That is convenient, but the

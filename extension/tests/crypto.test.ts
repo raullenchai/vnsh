@@ -13,6 +13,16 @@ import {
   bytesToBase64url,
 } from '../src/lib/crypto';
 
+const vectors = JSON.parse(readFileSync(new URL('../../test-vectors/vnsh-compat.json', import.meta.url), 'utf8')) as {
+  legacyV1: Record<string, string>;
+};
+
+it('matches the repository-wide legacy v1 compatibility contract', async () => {
+  const vector = vectors.legacyV1;
+  const ciphertext = await encrypt(new TextEncoder().encode(vector.plaintext), hexToBytes(vector.keyHex), hexToBytes(vector.ivHex));
+  expect(btoa(String.fromCharCode(...new Uint8Array(ciphertext)))).toBe(vector.ciphertextBase64);
+});
+
 describe('crypto encoding helpers', () => {
   it('hexToBytes / bytesToHex roundtrip', () => {
     const hex = '0123456789abcdef';

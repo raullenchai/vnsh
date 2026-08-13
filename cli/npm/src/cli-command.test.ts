@@ -63,4 +63,41 @@ describe('CLI commands', () => {
     expect(headers['X-Vnsh-Public']).toBe('1');
     expect(headers['X-Vnsh-Write-Hash']).toMatch(/^[a-f0-9]{64}$/);
   });
+
+  it('runs the Account Artifact create, search, read and update journey', async () => {
+    process.env.VNSH_TOKEN = 'account-token';
+    const root = mkdtempSync(join(tmpdir(), 'vnsh-artifact-command-'));
+    roots.push(root);
+    const file = join(root, 'artifact.md');
+    writeFileSync(file, '# Release\nready');
+    const artifact = {
+      id: '11111111-1111-4111-8111-111111111111', title: 'Release brief', summary: 'production evidence',
+      artifactType: 'report', contentType: 'text/markdown; charset=utf-8', status: 'draft', visibility: 'private',
+      version: 1, size: 15, workspace: { id: 'space-1', name: 'Launch' },
+    };
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const target = String(url);
+      if (init?.method === 'POST') return Response.json({ artifact }, { status: 201 });
+      if (init?.method === 'PUT') return Response.json({ artifact: { ...artifact, version: 2 } });
+      if (target.includes('?')) return Response.json({ artifacts: [artifact], filters: { q: 'release' } });
+      return Response.json({ artifact, content: '# Release\nready' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await program.parseAsync(['node', 'vn', 'artifact', 'create', file, '--title', 'Release brief', '--type', 'report', '--json']);
+    await program.parseAsync(['node', 'vn', 'artifact', 'list', '--query', 'release', '--status', 'draft', '--json']);
+    await program.parseAsync(['node', 'vn', 'artifact', 'read', artifact.id]);
+    await program.parseAsync(['node', 'vn', 'artifact', 'update', artifact.id, file, '--base-version', '1', '--change-summary', 'verified', '--json']);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://account.vnsh.dev/api/artifacts');
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ Authorization: 'Bearer account-token' });
+    expect(String(fetchMock.mock.calls[1][0])).toContain('q=release');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('status=draft');
+    expect(fetchMock.mock.calls[3][1]?.headers).toMatchObject({ 'If-Match': '"1"' });
+    expect(write).toHaveBeenCalledWith('# Release\nready');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('"version":2'));
+  });
 });
