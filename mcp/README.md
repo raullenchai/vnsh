@@ -42,6 +42,21 @@ the URL does not change as the document evolves.
 | `vnsh_workspace_renew` | Extends expiry without changing content or version |
 | `vnsh_workspace_open` | Renders it locally in the browser, sandboxed |
 
+## Account Artifacts
+
+With `VNSH_TOKEN`, Agents can create permanent, service-readable knowledge in
+the account Library and continue it later without asking for a pasted URL.
+
+| Tool | What it does |
+|---|---|
+| `vnsh_artifact_create` | Creates a permanent Artifact in Personal or a selected Workspace |
+| `vnsh_artifact_list` | Discovers available Artifacts by Workspace or search text |
+| `vnsh_artifact_read` | Reads current content and the version needed for safe editing |
+| `vnsh_artifact_update` | Creates a conflict-protected immutable version |
+
+Account Artifacts are intentionally readable by vnsh. Use encrypted Workspaces
+when the service must remain unable to read the content.
+
 Links come in two tiers:
 
 ```

@@ -3706,9 +3706,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.7.0"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.7.0
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.8.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.8.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3749,11 +3749,12 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
      thing that should need their word rather than ours. If they decline,
      install the tools and stop there; that is a perfectly good outcome.
 
-3. Confirm vnsh_workspace_create, _read, _update, _history, _restore, _renew and _open are listed, and say so.
+3. Confirm the workspace tools and vnsh_artifact_create, _list, _read and _update are listed, and say so.
 
 Tools: vnsh_workspace_create, vnsh_workspace_read, vnsh_workspace_update,
 vnsh_workspace_history, vnsh_workspace_restore, vnsh_workspace_renew,
-vnsh_workspace_open, plus vnsh_read / vnsh_share /
+vnsh_workspace_open; vnsh_artifact_create, vnsh_artifact_list,
+vnsh_artifact_read, vnsh_artifact_update; plus vnsh_read / vnsh_share /
 vnsh_share_file for one-shot blobs.
 
 ## When to reach for a workspace
@@ -3913,8 +3914,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0        pin the version
-  npm i -g vnsh-mcp@1.7.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.8.0        pin the version
+  npm i -g vnsh-mcp@1.8.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code

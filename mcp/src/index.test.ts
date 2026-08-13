@@ -20,9 +20,89 @@ import {
   handleWorkspaceHistory,
   handleWorkspaceRestore,
   handleWorkspaceRead,
+  handleArtifactCreate,
+  handleArtifactList,
+  handleArtifactRead,
+  handleArtifactUpdate,
   detectFileType,
   sandboxHtml,
 } from './index.js';
+
+describe('Account Artifact tools', () => {
+  const originalFetch = globalThis.fetch;
+  const artifact = {
+    id: '7c12f6ce-2e6c-4f7b-9940-f0588b1fa111', title: 'Launch brief', summary: 'Ready',
+    artifactType: 'report', contentType: 'text/markdown; charset=utf-8', status: 'draft',
+    visibility: 'private', version: 1, size: 12, workspace: { id: 'personal', name: 'Personal' },
+  };
+
+  beforeEach(() => { process.env.VNSH_TOKEN = 'account-token'; });
+  afterEach(() => { globalThis.fetch = originalFetch; delete process.env.VNSH_TOKEN; });
+
+  it('creates a permanent Library Artifact through the account API', async () => {
+    let seen: { url: string; headers: Headers; body: Record<string, unknown> } | undefined;
+    globalThis.fetch = vi.fn(async (input, init) => {
+      seen = { url: String(input), headers: new Headers(init?.headers), body: JSON.parse(String(init?.body)) };
+      return Response.json({ artifact }, { status: 201 });
+    }) as typeof fetch;
+    const result = await handleArtifactCreate({ title: 'Launch brief', content: '# Ready', artifact_type: 'report' });
+    expect(seen?.url).toBe('https://account.vnsh.dev/api/artifacts');
+    expect(seen?.headers.get('Authorization')).toBe('Bearer account-token');
+    expect(seen?.body).toMatchObject({ title: 'Launch brief', content: '# Ready', artifactType: 'report' });
+    expect(result.metadata).toMatchObject({ artifactId: artifact.id, version: 1 });
+    expect(result.content[0].text).toContain('Human view: https://account.vnsh.dev/artifacts/');
+  });
+
+  it('lists and reads discoverable knowledge without pasted URLs', async () => {
+    globalThis.fetch = vi.fn(async (input) => String(input).includes('?')
+      ? Response.json({ artifacts: [artifact] })
+      : Response.json({ artifact, content: '# Ready' })) as typeof fetch;
+    const listed = await handleArtifactList({ search: 'launch' });
+    expect(listed.content[0].text).toContain(artifact.id);
+    const read = await handleArtifactRead({ artifact_id: artifact.id });
+    expect(read.content[0].text).toContain('base_version: 1');
+    expect(read.metadata).toMatchObject({ content: '# Ready', version: 1 });
+  });
+
+  it('updates with explicit conflict protection and actionable recovery', async () => {
+    let headers = new Headers();
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      headers = new Headers(init?.headers);
+      return Response.json({ artifact: { ...artifact, version: 2 } });
+    }) as typeof fetch;
+    const updated = await handleArtifactUpdate({ artifact_id: artifact.id, content: '# Verified', base_version: 1, change_summary: 'Verified prod' });
+    expect(headers.get('If-Match')).toBe('"1"');
+    expect(updated.metadata.version).toBe(2);
+
+    globalThis.fetch = vi.fn(async () => Response.json({
+      error: 'VERSION_CONFLICT', message: 'Artifact is at version 3', currentVersion: 3,
+      nextAction: 'GET this same URL, merge, and retry',
+    }, { status: 412 })) as typeof fetch;
+    await expect(handleArtifactUpdate({ artifact_id: artifact.id, content: 'stale', base_version: 1 }))
+      .rejects.toThrow(/Current version: 3.*GET this same URL/i);
+  });
+
+  it('explains how to connect instead of making an unauthenticated request', async () => {
+    delete process.env.VNSH_TOKEN;
+    globalThis.fetch = vi.fn() as typeof fetch;
+    await expect(handleArtifactList({})).rejects.toThrow(/Sign in at https:\/\/account\.vnsh\.dev/i);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('handles an empty Library, self-hosting and an expired account token clearly', async () => {
+    let target = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      target = String(input);
+      return Response.json({ artifacts: [] });
+    }) as typeof fetch;
+    const empty = await handleArtifactList({ host: 'https://self-hosted.example/base' });
+    expect(target).toBe('https://self-hosted.example/api/artifacts');
+    expect(empty.content[0].text).toContain('Create the first one');
+
+    globalThis.fetch = vi.fn(async () => Response.json({ error: 'UNAUTHORIZED' }, { status: 401 })) as typeof fetch;
+    await expect(handleArtifactRead({ artifact_id: artifact.id })).rejects.toThrow(/Reconnect this Agent/i);
+  });
+});
 
 describe('local HTML sandbox', () => {
   it('encodes hostile HTML instead of interpolating executable markup', () => {
@@ -940,6 +1020,10 @@ describe('the registered tool names', () => {
     ].sort();
 
     expect(registered).toEqual([
+      'vnsh_artifact_create',
+      'vnsh_artifact_list',
+      'vnsh_artifact_read',
+      'vnsh_artifact_update',
       'vnsh_read',
       'vnsh_share',
       'vnsh_share_file',

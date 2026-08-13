@@ -146,6 +146,32 @@ const WorkspaceRestoreSchema = z.object({
   base_version: z.number().int().min(1).optional().describe('Current version, for conflict protection'),
 });
 
+const ArtifactIdSchema = z.string().uuid().describe('Account Artifact ID returned by create or list');
+const ArtifactCreateSchema = z.object({
+  title: z.string().min(1).max(200),
+  content: z.string(),
+  summary: z.string().max(1000).optional(),
+  artifact_type: z.enum(['document', 'report', 'code', 'app', 'handoff']).optional(),
+  content_type: z.string().max(200).optional(),
+  workspace_id: z.string().optional(),
+  change_summary: z.string().max(500).optional(),
+  evidence: z.array(z.string().max(1000)).max(20).optional(),
+  host: z.string().optional(),
+});
+const ArtifactListSchema = z.object({ workspace_id: z.string().optional(), search: z.string().optional(), host: z.string().optional() });
+const ArtifactReadSchema = z.object({ artifact_id: ArtifactIdSchema, host: z.string().optional() });
+const ArtifactUpdateSchema = z.object({
+  artifact_id: ArtifactIdSchema,
+  content: z.string(),
+  base_version: z.number().int().min(1),
+  title: z.string().min(1).max(200).optional(),
+  summary: z.string().max(1000).optional(),
+  content_type: z.string().max(200).optional(),
+  change_summary: z.string().max(500).optional(),
+  evidence: z.array(z.string().max(1000)).max(20).optional(),
+  host: z.string().optional(),
+});
+
 // Create MCP server
 const server = new Server(
   {
@@ -230,6 +256,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ['file_path'],
         },
+      },
+      {
+        name: 'vnsh_artifact_create',
+        description:
+          'Creates a permanent, service-readable Account Artifact in the signed-in user’s Library. ' +
+          'Use this for durable knowledge that the user wants their other Agents to discover and update. ' +
+          'Requires VNSH_TOKEN. This is different from an encrypted Incognito workspace: vnsh can read ' +
+          'Account Artifact content so authorized Agents can collaborate on it.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Short human-readable title' },
+            content: { type: 'string', description: 'Initial UTF-8 content' },
+            summary: { type: 'string', description: 'What this Artifact contains and why it matters' },
+            artifact_type: { type: 'string', enum: ['document', 'report', 'code', 'app', 'handoff'] },
+            content_type: { type: 'string', description: 'MIME type, for example text/markdown; charset=utf-8' },
+            workspace_id: { type: 'string', description: 'Optional Account Workspace ID; defaults to Personal' },
+            change_summary: { type: 'string', description: 'What this initial version establishes' },
+            evidence: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+            host: { type: 'string', description: 'Override the vnsh host URL' },
+          },
+          required: ['title', 'content'],
+        },
+      },
+      {
+        name: 'vnsh_artifact_list',
+        description:
+          'Lists permanent Account Artifacts available to the connected user. Use this instead of asking ' +
+          'the human to paste a link when continuing earlier account knowledge. Requires VNSH_TOKEN.',
+        inputSchema: {
+          type: 'object', properties: {
+            workspace_id: { type: 'string', description: 'Only this Account Workspace' },
+            search: { type: 'string', description: 'Search title and summary' },
+            host: { type: 'string', description: 'Override the vnsh host URL' },
+          },
+        },
+      },
+      {
+        name: 'vnsh_artifact_read',
+        description:
+          'Reads the current content and version of one permanent Account Artifact. Pass the returned ' +
+          'version to vnsh_artifact_update so another Agent cannot be overwritten.',
+        inputSchema: { type: 'object', properties: {
+          artifact_id: { type: 'string', description: 'UUID returned by create or list' },
+          host: { type: 'string', description: 'Override the vnsh host URL' },
+        }, required: ['artifact_id'] },
+      },
+      {
+        name: 'vnsh_artifact_update',
+        description:
+          'Creates a new immutable version of an Account Artifact. Requires the base_version returned by ' +
+          'vnsh_artifact_read. On conflict, re-read, merge, and retry; never silently overwrite.',
+        inputSchema: { type: 'object', properties: {
+          artifact_id: { type: 'string', description: 'UUID returned by create or list' },
+          content: { type: 'string', description: 'Complete replacement UTF-8 content' },
+          base_version: { type: 'integer', minimum: 1, description: 'Version this edit was based on' },
+          title: { type: 'string' }, summary: { type: 'string' }, content_type: { type: 'string' },
+          change_summary: { type: 'string', description: 'Human-readable description of this change' },
+          evidence: { type: 'array', items: { type: 'string' }, maxItems: 20 },
+          host: { type: 'string', description: 'Override the vnsh host URL' },
+        }, required: ['artifact_id', 'content', 'base_version'] },
       },
       {
         name: 'vnsh_workspace_create',
@@ -396,6 +483,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return await handleShareFile(args);
     } else if (name === 'vnsh_workspace_create') {
       return await handleWorkspaceCreate(args);
+    } else if (name === 'vnsh_artifact_create') {
+      return await handleArtifactCreate(args);
+    } else if (name === 'vnsh_artifact_list') {
+      return await handleArtifactList(args);
+    } else if (name === 'vnsh_artifact_read') {
+      return await handleArtifactRead(args);
+    } else if (name === 'vnsh_artifact_update') {
+      return await handleArtifactUpdate(args);
     } else if (name === 'vnsh_workspace_renew') {
       return await handleWorkspaceRenew(args);
     } else if (name === 'vnsh_workspace_read') {
@@ -836,6 +931,117 @@ export async function handleShareFile(args: unknown) {
       fileName,
       originalSize: stat.size,
     },
+  };
+}
+
+function accountHost(hostOverride?: string): string {
+  const configured = hostOverride || DEFAULT_HOST;
+  const url = new URL(configured);
+  return url.hostname === 'vnsh.dev' ? 'https://account.vnsh.dev' : url.origin;
+}
+
+function requireAccountToken(): void {
+  if (!process.env.VNSH_TOKEN) {
+    throw new Error('Account Artifacts need VNSH_TOKEN. Sign in at https://account.vnsh.dev, create a CLI / Agent token, then set VNSH_TOKEN for this MCP server.');
+  }
+}
+
+type AccountArtifact = {
+  id: string; title: string; summary: string | null; artifactType: string; contentType: string;
+  status: string; visibility: string; version: number; size: number;
+  workspace?: { id: string | null; name: string };
+  capabilities?: string[];
+};
+
+async function artifactError(response: Response, action: string): Promise<never> {
+  let detail: { error?: string; message?: string; currentVersion?: number; nextAction?: string } = {};
+  try { detail = await response.json() as typeof detail; } catch { /* response may be plain text */ }
+  if (response.status === 401) throw new Error(`${action} needs a valid VNSH_TOKEN. Reconnect this Agent from https://account.vnsh.dev.`);
+  const recovery = detail.nextAction ? ` ${detail.nextAction}` : '';
+  const current = detail.currentVersion ? ` Current version: ${detail.currentVersion}.` : '';
+  throw new Error(`${action} failed (${response.status}${detail.error ? ` ${detail.error}` : ''}): ${detail.message || response.statusText}.${current}${recovery}`);
+}
+
+export async function handleArtifactCreate(args: unknown) {
+  const input = ArtifactCreateSchema.parse(args);
+  requireAccountToken();
+  const host = accountHost(input.host);
+  const response = await fetch(`${host}/api/artifacts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...clientHeaders() },
+    body: JSON.stringify({
+      title: input.title, content: input.content, summary: input.summary,
+      artifactType: input.artifact_type, contentType: input.content_type,
+      workspaceId: input.workspace_id, changeSummary: input.change_summary,
+      evidence: input.evidence, harness: agentName() || 'MCP',
+    }),
+  });
+  if (!response.ok) return artifactError(response, 'Create Artifact');
+  const data = await response.json() as { artifact: AccountArtifact };
+  const artifact = data.artifact;
+  return {
+    content: [{ type: 'text' as const, text:
+      `Account Artifact created permanently: ${artifact.title} (version ${artifact.version}).\n\n` +
+      `Artifact ID: ${artifact.id}\nWorkspace: ${artifact.workspace?.name || 'Personal'}\n` +
+      `Human view: ${host}/artifacts/${artifact.id}\n\n` +
+      `Next: use vnsh_artifact_read before editing, or ask the human to open the Artifact and create a private read/edit link for an Agent outside this account.` }],
+    metadata: { artifactId: artifact.id, version: artifact.version, artifact, url: `${host}/artifacts/${artifact.id}` },
+  };
+}
+
+export async function handleArtifactList(args: unknown) {
+  const input = ArtifactListSchema.parse(args || {});
+  requireAccountToken();
+  const host = accountHost(input.host);
+  const query = new URLSearchParams();
+  if (input.workspace_id) query.set('workspace', input.workspace_id);
+  if (input.search) query.set('q', input.search);
+  const response = await fetch(`${host}/api/artifacts${query.size ? `?${query}` : ''}`, { headers: clientHeaders() });
+  if (!response.ok) return artifactError(response, 'List Artifacts');
+  const data = await response.json() as { artifacts: AccountArtifact[] };
+  const lines = data.artifacts.map((artifact) =>
+    `- ${artifact.title} — ${artifact.id} — v${artifact.version} — ${artifact.status} — ${artifact.workspace?.name || 'Personal'}`);
+  return {
+    content: [{ type: 'text' as const, text: data.artifacts.length
+      ? `Account Artifacts (${data.artifacts.length}):\n${lines.join('\n')}\n\nUse vnsh_artifact_read with an Artifact ID to continue.`
+      : 'No Account Artifacts matched. Create the first one with vnsh_artifact_create.' }],
+    metadata: { artifacts: data.artifacts },
+  };
+}
+
+export async function handleArtifactRead(args: unknown) {
+  const input = ArtifactReadSchema.parse(args);
+  requireAccountToken();
+  const host = accountHost(input.host);
+  const response = await fetch(`${host}/api/artifacts/${input.artifact_id}`, { headers: clientHeaders() });
+  if (!response.ok) return artifactError(response, 'Read Artifact');
+  const data = await response.json() as { artifact: AccountArtifact; content: string };
+  return {
+    content: [{ type: 'text' as const, text:
+      `${data.content}\n\n---\nArtifact: ${data.artifact.title}\nVersion: ${data.artifact.version}\n` +
+      `To change it safely, call vnsh_artifact_update with base_version: ${data.artifact.version}.` }],
+    metadata: { artifactId: data.artifact.id, version: data.artifact.version, artifact: data.artifact, content: data.content },
+  };
+}
+
+export async function handleArtifactUpdate(args: unknown) {
+  const input = ArtifactUpdateSchema.parse(args);
+  requireAccountToken();
+  const host = accountHost(input.host);
+  const response = await fetch(`${host}/api/artifacts/${input.artifact_id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'If-Match': `"${input.base_version}"`, ...clientHeaders() },
+    body: JSON.stringify({
+      content: input.content, title: input.title, summary: input.summary,
+      contentType: input.content_type, changeSummary: input.change_summary,
+      evidence: input.evidence, harness: agentName() || 'MCP',
+    }),
+  });
+  if (!response.ok) return artifactError(response, 'Update Artifact');
+  const data = await response.json() as { artifact: AccountArtifact };
+  return {
+    content: [{ type: 'text' as const, text:
+      `Account Artifact updated to version ${data.artifact.version}. The same Artifact ID and Human view remain current.\n\n` +
+      `Next: use vnsh_artifact_read before another edit; ask the human for review when the handoff is ready.` }],
+    metadata: { artifactId: data.artifact.id, version: data.artifact.version, artifact: data.artifact },
   };
 }
 

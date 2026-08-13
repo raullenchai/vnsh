@@ -8,14 +8,14 @@ encrypts and decrypts before content crosses the vnsh service boundary.
 Pin the reviewed release:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.7.0
+claude mcp add vnsh -- npx -y vnsh-mcp@1.8.0
 ```
 
 For Cursor, OpenHands, Cline, Windsurf, or another MCP client, use this server
 entry in the client's project configuration:
 
 ```json
-{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.7.0"]}}
+{"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.0"]}}
 ```
 
 An unpinned `npx -y vnsh-mcp` tracks new releases. That is convenient, but the
@@ -32,6 +32,10 @@ MCP process handles plaintext, so pin or build from source if you review it.
 | `vnsh_workspace_restore` | Restore a retained version as a new latest version using an edit link |
 | `vnsh_workspace_renew` | Extend expiry using an edit link without changing content or version |
 | `vnsh_workspace_open` | Save locally and open untrusted content inside a network-disabled sandbox |
+| `vnsh_artifact_create` | Create a permanent Account Artifact in the signed-in Library |
+| `vnsh_artifact_list` | Discover Account Artifacts without pasted URLs |
+| `vnsh_artifact_read` | Read Account Artifact content and current version |
+| `vnsh_artifact_update` | Create a conflict-protected immutable Account Artifact version |
 | `vnsh_share` | Create an encrypted, immutable text blob |
 | `vnsh_share_file` | Create an encrypted, immutable binary/file blob |
 | `vnsh_read` | Read legacy encrypted blobs and public workspace URLs |
@@ -39,6 +43,10 @@ MCP process handles plaintext, so pin or build from source if you review it.
 Workspace content is accepted as a string document. For images and other binary
 files use `vnsh_share_file`; reads save binary bytes to a mode-0600 temporary file
 and return a client-neutral local path.
+
+The four `vnsh_artifact_*` tools require `VNSH_TOKEN`. Account Artifacts are
+service-readable permanent collaboration objects; encrypted Workspaces remain
+the host-blind option.
 
 To retain newly created workspaces and artifacts until deletion, sign in at
 `https://account.vnsh.dev`, create a CLI / agent token, and expose it to the MCP
