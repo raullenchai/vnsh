@@ -56,6 +56,12 @@ const PKG_VERSION: string = (() => {
   }
 })();
 const CLIENT_VERSION = `mcp/${PKG_VERSION}`;
+const TtlSchema = z.number().int().min(1).max(168);
+
+function parseVersionEtag(value: string | null): number {
+  const match = (value || '').trim().match(/^(?:W\/)?"?(\d+)"?$/i);
+  return match ? Number(match[1]) : 1;
+}
 
 // Every MCP client — Claude Code, Cursor, OpenHands — speaks through this same
 // server, so a fixed header reports them all as "mcp". That makes the one metric
@@ -90,13 +96,13 @@ const ReadInputSchema = z.object({
 
 const ShareInputSchema = z.object({
   content: z.string().describe('The content to encrypt and share'),
-  ttl: z.number().optional().describe('Time-to-live in hours (default: 24, max: 168)'),
+  ttl: TtlSchema.optional().describe('Time-to-live in whole hours (default: 24, max: 168)'),
   host: z.string().optional().describe('Override the Opaque host URL'),
 });
 
 const ShareFileInputSchema = z.object({
   file_path: z.string().describe('Absolute path to the file to encrypt and share'),
-  ttl: z.number().optional().describe('Time-to-live in hours (default: 24, max: 168)'),
+  ttl: TtlSchema.optional().describe('Time-to-live in whole hours (default: 24, max: 168)'),
   host: z.string().optional().describe('Override the vnsh host URL'),
 });
 
@@ -108,13 +114,13 @@ const WorkspaceCreateSchema = z.object({
     .boolean()
     .optional()
     .describe('Store unencrypted so any agent can read it with no key. vnsh can read it too.'),
-  ttl: z.number().optional().describe('How long it lives, in hours (default: 24, max: 168)'),
+  ttl: TtlSchema.optional().describe('How long it lives, in whole hours (default: 24, max: 168)'),
   host: z.string().optional(),
 });
 
 const WorkspaceRenewSchema = z.object({
   url: z.string().describe('The workspace edit URL, including its #w= fragment'),
-  ttl: z.number().optional().describe('New lifetime in hours from now (max: 168)'),
+  ttl: TtlSchema.optional().describe('New lifetime in whole hours from now (max: 168)'),
   host: z.string().optional(),
 });
 
@@ -177,8 +183,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'The content to encrypt and share',
             },
             ttl: {
-              type: 'number',
-              description: 'Time-to-live in hours (default: 24, max: 168)',
+              type: 'integer', minimum: 1, maximum: 168,
+              description: 'Time-to-live in whole hours (default: 24, max: 168)',
             },
             host: {
               type: 'string',
@@ -202,8 +208,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: 'Absolute path to the file to encrypt and share',
             },
             ttl: {
-              type: 'number',
-              description: 'Time-to-live in hours (default: 24, max: 168)',
+              type: 'integer', minimum: 1, maximum: 168,
+              description: 'Time-to-live in whole hours (default: 24, max: 168)',
             },
             host: {
               type: 'string',
@@ -239,7 +245,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'to false; ask the user before setting it.',
             },
             ttl: {
-              type: 'number',
+              type: 'integer', minimum: 1, maximum: 168,
               description:
                 'How long the workspace lives, in hours (default: 24, max: 168). Set this ' +
                 'when the recipient may not look at it today — a plan handed to a colleague ' +
@@ -262,7 +268,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             url: { type: 'string', description: 'The workspace edit URL, including #w=' },
             ttl: {
-              type: 'number',
+              type: 'integer', minimum: 1, maximum: 168,
               description:
                 'New lifetime in hours measured from now (max: 168). Omit to reuse the ' +
                 'lifetime the workspace was created with.',
@@ -547,7 +553,7 @@ async function fetchPublicWorkspace(raw: string) {
   if (!response.ok) throw new Error(`Read failed: HTTP ${response.status}`);
   const payload = Buffer.from(await response.arrayBuffer());
   if (payload.length > MAX_CONTENT_SIZE) throw new Error(`Workspace is too large (${payload.length} bytes)`);
-  const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+  const version = parseVersionEtag(response.headers.get('ETag'));
   const kind = detectFileType(payload);
   if (kind || detectBinary(payload)) {
     const ext = kind?.ext || 'bin';
@@ -682,7 +688,7 @@ export async function handleShare(args: unknown) {
     content: [
       {
         type: 'text',
-        text: `Content encrypted and uploaded successfully.\n\nShareable URL:\n${shareUrl}\n\nExpires: ${data.expires}\n\nThe decryption key is in the URL fragment (#k=...) and is never sent to the server.`,
+        text: `Content encrypted and uploaded successfully.\n\nShareable URL:\n${shareUrl}\n\nExpires: ${data.expires}\n\nThe decryption key material is in the URL fragment (after #) and is never sent to the server.`,
       },
     ],
     metadata: {
@@ -767,7 +773,7 @@ export async function handleShareFile(args: unknown) {
     content: [
       {
         type: 'text',
-        text: `File encrypted and uploaded successfully.\n\n📎 ${fileName} (${sizeStr})\n\nShareable URL:\n${shareUrl}\n\nExpires: ${data.expires}\n\nThe decryption key is in the URL fragment (#k=...) and is never sent to the server.`,
+        text: `File encrypted and uploaded successfully.\n\n📎 ${fileName} (${sizeStr})\n\nShareable URL:\n${shareUrl}\n\nExpires: ${data.expires}\n\nThe decryption key material is in the URL fragment (after #) and is never sent to the server.`,
       },
     ],
     metadata: {
@@ -866,7 +872,7 @@ async function fetchWorkspace(url: string) {
     if (!response.ok) throw new Error(`Read failed: HTTP ${response.status}`);
     const plaintext = Buffer.from(await response.arrayBuffer());
     if (plaintext.length > MAX_CONTENT_SIZE) throw new Error(`Workspace is too large (${plaintext.length} bytes)`);
-    const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+    const version = parseVersionEtag(response.headers.get('ETag'));
     return { host: target.origin, id, version, writeToken: undefined, key: undefined,
       secret: undefined, canWrite: false, plaintext, public: true };
   }
@@ -892,7 +898,7 @@ async function fetchWorkspace(url: string) {
     throw new Error(`Workspace is too large (${payload.length} bytes)`);
   }
 
-  const version = parseInt((response.headers.get('ETag') || '"1"').replace(/"/g, ''), 10);
+  const version = parseVersionEtag(response.headers.get('ETag'));
 
   // A public workspace is stored as plaintext so that an agent's fetch can read
   // it without a key or a runtime. Its edit link is still a /w/ link, so this
@@ -985,6 +991,11 @@ export async function handleWorkspaceRead(args: unknown) {
  */
 export async function handleWorkspaceRenew(args: unknown) {
   const { url, ttl, host: hostOverride } = WorkspaceRenewSchema.parse(args);
+  if (isPublicWorkspaceUrl(url)) {
+    throw new Error(
+      'A public /p/ link is read-only. Renewing needs the private edit link (#w=) returned when the workspace was created.',
+    );
+  }
   const { host: linkHost, id, writeToken, canWrite } = parseWorkspaceUrl(url);
   const host = hostOverride || linkHost;
 
@@ -1036,6 +1047,11 @@ export async function handleWorkspaceRenew(args: unknown) {
 
 export async function handleWorkspaceUpdate(args: unknown) {
   const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
+  if (isPublicWorkspaceUrl(url)) {
+    throw new Error(
+      'A public /p/ link is read-only. Updating needs the private edit link (#w=) returned when the workspace was created.',
+    );
+  }
   const { host, id, key, writeToken, canWrite } = parseWorkspaceUrl(url);
 
   if (!canWrite || !writeToken) {
@@ -1147,7 +1163,7 @@ export function looksLikeHtml(input: string): boolean {
  */
 export async function handleWorkspaceOpen(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
-  const { id, version, plaintext } = await fetchWorkspace(url);
+  const { id, version, plaintext, public: isPublic } = await fetchWorkspace(url);
 
   const text = plaintext.toString('utf-8');
   const looksHtml = looksLikeHtml(text);
@@ -1183,8 +1199,11 @@ export async function handleWorkspaceOpen(args: unknown) {
             ? `Opened workspace ${id} (version ${version}) in the browser.\n`
             : `Could not launch a browser automatically.\n`) +
           `File: ${filePath}\n` +
-          `Rendered locally — the decrypted content never leaves this machine, and it runs\n` +
-          `in a sandboxed frame with no network access so it cannot send itself anywhere.`,
+          (looksHtml
+            ? `Rendered locally in a sandboxed frame with no network access. ` +
+              (isPublic ? `This public content is unencrypted.` : `The decrypted content never leaves this machine.`)
+            : `Opened as a local plain-text file. ` +
+              (isPublic ? `This public content is unencrypted.` : `The decrypted content never leaves this machine.`)),
       },
     ],
     metadata: { workspaceId: id, version, filePath, opened, sandboxed: looksHtml },

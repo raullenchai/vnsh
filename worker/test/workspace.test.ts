@@ -103,6 +103,32 @@ describe('Workspaces', () => {
       await response.arrayBuffer(); // drain: an unconsumed R2 body leaks the storage handle
     });
 
+    it('supports HEAD without a body', async () => {
+      const { id } = await createWorkspace('secret-bytes');
+      const response = await call(new Request(`http://localhost/api/workspace/${id}`, {
+        method: 'HEAD',
+      }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get('ETag')).toBe('"1"');
+      expect(await response.text()).toBe('');
+    });
+
+    it('exposes the public marker to cross-origin callers', async () => {
+      const created = await call(new Request('http://localhost/api/workspace', {
+        method: 'POST',
+        headers: {
+          'X-Vnsh-Write-Hash': await sha256Hex(WRITE_TOKEN),
+          'X-Vnsh-Public': '1',
+        },
+        body: 'public-text',
+      }));
+      const { id } = await created.json<{ id: string }>();
+      const response = await call(new Request(`http://localhost/api/workspace/${id}`));
+      expect(response.headers.get('X-Vnsh-Public')).toBe('1');
+      expect(response.headers.get('Access-Control-Expose-Headers')).toContain('X-Vnsh-Public');
+      await response.arrayBuffer();
+    });
+
     it('returns 404 for an unknown workspace', async () => {
       const response = await call(new Request('http://localhost/api/workspace/aaaaaaaaaaaa'));
       expect(response.status).toBe(404);

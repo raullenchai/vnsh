@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-13 — MCP 1.5.1 / CLI 2.3.6
+
+- Workspace renewals now honor an explicitly requested lifetime in production.
+- CLI and MCP reject fractional or out-of-range TTLs instead of silently changing them.
+- MCP accepts weak Cloudflare ETags, gives actionable public-link write errors, and reports public/open behavior accurately.
+- Workspace API supports HEAD and exposes `X-Vnsh-Public` to browser clients; the public content domain advertises read-only CORS methods.
+
 ## 2026-08-13 — MCP 1.5.0 / CLI 2.3.5
 
 - Publish workspace renewal and configurable workspace TTL through MCP.

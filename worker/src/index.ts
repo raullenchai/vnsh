@@ -108,7 +108,7 @@ const corsHeaders = {
     'Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Write, X-Vnsh-Write-Hash',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
-  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires',
+  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -395,10 +395,10 @@ async function handleEvent(request: Request, env: Env): Promise<Response> {
 }
 
 // Handle CORS preflight
-function handleOptions(): Response {
+function handleOptions(headers: Record<string, string> = corsHeaders): Response {
   return new Response(null, {
     status: 204,
-    headers: corsHeaders,
+    headers,
   });
 }
 
@@ -802,6 +802,13 @@ async function handleContentHost(
   url: URL,
   path: string,
 ): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return handleOptions({
+      ...corsHeaders,
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref',
+    });
+  }
   const textHeaders = {
     'Content-Type': 'text/plain; charset=utf-8',
     'X-Robots-Tag': PUBLIC_ROBOTS_TAG,
@@ -1008,7 +1015,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
-  const object = await env.VNSH_STORE.get(key);
+  const object = request.method === 'HEAD' ? head : await env.VNSH_STORE.get(key);
   if (!object) {
     // Rare race: deleted between head and get.
     return errorResponse('NOT_FOUND', 'Workspace not found or expired', 404, request);
@@ -1020,7 +1027,7 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
     visibility: isPublicWorkspace(md) ? 'public' : 'encrypted',
   });
 
-  return new Response(object.body, {
+  return new Response(request.method === 'HEAD' ? null : object.body, {
     status: 200,
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -1321,9 +1328,15 @@ async function handleWorkspaceRenew(id: string, request: Request, env: Env): Pro
     // bytes. The version is deliberately NOT bumped: no content changed, and an
     // editor holding version 7 must not be handed a conflict because someone
     // pressed "keep this alive".
+    // R2 returns custom metadata keys lower-cased in production. Spreading that
+    // object and then adding ttlHours creates both `ttlhours` and `ttlHours`;
+    // when R2 normalizes them again the stale value can win. Rebuild the one
+    // field whose value is changing so an explicit renew TTL is never ignored.
+    const { ttlHours: _ttlHours, ttlhours: _ttlhours, expiresAt: _expiresAt,
+      expiresat: _expiresat, ...stableMetadata } = md;
     const written = await env.VNSH_STORE.put(key, await obj.arrayBuffer(), {
       onlyIf: { etagMatches: head.etag },
-      customMetadata: { ...md, expiresAt: iso, ttlHours: String(ttlHours) },
+      customMetadata: { ...stableMetadata, expiresAt: iso, ttlHours: String(ttlHours) },
     });
     if (!written) {
       // Lost the race to a concurrent write — which renewed the expiry itself,
@@ -2324,15 +2337,15 @@ export default {
     const path = url.pathname;
 
     // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return handleOptions();
-    }
-
     // The content domain is dispatched before every other route, so nothing
     // below can be reached on it by accident. A route added later is off it by
     // default, which is the direction the mistake should fall.
     if (onContentHost(env, url)) {
       return handleContentHost(request, env, url, path);
+    }
+
+    if (request.method === 'OPTIONS') {
+      return handleOptions();
     }
 
     // Route: GET /api/stats - Usage analytics (authenticated)
@@ -2422,7 +2435,7 @@ export default {
     const workspaceMatch = path.match(/^\/api\/workspace\/([a-zA-Z0-9]+)$/);
     if (workspaceMatch && isValidWorkspaceId(workspaceMatch[1])) {
       const ip = getClientIp(request);
-      if (request.method === 'GET') {
+      if (request.method === 'GET' || request.method === 'HEAD') {
         if (!(await checkRateLimit(env.READ_LIMITER, ip))) return rateLimitResponse();
         return handleWorkspaceGet(workspaceMatch[1], request, env);
       }
@@ -3596,9 +3609,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.5.0"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.5.0
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.5.1"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.5.1
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3766,8 +3779,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0        pin the version
-  npm i -g vnsh-mcp@1.5.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1        pin the version
+  npm i -g vnsh-mcp@1.5.1 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code
