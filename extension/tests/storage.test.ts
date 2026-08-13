@@ -21,6 +21,9 @@ import {
   saveSnippet,
   deleteSnippet,
   generateSnippetId,
+  getRetentionHours,
+  setRetentionHours,
+  RETENTION_CHOICES,
 } from '../src/lib/storage';
 import type { ShareRecord, SavedSnippet } from '../src/lib/storage';
 
@@ -155,5 +158,56 @@ describe('generateSnippetId', () => {
   it('generates unique ids', () => {
     const ids = new Set(Array.from({ length: 100 }, () => generateSnippetId()));
     expect(ids.size).toBe(100);
+  });
+});
+
+/**
+ * How long new shares live.
+ *
+ * This preference is the whole fix for "I shared a plan and it was gone before
+ * my colleague opened it", so the cases that matter are the ones where it could
+ * silently stop applying: a value the popup never offered, and a storage read
+ * that throws. Both must land on the default rather than on undefined, because
+ * `ttl: undefined` reaches the server as no parameter at all — which happens to
+ * be 24h, and would look correct while meaning nothing.
+ */
+describe('retention preference', () => {
+  it('defaults to 24 hours when nothing is stored', async () => {
+    expect(await getRetentionHours()).toBe(24);
+  });
+
+  it.each(RETENTION_CHOICES)('round-trips %i hours', async (hours) => {
+    await setRetentionHours(hours);
+    expect(await getRetentionHours()).toBe(hours);
+  });
+
+  it.each([0, -1, 169, 1000, 3.5])('refuses to store %s', async (hours) => {
+    await setRetentionHours(hours as number);
+    expect(await getRetentionHours()).toBe(24);
+  });
+
+  it('ignores a stored value the popup could never have produced', async () => {
+    // An older build, a corrupted profile, or a hand-edited storage entry.
+    await mockStorage.set({ vnsh_retention_hours: 99999 });
+    expect(await getRetentionHours()).toBe(24);
+  });
+
+  it.each([null, undefined, 'a week', {}, []])('ignores the stored value %s', async (value) => {
+    await mockStorage.set({ vnsh_retention_hours: value });
+    expect(await getRetentionHours()).toBe(24);
+  });
+
+  it('falls back to the default when storage throws', async () => {
+    mockStorage.get.mockRejectedValueOnce(new Error('storage unavailable'));
+    expect(await getRetentionHours()).toBe(24);
+  });
+
+  it('offers only lifetimes the server accepts', () => {
+    // 168 is MAX_TTL_HOURS in the worker. An option above it would be clamped
+    // server-side and the popup would be lying about what it did.
+    for (const hours of RETENTION_CHOICES) {
+      expect(hours).toBeGreaterThanOrEqual(1);
+      expect(hours).toBeLessThanOrEqual(168);
+    }
   });
 });

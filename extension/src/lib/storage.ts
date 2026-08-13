@@ -94,3 +94,42 @@ export async function deleteSnippet(id: string): Promise<void> {
 export function generateSnippetId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
+
+// ── Retention preference ───────────────────────────────────────────
+
+const RETENTION_KEY = 'vnsh_retention_hours';
+
+/** Values the popup offers. 168 is the server's cap, and means seven days. */
+export const RETENTION_CHOICES = [24, 72, 168] as const;
+
+const DEFAULT_RETENTION_HOURS = 24;
+
+/**
+ * How long new shares should live, in hours.
+ *
+ * Stored rather than asked each time: the person who needs a week needs it for
+ * every share, and a control they have to find on each one is a control they
+ * will forget on the share that mattered.
+ *
+ * An unreadable or out-of-range stored value falls back to the default instead
+ * of propagating — the server would clamp it anyway, and silently getting 24h
+ * while the popup claims 168 is worse than getting 24h and being told so.
+ */
+export async function getRetentionHours(): Promise<number> {
+  try {
+    const result = await chrome.storage.local.get(RETENTION_KEY);
+    const stored = result[RETENTION_KEY];
+    return (RETENTION_CHOICES as readonly number[]).includes(stored)
+      ? stored
+      : DEFAULT_RETENTION_HOURS;
+  } catch {
+    return DEFAULT_RETENTION_HOURS;
+  }
+}
+
+export async function setRetentionHours(hours: number): Promise<void> {
+  const valid = (RETENTION_CHOICES as readonly number[]).includes(hours)
+    ? hours
+    : DEFAULT_RETENTION_HOURS;
+  await chrome.storage.local.set({ [RETENTION_KEY]: valid });
+}

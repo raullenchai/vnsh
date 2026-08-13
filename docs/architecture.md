@@ -1,287 +1,139 @@
-# Architecture Overview
+# Architecture overview
 
-## System Design
+vnsh gives a mutable document one address that people and AI agents can share.
+The default workspace tier is host-blind: clients encrypt and decrypt locally,
+while the service stores bytes and concurrency metadata in R2.
 
-vnsh implements a **host-blind** architecture where the server acts as a "dumb pipe" — storing and serving encrypted blobs without any ability to decrypt or inspect them.
+## Components
 
-### Core Principle: Fragment-Based Key Transport
+| Component | Responsibility |
+|---|---|
+| `worker/` | Cloudflare Worker API, browser UI, public-content serving, retention cleanup |
+| `cli/npm/` | Cross-platform Node CLI for workspace and legacy blob operations |
+| `mcp/` | MCP tools used by AI clients to create, read, update, and open workspaces |
+| `extension/` | Chrome link previews and diagnostic capture bundles |
+| R2 `VNSH_STORE` | Object bodies plus expiry, version, visibility, type, and authorization metadata |
 
-The critical security property relies on how browsers handle URL fragments:
+No database or KV namespace is required. Native rate-limit bindings protect read
+and write paths without adding storage writes. Analytics Engine is optional and
+does not participate in correctness.
 
-```
-https://vnsh.dev/v/abc123#k=deadbeef...&iv=cafebabe...
-                         └────────────────────────────┘
-                         Fragment: NEVER sent to server
-```
+## Encrypted workspace protocol (v2)
 
-When a user visits this URL:
-1. Browser sends request to `https://vnsh.dev/v/abc123`
-2. Fragment (`#k=...&iv=...`) stays in browser, never transmitted
-3. JavaScript extracts key/IV from `location.hash`
-4. Blob is fetched and decrypted client-side
+The client generates a random 32-byte root secret `S` and derives two independent
+values:
 
-## Data Flow
-
-### Write Path (Upload)
-
-```
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Client  │───▶│  Generate   │───▶│   Encrypt   │───▶│  POST   │
-│          │    │  Key + IV   │    │  AES-256-CBC│    │  /api/  │
-│          │    │  (32B+16B)  │    │             │    │  drop   │
-└──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                          │
-                                                          ▼
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Return  │◀───│  Build URL  │◀───│  Store in   │◀───│  Worker │
-│   URL    │    │  with #k=   │    │     R2      │    │         │
-└──────────┘    └─────────────┘    └─────────────┘    └─────────┘
+```text
+K = HKDF-SHA256(S, "vnsh/enc/v2")
+W = HKDF-SHA256(S, "vnsh/write/v2")
+H = SHA-256(W)
 ```
 
-### Read Path (Browser)
+`K` encrypts each version with AES-256-GCM and a fresh random 12-byte nonce. The
+stored body is `nonce || ciphertext || authentication-tag`. `W` authorizes
+writes; only `H` is stored. Keys are carried after `#` in the URL, and URL
+fragments are not sent in HTTP requests.
 
-```
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Visit   │───▶│  Extract    │───▶│  Fetch      │───▶│   GET   │
-│   URL    │    │  #k= & #iv= │    │   Blob      │    │  /api/  │
-│          │    │  from hash  │    │             │    │ blob/id │
-└──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                          │
-                                                          ▼
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Render  │◀───│  Decrypt    │◀───│  Receive    │◀───│  Worker │
-│ Content  │    │  WebCrypto  │    │  Ciphertext │    │         │
-└──────────┘    └─────────────┘    └─────────────┘    └─────────┘
+```text
+read/write: https://vnsh.dev/w/{id}#w={S}
+view-only:  https://vnsh.dev/w/{id}#r={K}
 ```
 
-### Read Path (CLI/MCP)
+The read-only property is cryptographic. A holder of `K` can decrypt every
+version but cannot recover `S` or derive `W`.
 
-```
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Parse   │───▶│  Extract    │───▶│  Fetch      │───▶│   GET   │
-│   URL    │    │  ID, Key,   │    │   Blob      │    │  /api/  │
-│          │    │  IV         │    │             │    │ blob/id │
-└──────────┘    └─────────────┘    └─────────────┘    └────┬────┘
-                                                          │
-                                                          ▼
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────┐
-│  Output  │◀───│  Decrypt    │◀───│  Receive    │◀───│  Worker │
-│  stdout  │    │  OpenSSL/   │    │  Ciphertext │    │         │
-│          │    │  Node.js    │    │             │    │         │
-└──────────┘    └─────────────┘    └─────────────┘    └─────────┘
-```
+### Create
 
-## Component Architecture
+1. Client derives `K`, `W`, and `H`, then encrypts locally.
+2. Client sends ciphertext to `POST /api/workspace` with
+   `X-Vnsh-Write-Hash: H`.
+3. Worker creates an R2 object at version 1 and returns its ID and expiry.
+4. Client constructs read/write and view-only fragment URLs.
 
-### Worker (`/worker`)
+### Read
 
-Cloudflare Worker serving as the API layer.
+1. Client requests `GET /api/workspace/{id}`; no key is transmitted.
+2. Worker streams the stored body and returns the current version as `ETag`.
+3. Client derives or reads `K`, authenticates, and decrypts locally.
 
-```
-worker/
-├── src/
-│   └── index.ts      # Router + all handlers
-├── test/
-│   └── api.test.ts   # Vitest unit tests
-├── wrangler.toml     # Cloudflare configuration
-└── package.json
-```
+### Update
 
-**Routes:**
+1. Client reads the current version and locally encrypts the replacement with a
+   new nonce.
+2. Client sends `PUT /api/workspace/{id}` with `X-Vnsh-Write: W` and
+   `If-Match: {version}`.
+3. Worker hashes `W`, verifies it against stored `H`, and conditionally writes.
+4. Missing preconditions return 428; stale versions return 412; invalid write
+   tokens return 403.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | Upload page (HTML) |
-| GET | `/health` | Health check |
-| GET | `/i` | CLI install script |
-| GET | `/robots.txt` | Search engine rules |
-| GET | `/sitemap.xml` | Sitemap for SEO |
-| GET | `/og-image.png` | Social sharing image |
-| POST | `/api/workspace` | Create a workspace |
-| GET | `/api/workspace/:id` | Read one; `ETag` is the version |
-| PUT | `/api/workspace/:id` | Replace one; needs `X-Vnsh-Write` and `If-Match` |
-| GET | `/w/:id` | Workspace viewer (decrypts client-side) |
-| GET | `/p/:id` | A public workspace, as a plain document — served on `vnshcontent.dev` |
-| POST | `/api/event` | Page-reported conversions |
-| POST | `/api/drop` | Upload a one-shot blob (v1) |
-| GET | `/api/blob/:id` | Download a one-shot blob (v1) |
-| GET | `/v/:id` | Blob viewer (preserves hash fragment) |
-| OPTIONS | `*` | CORS preflight |
+## Public workspaces
 
-**Bindings:**
+A public workspace is an explicit alternative for content that ordinary HTTP
+clients must read without local decryption. Its body is plaintext, so vnsh can
+read it. Visibility is selected at creation and cannot be changed by an update.
 
-- `VNSH_STORE` (R2 Bucket): encrypted blobs and workspaces, with expiry and
-  version carried in `customMetadata` — the single source of truth
-- `UPLOAD_LIMITER` / `READ_LIMITER` (Rate Limit): native, in-colo, no storage writes
-- `VNSH_ANALYTICS` (Analytics Engine, optional): usage counts; absent binding no-ops
+Public documents are served at `https://vnshcontent.dev/p/{id}`, a separate
+registrable domain. This contains the reputation impact of user-authored,
+top-level documents. It is separate from the runtime sandbox boundary: public
+responses also use a CSP sandbox and `default-src 'none'`, blocking same-origin
+privileges and network access.
 
-### CLI (`/cli`)
+`CONTENT_HOST` selects this domain. When unset, a self-hosted deployment can
+serve public content from the primary host. `LEGACY_PUBLIC_UNTIL` defines the
+temporary compatibility window for old primary-host `/p/` links; after it closes
+that route returns 410 and does not redirect.
 
-Cross-platform POSIX shell script using `openssl` and `curl`. Works on macOS, Linux, WSL, and Git Bash.
+## Legacy one-shot blobs (v1)
 
-**Install:**
+The immutable `/v/{id}#k={key}&iv={iv}` format remains for compatibility and
+custom-TTL one-shot sharing. Clients encrypt with AES-256-CBC and PKCS#7 padding,
+then upload through `POST /api/drop`; reads use `GET /api/blob/{id}`. CBC describes
+only this legacy format, not mutable workspaces.
 
-```bash
-curl -sL vnsh.dev/i | sh
-```
+## Worker routes
 
-**Commands:**
-
-- `vn <file>` — Encrypt and upload file
-- `echo "text" | vn` — Encrypt and upload piped input
-
-### MCP Server (`/mcp`)
-
-Model Context Protocol server for Claude Code integration.
-
-```
-mcp/
-├── src/
-│   ├── index.ts     # MCP server + tools
-│   └── crypto.ts    # AES-256-CBC utilities
-├── dist/            # Compiled output
-└── package.json
-```
-
-**Tools:**
-
-| Tool | Description |
-|------|-------------|
-| `vnsh_read` | Decrypt and read content from vnsh URL |
-| `vnsh_share` | Encrypt content and upload, return URL |
-
-## Storage Architecture
-
-### R2 (Blob Storage)
-
-- **Object Key**: UUID (e.g., `a1b2c3d4-e5f6-...`)
-- **Content**: Raw encrypted bytes
-- **Custom Metadata**: `createdAt`, `expiresAt` (ISO 8601)
-
-### KV (Metadata)
-
-- **Key**: `blob:{id}`
-- **Value**: JSON `{ createdAt, expiresAt, hasPayment, priceUSD }`
-- **TTL**: Matches blob expiry (auto-cleanup)
-
-### Expiry Handling
-
-1. KV entries auto-expire via Cloudflare's built-in TTL
-2. Worker checks expiry timestamp as belt-and-suspenders
-3. R2 lifecycle rules (optional) for orphan cleanup
-
-## Encryption Details
-
-### Algorithm: AES-256-CBC
-
-- **Key Size**: 256 bits (32 bytes, 64 hex chars)
-- **IV Size**: 128 bits (16 bytes, 32 hex chars)
-- **Padding**: PKCS#7 (OpenSSL-compatible)
-
-### Cross-Platform Compatibility
-
-All clients produce identical ciphertext:
-
-| Platform | Library | Compatibility |
-|----------|---------|---------------|
-| CLI | OpenSSL CLI | Reference implementation |
-| Browser | WebCrypto | PKCS#7 via SubtleCrypto |
-| MCP | Node.js crypto | createCipheriv/createDecipheriv |
-
-### URL Format
-
-```
-https://vnsh.dev/v/{uuid}#k={key_hex}&iv={iv_hex}
-                   │        │           │
-                   │        │           └── 32 hex chars (16 bytes)
-                   │        └────────────── 64 hex chars (32 bytes)
-                   └─────────────────────── UUID v4
-```
-
-## Two Domains
-
-Public workspaces are served from `vnshcontent.dev`; everything else — the API,
-the viewer, the homepage, `llms.txt` — stays on `vnsh.dev`.
-
-The split answers a threat that sandboxing cannot. Two are easy to conflate:
-
-| | What it is | What stops it |
+| Method | Route | Purpose |
 |---|---|---|
-| **Escape** | Rendered content reaches the key, storage, or the network | An opaque origin: `sandbox` with no `allow-same-origin`, plus `default-src 'none'`. Already held before the split. |
-| **Reputation** | A person or a crawler sees attacker-drawn pixels while the address bar reads `vnsh.dev` | Only the top-level URL being somewhere else. Sandboxing does nothing here. |
+| GET | `/` | Browser upload UI |
+| GET | `/health` | Health check |
+| GET | `/llms.txt` | Agent-facing protocol and setup instructions |
+| POST | `/api/workspace` | Create a workspace |
+| GET | `/api/workspace/{id}` | Read body and version |
+| PUT | `/api/workspace/{id}` | Conditional replacement |
+| POST | `/api/workspace/{id}/renew` | Authorized expiry renewal |
+| GET | `/w/{id}` | Encrypted workspace viewer |
+| GET | `/p/{id}` | Public document, restricted by host policy |
+| POST | `/api/drop` | Create a legacy one-shot blob |
+| GET | `/api/blob/{id}` | Read a legacy blob |
+| GET | `/v/{id}` | Legacy browser viewer |
+| POST | `/api/event` | Best-effort product event ingestion |
 
-Reputation systems act on the registrable domain, so the blast radius of one
-abusive page is not that page — it is the API, the site, and every CLI, MCP
-server and extension already installed elsewhere, which would fail silently. A
-subdomain does not help: `content.vnsh.dev` is the same registrable domain. The
-prior art is the same shape (`claudeusercontent.com` for rendering,
-`claude.site` for publicly shared artifacts).
+The content domain is routed before this normal table and exposes only public
+documents, its root explainer, robots policy, and security contact.
 
-`/w/` stays on the brand domain because its key lives in the URL fragment, which
-HTTP never transmits: the server has never seen that plaintext and neither can a
-crawler, so there is nothing to enumerate or index. The gate decides the domain.
+## Storage and retention
 
-Operationally:
+R2 is the single source of truth. An object's custom metadata records fields such
+as creation/expiry time, workspace version, write hash, visibility, and content
+type. Reads reject expired objects. Successful workspace writes refresh expiry;
+a scheduled handler removes expired objects as storage cleanup.
 
-- `CONTENT_HOST` names the public domain. Unset serves everything from one host,
-  which is what a self-hosted instance wants.
-- The content domain answers `/p/{id}`, `/robots.txt`, `/.well-known/security.txt`
-  and a root explainer. Everything else 404s, including the whole API, and it is
-  dispatched before any other route so a route added later is off it by default.
-- Public responses carry `X-Robots-Tag: noindex`, enforced rather than hoped for.
-- `LEGACY_PUBLIC_UNTIL` keeps `vnsh.dev/p/` answering for one workspace lifetime
-  after a cutover, then 410 forever. Deliberately not a redirect: scanners can
-  tag the *source* of a redirect that leads to bad content.
+Default retention is 24 hours after the latest successful write. Supported
+explicit TTL values may extend to seven days. Sharing the complete URL shares the
+key, and repeated writes can keep a workspace alive, so encryption does not
+replace link hygiene or retention policy.
 
-What the split does not buy: it does not stop abuse, it decides what abuse costs.
-The public tier is readable by us and unmoderated, and the name still says vnsh,
-so separation is clean for machines and only partial for people.
+## Security boundaries
 
-## Security Model
+The design protects plaintext from the hosting service and prevents unauthorized
+or stale workspace writes. It does not protect against a compromised client,
+someone forwarding a complete fragment URL, or metadata disclosure such as
+timestamps, sizes, IP-derived rate-limit keys, and access patterns.
 
-### Threat Model
+Rendered encrypted content is placed in an iframe with `sandbox="allow-scripts"`
+but without `allow-same-origin`. An injected `default-src 'none'` policy prevents
+network access. This keeps untrusted content from reading the parent fragment key
+or exfiltrating decrypted data.
 
-**Protected Against:**
-
-- Server compromise (DB dump, logs, backups)
-- Network sniffing (fragment never transmitted)
-- Cloudflare employee access (no plaintext exists)
-- Subpoenas (server operator cannot produce plaintext)
-
-**NOT Protected Against:**
-
-- User sharing full URL publicly
-- Client-side malware
-- Compromised upload page (serve malicious JS)
-- Timing attacks (metadata leakage)
-
-### Metadata Leakage
-
-The server knows:
-
-- When blobs are uploaded/accessed
-- Blob sizes (encrypted size ≈ plaintext + padding)
-- IP addresses of uploaders/readers
-- Access patterns (frequency, timing)
-
-The server does NOT know:
-
-- Content of blobs
-- Content type (text, image, etc.)
-- Relationship between blobs
-- Who the intended recipients are
-
-## Limits
-
-| Resource | Limit |
-|----------|-------|
-| Max blob size | 25MB |
-| Default TTL | 24 hours |
-| Max TTL | 7 days (168 hours) |
-
-## Future Considerations
-
-### Planned Features
-
-- **Burn-on-Read**: Self-destruct after first access
-- **File Type Detection**: Magic byte analysis post-decryption
+See `docs/api.md` for exact headers and response shapes, `docs/operations.md` for
+production procedures, and the ADRs in `docs/adr/` for security decisions.

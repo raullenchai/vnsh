@@ -1,0 +1,13 @@
+name = "vnsh-test"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Keep non-secret routing values aligned with production. Native rate-limit and
+# Analytics Engine bindings are omitted so unit tests remain isolated and do not
+# test Miniflare's shared counters. R2 is supplied by vitest.config.ts.
+[vars]
+CONTENT_HOST = "vnshcontent.dev"
+LEGACY_PUBLIC_UNTIL = "2026-08-05T14:35:07Z"
+ABUSE_CONTACT = "mailto:abuse@vnsh.dev"
+CF_ACCOUNT_ID = "f25478810829faf5ccc86f4ed9a96ef1"

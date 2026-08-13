@@ -35,7 +35,15 @@
           <em>Agents can fetch it directly &mdash; and vnsh can read it.</em>
         </span>
       </label>
-      <p class="opt-note">Deleted 24 hours after the last edit.</p>
+      <label class="opt-retention" for="retention-select">
+        <span>Keep for</span>
+        <select id="retention-select">
+          <option value="24">24 hours</option>
+          <option value="72">3 days</option>
+          <option value="168">7 days</option>
+        </select>
+      </label>
+      <p class="opt-note">Deleted when that runs out, counted from the last edit.</p>
     </div>
 
     <div class="share-actions">

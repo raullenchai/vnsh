@@ -2,6 +2,15 @@ name = "vnsh"
 main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Keep production entry points under the same deployment. These were previously
+# dashboard-only mappings and drifted to an older Worker while workers.dev moved
+# forward, which made production smoke tests exercise two different versions.
+routes = [
+  { pattern = "vnsh.dev", custom_domain = true },
+  { pattern = "vnshcontent.dev", custom_domain = true },
+]
 
 # Public workspaces are served from their own registrable domain. They are
 # user-written documents rendered as top-level pages, and reputation systems act
@@ -24,11 +33,6 @@ ABUSE_CONTACT = "mailto:abuse@vnsh.dev"
 # identifier, not a credential, so it lives here; the token it pairs with is a
 # secret (`wrangler secret put CF_API_TOKEN`).
 CF_ACCOUNT_ID = "f25478810829faf5ccc86f4ed9a96ef1"
-
-# Note: vnsh.dev and vnshcontent.dev are attached as Workers Custom Domains
-# (account-level, /workers/domains) rather than declared here. Declaring routes
-# in this file makes wrangler reconcile them on every deploy, and a mistake there
-# takes the live domain down.
 
 # R2 bucket for blob storage. R2 customMetadata is the source of truth for blob
 # expiry and payment info — the core read/write path depends on nothing else.

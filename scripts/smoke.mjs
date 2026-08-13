@@ -163,6 +163,64 @@ async function main() {
       `got ${forged.status}`);
   }
 
+  // ---- retention -----------------------------------------------------------
+  // The reported pain: a workspace shared with a colleague was gone the next
+  // day, and no parameter existed that could have prevented it. Blobs took
+  // ?ttl= up to a week the whole time; workspaces did not.
+  console.log('\nretention');
+  const longKeys = workspaceKeys();
+  const longCreate = await fetch(`${HOST}/api/workspace?ttl=168`, {
+    method: 'POST', body: seal('a week, please', longKeys.K),
+    headers: { 'X-Vnsh-Write-Hash': longKeys.H, 'X-Vnsh-Client': 'smoke' },
+  });
+  check('POST /api/workspace?ttl=168 responds 201', longCreate.status === 201,
+    `got ${longCreate.status}`);
+  let longId = null;
+  if (longCreate.status === 201) {
+    const body = await longCreate.json();
+    longId = body.id;
+    const days = (new Date(body.expires) - Date.now()) / 86400000;
+    check('a week means a week', days > 6.9 && days <= 7, `got ${days.toFixed(2)} days`);
+  }
+
+  if (longId) {
+    // The regression that would make the whole thing pointless: ask for seven
+    // days, make one edit, silently be back to one day.
+    const edit = await fetch(`${HOST}/api/workspace/${longId}`, {
+      method: 'PUT', body: seal('edited', longKeys.K),
+      headers: { 'X-Vnsh-Write': longKeys.W, 'If-Match': '"1"', 'X-Vnsh-Client': 'smoke' },
+    });
+    const afterEdit = edit.status < 300 ? (await edit.json()).expires : null;
+    check('an edit does not demote a seven-day workspace',
+      afterEdit && (new Date(afterEdit) - Date.now()) / 86400000 > 6.9,
+      `expires ${afterEdit}`);
+
+    // Renew: extends the clock, leaves the version alone.
+    const renew = await fetch(`${HOST}/api/workspace/${longId}/renew?ttl=168`, {
+      method: 'POST',
+      headers: { 'X-Vnsh-Write': longKeys.W, 'X-Vnsh-Client': 'smoke' },
+    });
+    check('POST /renew responds 200', renew.status === 200, `got ${renew.status}`);
+    if (renew.status === 200) {
+      const body = await renew.json();
+      check('renew does not bump the version', body.version === 2, `got v${body.version}`);
+      check('renew pushes the expiry out',
+        (new Date(body.expires) - Date.now()) / 86400000 > 6.9, `expires ${body.expires}`);
+    }
+
+    // Renewing decides how long content lives, so it is the author's call.
+    const stolen = await fetch(`${HOST}/api/workspace/${longId}/renew`, {
+      method: 'POST',
+      headers: { 'X-Vnsh-Write': 'f'.repeat(64), 'X-Vnsh-Client': 'smoke' },
+    });
+    check('renew refuses a wrong write token',
+      stolen.status >= 400 && stolen.status < 500, `got ${stolen.status}`);
+
+    const readBack = await fetch(`${HOST}/api/workspace/${longId}`);
+    check('content survives a renew unchanged',
+      open(Buffer.from(await readBack.arrayBuffer()), longKeys.K) === 'edited');
+  }
+
   // ---- what an automated reader is handed -----------------------------------
   // A reported failure: an agent fetched a workspace URL, read a comment in the
   // HTML addressed to crawlers, concluded the content was unreadable, and told

@@ -22,6 +22,10 @@ AES-256-GCM) or, for a public workspace, the content as written.
 | `X-Vnsh-Write-Hash` | yes | `SHA-256` of the write token, hex. The server never receives the token itself. |
 | `X-Vnsh-Public: 1` | no | Publish unencrypted. Never inferred; fixed at creation. |
 
+| Query | Meaning |
+|---|---|
+| `?ttl=` | Lifetime in hours, 1..168 (7 days). Default 24. Same parameter and cap as `/api/drop`. Out of range falls back to the default rather than failing, because published clients have sent this for two major versions. |
+
 ```json
 201 Created    ETag: "1"
 { "id": "k2p9xf...", "version": 1, "expires": "...", "public": true,
@@ -42,7 +46,25 @@ report the author's own link as corrupt.
 Replace the contents. Requires `X-Vnsh-Write` (the token) and `If-Match` (the
 version you read). Answers `428` without `If-Match`, `412` on a stale version,
 `403` on a bad token. Visibility is carried forward and cannot be changed by a
-write. The response mirrors create, including `url` when public.
+write. The response mirrors create, including `url` when public. The expiry is
+renewed for the lifetime the workspace was created with, not for the default —
+an edit must not silently demote a seven-day workspace to a one-day one.
+
+### POST /api/workspace/:id/renew
+
+Extend the expiry without changing the content. Requires `X-Vnsh-Write`; takes an
+optional `?ttl=` (hours from now, same cap) and otherwise reuses the lifetime the
+workspace already had.
+
+The version is deliberately **not** bumped, and no `If-Match` is required: no
+content changed, so an editor holding version 7 must not be handed a conflict
+because someone pressed "keep this alive". Answers `403` on a bad token, `410`
+once expired — expiry is deletion, so there is nothing to extend.
+
+```json
+200 OK    ETag: "7"
+{ "id": "k2p9xf...", "version": 7, "expires": "..." }
+```
 
 ### GET /p/:id
 

@@ -118,9 +118,37 @@ async function readInput(input: string | undefined, label: string): Promise<Buff
  * reason to make the caller choose up front. What actually differs is which of
  * the two links you hand out, and that decision comes after you have both.
  */
+/**
+ * `?ttl=` for a create or renew, validated here rather than at the server.
+ *
+ * The server clamps an out-of-range value to the default instead of failing,
+ * because published clients have been sending this parameter for two major
+ * versions and a 400 would turn a preference into a failed share. That is the
+ * right call for the API and the wrong one for a person at a terminal: someone
+ * who typed `-t 720` wants to be told a week is the cap, not handed 24 hours.
+ */
+function ttlQuery(raw: string | undefined): string {
+  if (!raw) return '';
+  const ttl = parseInt(raw, 10);
+  if (isNaN(ttl) || ttl < 1 || ttl > 168) {
+    error('TTL must be between 1 and 168 hours (168 = 7 days)');
+  }
+  return `?ttl=${ttl}`;
+}
+
+/** "in 7 days" / "in 26 hours", for a timestamp nobody wants to subtract by hand. */
+function humanExpiry(iso: string): string {
+  const hours = (new Date(iso).getTime() - Date.now()) / 3600000;
+  if (!isFinite(hours) || hours <= 0) return '';
+  if (hours >= 47) return `in ${Math.round(hours / 24)} days`;
+  return `in ${Math.max(1, Math.round(hours))} hours`;
+}
+
 async function createWorkspace(input: string | undefined, options: UploadOptions): Promise<void> {
   const host = options.host || DEFAULT_HOST;
-  const data = await readInput(input, 'Encrypting');
+  // Validate before reading input or claiming work has started.
+  const ttl = ttlQuery(options.ttl);
+  const data = await readInput(input, options.public ? 'Reading for public upload' : 'Encrypting');
 
   const secret = generateRootSecret();
   const keys = deriveWorkspaceKeys(secret);
@@ -142,7 +170,7 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   }
 
   info(`Uploading workspace (${formatBytes(payload.length)})...`);
-  const response = await fetch(`${host}/api/workspace`, {
+  const response = await fetch(`${host}/api/workspace${ttl}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -181,9 +209,49 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     console.log('');
   }
   if (result.expires) {
-    console.log(`${colors.yellow('Expires:')} ${result.expires} (renewed on every write)`);
+    // Printed as a duration first, because "2026-08-03T04:27:32.472Z" does not
+    // tell anyone whether their colleague can still open this on Monday, and
+    // that question is the whole reason the expiry is on screen.
+    const human = humanExpiry(result.expires);
+    console.log(`${colors.yellow('Expires:')} ${human} — ${result.expires}`);
+    if (!options.ttl) {
+      console.log(`         ${colors.cyan('-t 168 for a week, or vn renew <edit-url> to extend it later')}`);
+    }
   }
   console.log(`${colors.yellow('Update:')}  vn write <edit-url> [file]`);
+}
+
+/**
+ * Push a workspace's expiry out without rewriting it.
+ *
+ * The version is deliberately not bumped by the server, so an agent that read
+ * version 7 can still write version 8 after someone renewed underneath it.
+ */
+async function renewWorkspace(url: string, options: UploadOptions): Promise<void> {
+  const link = parseWorkspaceUrl(url);
+  if (!link.canWrite) {
+    error('That is a view-only link (#r=). Renewing needs the edit link (#w=).');
+  }
+  const host = options.host || link.host;
+
+  const response = await fetch(`${host}/api/workspace/${link.id}/renew${ttlQuery(options.ttl)}`, {
+    method: 'POST',
+    headers: {
+      'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      'X-Vnsh-Write': link.writeToken as string,
+    },
+  });
+
+  if (!response.ok) {
+    error(`Renew failed (HTTP ${response.status}): ${await response.text()}`);
+  }
+  const result = (await response.json()) as WorkspaceResponse;
+
+  console.log('');
+  console.log(colors.green('✓ Renewed'));
+  if (result.expires) {
+    console.log(`${colors.yellow('Expires:')} ${humanExpiry(result.expires)} — ${result.expires}`);
+  }
 }
 
 /**
@@ -344,12 +412,12 @@ function looksBinary(b: Buffer): boolean {
   // path has to expect plaintext, or holding your own edit link looks like
   // corruption.
   if (response.headers.get('X-Vnsh-Public') === '1') {
-    info(`Public workspace v${response.headers.get('ETag') || '?'} — no decryption needed`);
+    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
     writeOut(payload, `${link.id}-public`);
     return;
   }
 
-  info(`Decrypting workspace v${response.headers.get('ETag') || '?'} (${formatBytes(payload.length)})...`);
+  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
   try {
     writeOut(decryptWorkspace(payload, link.key), link.id);
   } catch {
@@ -511,21 +579,23 @@ program
   )
   .version(VERSION, '-v, --version')
   .argument('[file]', 'File to encrypt and share (default: stdin)')
-  .option('-t, --ttl <hours>', 'Expiry in hours, one-shot blobs only (max: 168)')
+  .option('-t, --ttl <hours>', 'How long it lives, in hours (default: 24, max: 168)')
   .option('-H, --host <url>', 'Override API host', DEFAULT_HOST)
   .option('-l, --local', 'Encrypt locally and print the payload (no upload)')
   .option('-b, --blob', 'Create a v1 one-shot blob instead of a workspace')
   .option('--public', 'Store unencrypted so any agent can read it with no key (vnsh can read it too)')
   .action(async (file: string | undefined, options: UploadOptions) => {
     try {
-      // A custom TTL is a property of the v1 blob API; workspaces are fixed at
-      // 24h from the last write. Rather than silently ignore the flag, treat
-      // asking for one as asking for a blob.
+      // `-t` used to force the v1 blob path, because workspaces were fixed at
+      // 24h and silently ignoring the flag would have been worse. Workspaces now
+      // take the same parameter with the same cap, so the flag no longer decides
+      // which kind of thing gets created — which matters, since routing a
+      // request for a longer life into a one-shot blob quietly took away the
+      // editing that made it a workspace.
       if (options.public && options.blob) {
         error('--public applies to workspaces; it cannot be combined with --blob.');
       }
-      const blobOnly = Boolean(options.blob || options.ttl);
-      if (blobOnly) {
+      if (options.blob) {
         await upload(file, options);
       } else {
         await createWorkspace(file, options);
@@ -541,6 +611,19 @@ program
   .action(async (url: string) => {
     try {
       await read(url);
+    } catch (e) {
+      error(e instanceof Error ? e.message : String(e));
+    }
+  });
+
+program
+  .command('renew <url>')
+  .description('Keep a workspace alive longer without changing it (needs the edit link)')
+  .option('-t, --ttl <hours>', 'New lifetime in hours, from now (max: 168)')
+  .option('-H, --host <url>', 'Override API host')
+  .action(async (url: string, options: UploadOptions) => {
+    try {
+      await renewWorkspace(url, options);
     } catch (e) {
       error(e instanceof Error ? e.message : String(e));
     }

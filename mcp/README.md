@@ -37,6 +37,7 @@ the URL does not change as the document evolves.
 | `vnsh_workspace_create` | Opens a workspace, returns an edit link and a view-only link |
 | `vnsh_workspace_read` | Reads current contents and version |
 | `vnsh_workspace_update` | Writes a new version; on a conflict returns the current contents so you can merge |
+| `vnsh_workspace_renew` | Extends expiry without changing content or version |
 | `vnsh_workspace_open` | Renders it locally in the browser, sandboxed |
 
 Links come in two tiers:
@@ -44,13 +45,16 @@ Links come in two tiers:
 ```
 https://vnsh.dev/w/{id}#w=…   read + write
 https://vnsh.dev/w/{id}#r=…   read only
+https://vnshcontent.dev/p/{id} public, no key or runtime required
 ```
 
 The view-only key is a one-way derivation of the edit key, so a recipient of a
 `#r=` link can decrypt every version but can never write, and can never turn it
 back into an edit link. No accounts, no ACLs — holding the link *is* the permission.
 
-Workspaces are deleted 24 hours after their last write.
+Workspaces are deleted 24 hours after their last write by default. Creation and
+renewal accept a lifetime up to 168 hours. Workspace content is a string/document;
+use `vnsh_share_file` for binary one-shot files.
 
 ## One-shot sharing
 
@@ -58,7 +62,7 @@ For content that will not change, the original tools still apply:
 
 | Tool | What it does |
 |---|---|
-| `vnsh_read` | Decrypts a `vnsh.dev/v/` link |
+| `vnsh_read` | Decrypts a `vnsh.dev/v/` link or reads a public `/p/` link |
 | `vnsh_share` | Encrypts and uploads text, returns a link |
 | `vnsh_share_file` | Same, for a local file |
 

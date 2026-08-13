@@ -9,15 +9,35 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { encrypt, decrypt, generateKey, generateIV, bufferToHex, buildVnshUrl, parseVnshUrl } from './crypto.js';
+import { encrypt, decrypt, generateKey, generateIV, bufferToHex, buildVnshUrl, parseVnshUrl, generateRootSecret, buildWorkspaceUrl, buildReadOnlyWorkspaceUrl } from './crypto.js';
 import {
   detectImageType,
   detectBinary,
   handleRead,
   handleShare,
   handleWorkspaceCreate,
+  handleWorkspaceRenew,
+  handleWorkspaceRead,
   detectFileType,
 } from './index.js';
+
+describe('public workspace reads', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('reads a fragment-free public URL through both read tools', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('# public plan\n', {
+      status: 200,
+      headers: { ETag: '"4"', 'Content-Type': 'text/markdown' },
+    })) as typeof fetch;
+    const url = 'https://vnshcontent.dev/p/aBcDeFgHiJkL';
+    const generic = await handleRead({ url });
+    const workspace = await handleWorkspaceRead({ url });
+    expect((generic.content[0] as { text: string }).text).toBe('# public plan\n');
+    expect((workspace.content[0] as { text: string }).text).toContain('# public plan');
+    expect(workspace.metadata).toMatchObject({ version: 4, public: true, canWrite: false });
+  });
+});
 
 describe('detectImageType', () => {
   describe('PNG detection', () => {
@@ -858,6 +878,7 @@ describe('the registered tool names', () => {
       'vnsh_workspace_create',
       'vnsh_workspace_open',
       'vnsh_workspace_read',
+      'vnsh_workspace_renew',
       'vnsh_workspace_update',
     ]);
     // The name that was wrong, spelled out so it cannot quietly come back.
@@ -978,5 +999,92 @@ describe('detectFileType', () => {
     const roundTripped = Buffer.from(jpeg.toString('utf-8'), 'utf-8');
     expect(roundTripped.length).not.toBe(jpeg.length);
     expect(detectFileType(jpeg)?.mime).toBe('image/jpeg');
+  });
+});
+
+/**
+ * Renewing a workspace.
+ *
+ * The behaviour worth pinning is not "it sends a POST" but the two things an
+ * agent could get wrong on the user's behalf: renewing from a link that has no
+ * authority to, and treating an expired workspace as something that can be
+ * brought back.
+ */
+describe('renewing a workspace', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function stub(status: number, body: unknown) {
+    const seen: { url: string; method: string; headers: Record<string, string> }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers: Record<string, string> = {};
+      new Headers(init?.headers).forEach((v, k) => (headers[k.toLowerCase()] = v));
+      seen.push({ url: String(input), method: init?.method || 'GET', headers });
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    return seen;
+  }
+
+  const secret = generateRootSecret();
+  const editUrl = buildWorkspaceUrl('https://vnsh.dev', 'aBcDeFgHiJkL', secret);
+  const viewUrl = buildReadOnlyWorkspaceUrl('https://vnsh.dev', 'aBcDeFgHiJkL', secret);
+  const renewed = { id: 'aBcDeFgHiJkL', version: 3, expires: '2026-08-09T00:00:00Z' };
+
+  it('posts the write token to the renew route', async () => {
+    const seen = stub(200, renewed);
+    await handleWorkspaceRenew({ url: editUrl });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].method).toBe('POST');
+    expect(seen[0].url).toBe('https://vnsh.dev/api/workspace/aBcDeFgHiJkL/renew');
+    expect(seen[0].headers['x-vnsh-write']).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('passes a requested lifetime through, and omits it otherwise', async () => {
+    const withTtl = stub(200, renewed);
+    await handleWorkspaceRenew({ url: editUrl, ttl: 168 });
+    expect(withTtl[0].url).toContain('?ttl=168');
+
+    const without = stub(200, renewed);
+    await handleWorkspaceRenew({ url: editUrl });
+    expect(without[0].url).not.toContain('ttl');
+  });
+
+  it('reports that the version did not move', async () => {
+    stub(200, renewed);
+    const result = await handleWorkspaceRenew({ url: editUrl });
+    const text = (result.content[0] as { text: string }).text;
+    // An agent that concluded a renew invalidated its base_version would go do
+    // an unnecessary re-read, or worse, abandon an edit it had already composed.
+    expect(text).toContain('unchanged');
+    expect(text).toContain('3');
+    expect(result.metadata?.version).toBe(3);
+  });
+
+  it('refuses a view-only link without calling the server', async () => {
+    const seen = stub(200, renewed);
+    await expect(handleWorkspaceRenew({ url: viewUrl })).rejects.toThrow(/view-only/i);
+    expect(seen).toHaveLength(0);
+  });
+
+  it.each([404, 410])('does not promise recovery of a workspace that is gone (%i)', async (status) => {
+    stub(status, { error: 'EXPIRED' });
+    const result = await handleWorkspaceRenew({ url: editUrl });
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    // Expiry is deletion. An agent told "expired" without being told "gone"
+    // tends to offer to restore it, which is a promise nobody can keep.
+    expect(text).toMatch(/unrecoverable/i);
   });
 });

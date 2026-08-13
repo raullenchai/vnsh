@@ -43,7 +43,7 @@ describe('public workspaces', () => {
     const { id, public: isPublic } = await create(HTML, { 'X-Vnsh-Public': '1' });
     expect(isPublic).toBe(true);
 
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     expect(response.status).toBe(200);
     expect(response.headers.get('Content-Type')).toContain('text/html');
     expect(await response.text()).toBe(HTML);
@@ -51,7 +51,7 @@ describe('public workspaces', () => {
 
   it('sends text as text rather than letting a browser sniff it', async () => {
     const { id } = await create('just some notes', { 'X-Vnsh-Public': '1' });
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     expect(response.headers.get('Content-Type')).toContain('text/plain');
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     await response.text();
@@ -61,15 +61,16 @@ describe('public workspaces', () => {
     const { id } = await create('<!-- generated -->\n<html><body>hi</body></html>', {
       'X-Vnsh-Public': '1',
     });
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     expect(response.headers.get('Content-Type')).toContain('text/html');
     await response.text();
   });
 
-  // Public content is served from vnsh.dev, so it must not run *as* vnsh.dev.
+  // Public content is served from its isolated content domain and is still
+  // sandboxed so a document has neither same-origin privileges nor a network.
   it('runs public content in an opaque origin with no network', async () => {
     const { id } = await create(HTML, { 'X-Vnsh-Public': '1' });
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     const csp = response.headers.get('Content-Security-Policy') || '';
     await response.text();
 
@@ -85,7 +86,7 @@ describe('public workspaces', () => {
 describe('the two guarantees stay separate', () => {
   it('will not serve an encrypted workspace from the public path', async () => {
     const { id } = await create('ciphertext-bytes');
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     expect(response.status).toBe(404);
     await response.text();
   });
@@ -93,8 +94,8 @@ describe('the two guarantees stay separate', () => {
   it('answers the same for encrypted, missing and expired ids', async () => {
     // Distinguishing them would confirm whether a given id exists.
     const { id } = await create('ciphertext-bytes');
-    const encrypted = await call(new Request(`http://localhost/p/${id}`));
-    const missing = await call(new Request('http://localhost/p/zzzzzzzzzzzz'));
+    const encrypted = await call(new Request(`https://vnshcontent.dev/p/${id}`));
+    const missing = await call(new Request('https://vnshcontent.dev/p/zzzzzzzzzzzz'));
     expect(encrypted.status).toBe(missing.status);
     expect(await encrypted.text()).toBe(await missing.text());
   });
@@ -114,7 +115,7 @@ describe('the two guarantees stay separate', () => {
   it('defaults to encrypted when nothing asks for public', async () => {
     const { id, public: isPublic } = await create('ciphertext-bytes');
     expect(isPublic).toBe(false);
-    expect((await call(new Request(`http://localhost/p/${id}`))).status).toBe(404);
+    expect((await call(new Request(`https://vnshcontent.dev/p/${id}`))).status).toBe(404);
   });
 });
 
@@ -137,7 +138,7 @@ describe('visibility is fixed at creation', () => {
     expect(written.status).toBe(200);
     await written.text();
 
-    expect((await call(new Request(`http://localhost/p/${id}`))).status).toBe(404);
+    expect((await call(new Request(`https://vnshcontent.dev/p/${id}`))).status).toBe(404);
   });
 
   it('is not silently lost when a public workspace is updated', async () => {
@@ -147,7 +148,7 @@ describe('visibility is fixed at creation', () => {
     expect(written.status).toBe(200);
     await written.text();
 
-    const response = await call(new Request(`http://localhost/p/${id}`));
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(updated);
   });

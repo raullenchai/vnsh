@@ -405,6 +405,16 @@ describe('llms.txt states the trust boundary', () => {
     return response.text();
   }
 
+  it('answers HEAD discovery probes', async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request('http://localhost/llms.txt', { method: 'HEAD' }), env as Env, ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('');
+  });
+
   it('distinguishes what is verifiable from what is merely true today', async () => {
     const text = await llms();
     expect(text).toMatch(/the boundary is the client, not the transport/i);

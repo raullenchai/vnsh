@@ -75,7 +75,7 @@ its own instruction file so it keeps using workspaces afterwards. By hand
 instead:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp
+claude mcp add vnsh -- npx -y vnsh-mcp@1.5.0
 ```
 
 The server exposes `vnsh_workspace_create`, `vnsh_workspace_read`,
@@ -94,9 +94,9 @@ vn read "<any vnsh url>"      # read one back — workspace, public, or legacy b
 vn write "<edit url>" ./new   # replace the contents; refuses to clobber
 ```
 
-`--public` publishes it unencrypted (see below). `--blob` makes a one-shot link,
-which is also what a custom `--ttl` implies, since workspaces are fixed at 24
-hours from the last write.
+`--public` publishes it unencrypted (see below). `--blob` explicitly makes a
+one-shot link. `--ttl` works for workspaces too, up to 168 hours; subsequent
+writes preserve that lifetime, and `vn renew` can extend it without an edit.
 
 The dependency-free shell function from `curl -sL vnsh.dev/i | sh` handles
 one-shot links only. Workspaces need HKDF-SHA256 and AES-256-GCM, and the
@@ -218,7 +218,7 @@ key nor send anything anywhere.
   write restarts it, so a workspace edited daily stays alive.
 - **The boundary is the client, not the transport.** Whatever encrypts holds your
   plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
-  latest published version on every start; pin it (`vnsh-mcp@1.4.1`), install it
+  latest published version on every start; pin it (`vnsh-mcp@1.5.0`), install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh**, by design. That is the tier.
 - **Metadata is not private.** Times, sizes and addresses exist for any hosted

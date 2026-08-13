@@ -1,6 +1,7 @@
 {
   "name": "vnsh-worker",
   "version": "1.0.0",
+  "type": "module",
   "description": "Host-blind data tunnel API",
   "main": "src/index.ts",
   "scripts": {
@@ -14,11 +15,11 @@
     "predeploy": "npm test"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.5.0",
-    "@cloudflare/workers-types": "^4.20241230.0",
-    "@vitest/coverage-v8": "^2.1.0",
+    "@cloudflare/vitest-pool-workers": "^0.21.2",
+    "@cloudflare/workers-types": "^5.20260813.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.0",
-    "wrangler": "^4.60.0"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.122.0"
   }
 }

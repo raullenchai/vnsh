@@ -12,7 +12,7 @@
  */
 
 import { createWorkspace } from '../lib/api';
-import { addToHistory, saveSnippet, generateSnippetId } from '../lib/storage';
+import { addToHistory, saveSnippet, generateSnippetId, getRetentionHours } from '../lib/storage';
 import { buildBundle, type BundleInput, type ConsoleError } from '../lib/bundle';
 import {
   SCREENSHOT_QUALITY,
@@ -143,6 +143,7 @@ async function handleShareText(
   // A public workspace is stored as plaintext, which is the only way an agent's
   // fetch reads it with no key and no runtime. Never the default.
   const { editUrl, viewUrl, expires } = await createWorkspace(new TextEncoder().encode(text), {
+    ttl: await getRetentionHours(),
     public: isPublic,
   });
 
@@ -164,7 +165,7 @@ async function handleShareBinary(
   filename?: string,
   isPublic?: boolean,
 ): Promise<string> {
-  const { editUrl, viewUrl, expires } = await createWorkspace(data, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(data, { public: isPublic, ttl: await getRetentionHours() });
 
   await addToHistory({
     url: editUrl,
@@ -188,7 +189,7 @@ async function handleShareImage(
   // Context-menu shares have nowhere to express the choice, so they stay
   // encrypted. Defaulting the other way would publish something on a right
   // click, which is not a decision to make on someone's behalf.
-  const { editUrl, viewUrl, expires } = await createWorkspace(data);
+  const { editUrl, viewUrl, expires } = await createWorkspace(data, { ttl: await getRetentionHours() });
 
   await addToHistory({
     url: editUrl,
@@ -240,7 +241,7 @@ async function handleScreenshot(
     bytes[i] = binary.charCodeAt(i);
   }
 
-  const { editUrl, viewUrl, expires } = await createWorkspace(bytes, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(bytes, { public: isPublic, ttl: await getRetentionHours() });
 
   await addToHistory({
     url: editUrl,
@@ -348,7 +349,7 @@ async function handleDebugBundle(
   const bundleJson = buildBundle(bundleInput);
   const bundleBytes = new TextEncoder().encode(bundleJson);
 
-  const { editUrl, viewUrl, expires } = await createWorkspace(bundleBytes, { public: isPublic });
+  const { editUrl, viewUrl, expires } = await createWorkspace(bundleBytes, { public: isPublic, ttl: await getRetentionHours() });
 
   // The prompt handed to an AI needs read access, not write. Pasting the
   // edit link into a chat gave whatever read it the ability to overwrite the
