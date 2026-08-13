@@ -21,6 +21,8 @@ AES-256-GCM) or, for a public workspace, the content as written.
 |---|---|---|
 | `X-Vnsh-Write-Hash` | yes | `SHA-256` of the write token, hex. The server never receives the token itself. |
 | `X-Vnsh-Public: 1` | no | Publish unencrypted. Never inferred; fixed at creation. |
+| `Authorization: Bearer ...` | no | Account token. Authenticated creates are retained until deleted. |
+| `X-Vnsh-Kind: artifact` | no | Index the document as an artifact and use `/artifact/{id}` links in clients. |
 
 | Query | Meaning |
 |---|---|
@@ -34,6 +36,25 @@ AES-256-GCM) or, for a public workspace, the content as written.
 
 `url` is present only for public workspaces. Use it verbatim — it is what keeps
 both a hosted instance and a single-domain self-hosted one working.
+
+For an authenticated create the response contains `"permanent": true` instead
+of `expires`. Its R2 content is still ciphertext unless `X-Vnsh-Public: 1` was
+explicitly sent. Account storage contains ownership metadata, never the URL
+fragment or content key.
+
+## Account endpoints
+
+The browser account lives at `https://account.vnsh.dev` and uses a 15-minute,
+single-use email magic link. A signed-in user can create a CLI/agent bearer token
+there and set it as `VNSH_TOKEN`.
+
+- `GET /api/account/documents` lists the current user's workspace/artifact metadata.
+- `POST /api/account/token` creates a bearer token and shows it once.
+- `DELETE /api/account/documents/{id}` deletes an owned document from R2 and its index row.
+
+Account sessions and tokens are stored only as SHA-256 hashes. The account index
+cannot reconstruct a lost document link; keep the link because its fragment is
+the only copy of the decryption/editing secret.
 
 ### GET /api/workspace/:id
 

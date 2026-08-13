@@ -75,7 +75,7 @@ its own instruction file so it keeps using workspaces afterwards. By hand
 instead:
 
 ```bash
-claude mcp add vnsh -- npx -y vnsh-mcp@1.5.1
+claude mcp add vnsh -- npx -y vnsh-mcp@1.6.0
 ```
 
 The server exposes `vnsh_workspace_create`, `vnsh_workspace_read`,
@@ -206,6 +206,18 @@ bad write token. Full reference in [`docs/api.md`](docs/api.md).
 
 ## Security model
 
+### Accounts and permanent artifacts
+
+Anonymous sharing remains account-free and temporary. Sign in at
+`https://account.vnsh.dev` with a magic link to keep newly created workspaces
+and `/artifact/` pages until you delete them. Browser creates use the signed-in
+session automatically. For CLI and MCP, create a token on the account page and
+set `VNSH_TOKEN`; content is still encrypted locally and the account database
+stores only ownership metadata, not keys or plaintext.
+Keep the returned link: its fragment is the only copy of the decryption/editing
+secret, so the account can manage retention and deletion but cannot recover a
+lost key.
+
 **What holds.** vnsh cannot read encrypted content, cannot write to it, and
 cannot recover a write token from anything it stores. Rendered content runs with
 no same-origin access and no network, so a hostile document can neither reach the
@@ -218,7 +230,7 @@ key nor send anything anywhere.
   write restarts it, so a workspace edited daily stays alive.
 - **The boundary is the client, not the transport.** Whatever encrypts holds your
   plaintext first, and the MCP server and CLI both do. `npx -y` refetches the
-  latest published version on every start; pin it (`vnsh-mcp@1.5.1`), install it
+  latest published version on every start; pin it (`vnsh-mcp@1.6.0`), install it
   globally once, or build from source if you review what you run.
 - **A public workspace is readable by vnsh**, by design. That is the tier.
 - **Metadata is not private.** Times, sizes and addresses exist for any hosted

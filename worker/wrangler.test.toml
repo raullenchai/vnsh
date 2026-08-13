@@ -11,3 +11,8 @@ CONTENT_HOST = "vnshcontent.dev"
 LEGACY_PUBLIC_UNTIL = "2026-08-05T14:35:07Z"
 ABUSE_CONTACT = "mailto:abuse@vnsh.dev"
 CF_ACCOUNT_ID = "f25478810829faf5ccc86f4ed9a96ef1"
+
+[[d1_databases]]
+binding = "ACCOUNTS"
+database_name = "vnsh-accounts-test"
+database_id = "00000000-0000-0000-0000-000000000000"

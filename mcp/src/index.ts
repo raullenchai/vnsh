@@ -84,6 +84,7 @@ function agentName(): string | null {
 
 function clientHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'X-Vnsh-Client': CLIENT_VERSION };
+  if (process.env.VNSH_TOKEN) headers.Authorization = `Bearer ${process.env.VNSH_TOKEN}`;
   const agent = agentName();
   if (agent) headers['X-Vnsh-Agent'] = agent;
   return headers;
@@ -108,6 +109,7 @@ const ShareFileInputSchema = z.object({
 
 const WorkspaceCreateSchema = z.object({
   content: z.string().describe('Initial workspace content'),
+  artifact: z.boolean().optional().describe('Return a rendered /artifact/ URL'),
   // Never inferred. Publishing gives up the guarantee the product is built on,
   // so it has to be asked for explicitly, by someone who knows they are asking.
   public: z
@@ -227,14 +229,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           'design, or investigation to another agent or another session, or when the user ' +
           'says they will pick this up in a different tool. Unlike vnsh_share (a one-shot ' +
           'snapshot), a workspace keeps the same URL as its content evolves. ' +
-          'Content is encrypted locally; the server never sees the key. Expires 24h after ' +
-          'the last write, or set ttl for longer — up to a week.',
+          'Content is encrypted locally; the server never sees the key. Anonymous workspaces ' +
+          'expire 24h after the last write (ttl can extend this to a week). With VNSH_TOKEN, ' +
+          'new workspaces and artifacts are kept until the account owner deletes them.',
         inputSchema: {
           type: 'object',
           properties: {
             content: {
               type: 'string',
               description: 'Initial content. HTML and markdown render as a page.',
+            },
+            artifact: {
+              type: 'boolean',
+              description: 'Return a rendered /artifact/ URL. Signed-in artifacts are permanent.',
             },
             public: {
               type: 'boolean',
@@ -792,7 +799,7 @@ export async function handleShareFile(args: unknown) {
  * @internal Exported for testing
  */
 export async function handleWorkspaceCreate(args: unknown) {
-  const { content, public: isPublic, ttl, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const { content, artifact, public: isPublic, ttl, host: hostOverride } = WorkspaceCreateSchema.parse(args);
   const host = hostOverride || DEFAULT_HOST;
 
   const secret = generateRootSecret();
@@ -808,6 +815,7 @@ export async function handleWorkspaceCreate(args: unknown) {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write-Hash': writeHash,
       ...(isPublic ? { 'X-Vnsh-Public': '1' } : {}),
+      ...(artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
       ...clientHeaders(),
     },
     body: new Uint8Array(body),
@@ -820,31 +828,33 @@ export async function handleWorkspaceCreate(args: unknown) {
   const data = (await response.json()) as {
     id: string;
     version: number;
-    expires: string;
+    expires?: string;
+    permanent?: boolean;
     url?: string;
   };
-  const url = buildWorkspaceUrl(host, data.id, secret);
+  const url = buildWorkspaceUrl(host, data.id, secret).replace('/w/', artifact ? '/artifact/' : '/w/');
   // A public workspace has no key, so its shareable link carries no fragment.
   // Reporting a "view-only" link here would misdescribe who can read it.
   // The host is the server's to decide — public documents are served from a
   // separate domain, and the fallback only covers servers predating that.
   const viewUrl = isPublic
     ? data.url || `${host}/p/${data.id}`
-    : buildReadOnlyWorkspaceUrl(host, data.id, secret);
+    : buildReadOnlyWorkspaceUrl(host, data.id, secret).replace('/w/', artifact ? '/artifact/' : '/w/');
 
+  const retention = data.permanent ? 'Saved permanently in your vnsh account until you delete it.' :
+    `Expires ${data.expires}, renewed on every write.`;
   const text = isPublic
     ? `Public workspace created at version ${data.version}.\n\n` +
       `Share this — no key, readable by any plain fetch:\n${viewUrl}\n\n` +
       `Keep this — it is the only way to change it later:\n${url}\n\n` +
       `This one is stored unencrypted, so vnsh can read it; that is the trade for ` +
-      `being readable without any setup. It still disappears ${data.expires}, renewed ` +
-      `on every write, and only the link above can change it.`
+      `being readable without any setup. ${retention} Only the link above can change it.`
     : `Workspace created at version ${data.version}. Two links, pick by intent:\n\n` +
       `Edit link (read + write):\n${url}\n\n` +
       `View-only link (read, cannot change it):\n${viewUrl}\n\n` +
       `Give the edit link to agents that will contribute; give the view-only link to ` +
       `anyone who just needs to read it. The view-only link cannot be turned back into ` +
-      `the edit link. Expires ${data.expires}, renewed on every write. Keys live in the ` +
+      `the edit link. ${retention} Keys live in the ` +
       `fragment and never reach the server.`;
 
   return {
