@@ -303,6 +303,27 @@ reorganizing knowledge later will not invalidate an Artifact link. In this
 phase, Workspace is only an organization and discovery boundary; scoped
 read/edit capability links are a separate authorization layer.
 
+### Artifact capability links
+
+A signed-in human can create revocable, single-Artifact handoff links. The
+random token is shown once and stored only as a SHA-256 hash; listing links
+never returns the secret URL.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/artifacts/:uuid/capabilities` | List link metadata and active/revoked state. Human only. |
+| `POST /api/artifacts/:uuid/capabilities` | Create a `read` or `edit` link. Human only. |
+| `DELETE /api/artifacts/:uuid/capabilities/:capabilityId` | Revoke a link immediately. Human only. |
+| `GET /c/:token` | Return current content directly; HTML browsers receive a sandbox viewer. |
+| `HEAD /c/:token` | Return content type, ETag, title, Workspace name and authority headers. |
+| `PUT /c/:token` | Create a new immutable version through an edit link. Requires `If-Match`. |
+
+Capability GET responses expose authority in `X-Vnsh-Capability: read|edit`
+and never enumerate the containing Workspace. Edit bodies use the same JSON
+shape as authenticated Artifact updates. A read link receives `403 READ_ONLY`
+for PUT. Revoked and unknown links both return 404. Capability links authorize
+only one Artifact and are deliberately independent of Agent identity.
+
 `artifactType` is one of `document`, `report`, `code`, `app`, or `handoff`.
 Every version records the authenticated session/token principal and whether it
 was a human browser session or Agent token. `harness` and `model` are optional

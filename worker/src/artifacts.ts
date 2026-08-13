@@ -44,6 +44,21 @@ type ArtifactRow = {
   workspace_name?: string;
 };
 
+type CapabilityRow = {
+  id: string; artifact_id: string; role: 'read' | 'edit'; label: string | null;
+  created_at: string; last_used_at: string | null; revoked_at: string | null;
+};
+
+function capabilityToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function tokenHash(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function jsonError(error: string, message: string, status: number): Response {
   return Response.json({ error, message }, { status, headers: { 'Cache-Control': 'no-store' } });
 }
@@ -259,9 +274,12 @@ async function artifactPage(id: string, request: Request, env: AccountEnv, user:
   const history = versions.results.map((version) =>
     `<a class="version ${version.version === selected ? 'selected' : ''}" href="/artifacts/${esc(id)}?version=${version.version}"><b>v${version.version}</b><span>${esc(version.change_summary || 'No change summary')}</span><small>${esc(version.author_kind)} · ${esc(new Date(version.created_at).toLocaleString('en-US', { timeZone: 'UTC' }))} UTC</small></a>`).join('');
   const statusClass = artifact.status === 'approved' ? 'approved' : artifact.status === 'in_review' ? 'review' : '';
+  const shareLinks = await env.ACCOUNTS.prepare(`SELECT id,role,label,created_at,last_used_at FROM artifact_capabilities
+    WHERE artifact_id=? AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 20`).bind(id).all<CapabilityRow>();
+  const shares = shareLinks.results.map((link) => `<div class="version"><b>${esc(link.role)} link</b><span>${esc(link.label || 'Unlabeled')}</span><small>${link.last_used_at ? `last used ${esc(new Date(link.last_used_at).toLocaleString('en-US', { timeZone: 'UTC' }))} UTC` : 'not used yet'}</small><form method="post" action="/artifacts/${esc(id)}/capabilities/${esc(link.id)}/revoke"><button>Revoke</button></form></div>`).join('');
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(artifact.title)} · vnsh</title><style>
   :root{--bg:#edf1ef;--panel:#fff;--ink:#14201c;--muted:#6d7a74;--line:#dce4e0;--green:#10b981;--dark:#0b1712}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--bg);font:14px/1.5 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.bar{height:68px;padding:0 22px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px}.back{color:var(--muted);text-decoration:none;font-size:20px}.title{min-width:0}.title h1{font-size:16px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.title p{margin:3px 0 0;color:var(--muted);font-size:11px}.actions{margin-left:auto;display:flex;align-items:center;gap:8px}.pill{padding:5px 8px;border-radius:99px;background:#eef2f0;color:#506059;font:700 10px ui-monospace,monospace}.pill.review{background:#fff4dc;color:#9a5b00}.pill.approved{background:#e4f8ef;color:#087a58}button{border:1px solid var(--line);border-radius:8px;background:#fff;color:#b42318;padding:8px 10px;font-weight:650;cursor:pointer}.layout{height:calc(100vh - 68px);display:grid;grid-template-columns:1fr 280px;gap:14px;padding:14px}.frame{width:100%;height:100%;border:1px solid #cad5cf;border-radius:12px;background:#fff;box-shadow:0 10px 35px rgba(16,35,26,.08)}aside{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;overflow:auto}aside h2{font-size:13px;margin:0 0 12px}.meta{color:var(--muted);font-size:12px;padding-bottom:15px;border-bottom:1px solid var(--line);margin-bottom:15px}.version{display:block;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:10px;margin:8px 0}.version.selected{border-color:var(--green);background:#ecfaf4}.version b,.version span,.version small{display:block}.version span{font-size:11px;margin:3px 0}.version small{color:var(--muted);font-size:9px}details{margin-top:22px}summary{cursor:pointer;color:#9b2c23;font-size:12px}@media(max-width:760px){.layout{display:block;height:auto}.frame{height:70vh}aside{margin-top:12px}.title p{display:none}.bar{padding:0 12px}.actions .pill{display:none}}
-  </style></head><body><header class="bar"><a class="back" href="/">←</a><div class="title"><h1>${esc(artifact.title)}</h1><p>${esc(artifact.artifact_type)} · v${selected}${selected !== artifact.current_version ? ` of ${artifact.current_version}` : ''} · ${esc(artifact.summary || 'No summary yet')}</p></div><div class="actions"><span class="pill ${statusClass}">${esc(artifact.status.replace('_', ' '))}</span></div></header><main class="layout"><iframe class="frame" title="Artifact content" sandbox src="/artifacts/${esc(id)}/content?version=${selected}"></iframe><aside><h2>Version history</h2><div class="meta">Authenticated account content · rendered in a network-disabled opaque sandbox.</div>${history}<details><summary>Delete Artifact…</summary><form method="post" action="/artifacts/${esc(id)}/delete"><button>Delete permanently</button></form></details></aside></main></body></html>`;
+  </style></head><body><header class="bar"><a class="back" href="/">←</a><div class="title"><h1>${esc(artifact.title)}</h1><p>${esc(artifact.artifact_type)} · v${selected}${selected !== artifact.current_version ? ` of ${artifact.current_version}` : ''} · ${esc(artifact.summary || 'No summary yet')}</p></div><div class="actions"><span class="pill ${statusClass}">${esc(artifact.status.replace('_', ' '))}</span></div></header><main class="layout"><iframe class="frame" title="Artifact content" sandbox src="/artifacts/${esc(id)}/content?version=${selected}"></iframe><aside><h2>Share with an Agent</h2><div class="meta">Each link grants access only to this Artifact. Links can be revoked anytime.</div><form method="post" action="/api/artifacts/${esc(id)}/capabilities"><select name="role"><option value="read">Read</option><option value="edit">Edit</option></select><input name="label" maxlength="80" placeholder="Who is this for?"><button>Create link</button></form>${shares}<h2 style="margin-top:24px">Version history</h2>${history}<details><summary>Delete Artifact…</summary><form method="post" action="/artifacts/${esc(id)}/delete"><button>Delete permanently</button></form></details></aside></main></body></html>`;
   return new Response(request.method === 'HEAD' ? null : html, { headers: artifactHtmlHeaders });
 }
 
@@ -355,6 +373,88 @@ async function deleteArtifact(id: string, env: AccountEnv, user: AccountUser): P
   return new Response(null, { status: 204 });
 }
 
+async function manageCapabilities(id: string, request: Request, env: AccountEnv, user: AccountUser): Promise<Response> {
+  if (user.sessionKind !== 'browser') return jsonError('HUMAN_REQUIRED', 'Only a signed-in human can manage sharing links', 403);
+  const artifact = await ownedArtifact(env, id, user.id);
+  if (!artifact) return jsonError('NOT_FOUND', 'Artifact not found', 404);
+  if (request.method === 'GET') {
+    const rows = await env.ACCOUNTS.prepare(`SELECT id,artifact_id,role,label,created_at,last_used_at,revoked_at
+      FROM artifact_capabilities WHERE artifact_id=? ORDER BY created_at DESC LIMIT 100`).bind(id).all<CapabilityRow>();
+    return Response.json({ capabilities: rows.results.map((row) => ({ id: row.id, role: row.role, label: row.label, active: !row.revoked_at, createdAt: row.created_at, lastUsedAt: row.last_used_at })) }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (request.method !== 'POST') return jsonError('METHOD_NOT_ALLOWED', 'Use GET or POST', 405);
+  let fields: Record<string, unknown>;
+  try {
+    if (!request.body) return jsonError('EMPTY_BODY', 'role is required', 400);
+    const rawBody = dec.decode(await readCapped(request.body, 4096));
+    fields = (request.headers.get('Content-Type') || '').includes('application/json')
+      ? JSON.parse(rawBody) as Record<string, unknown>
+      : Object.fromEntries(new URLSearchParams(rawBody));
+  } catch (error) {
+    if (isTooLarge(error)) return jsonError('PAYLOAD_TOO_LARGE', 'Sharing request must be at most 4KB', 413);
+    return jsonError('INVALID_BODY', 'Sharing request body is invalid', 400);
+  }
+  const role = fields.role;
+  const label = shortString(fields.label, 'label', 80);
+  if (role !== 'read' && role !== 'edit') return jsonError('INVALID_ROLE', 'role must be read or edit', 400);
+  if (label instanceof Response) return label;
+  const raw = capabilityToken();
+  const row = { id: crypto.randomUUID(), artifactId: id, role, label: label || null, createdAt: new Date().toISOString() };
+  await env.ACCOUNTS.prepare(`INSERT INTO artifact_capabilities(id,artifact_id,token_hash,role,label,created_by_session_id,created_at)
+    VALUES(?,?,?,?,?,?,?)`).bind(row.id, id, await tokenHash(raw), role, row.label, user.sessionId, row.createdAt).run();
+  const shareUrl = `${new URL(request.url).origin}/c/${raw}`;
+  if (!(request.headers.get('Content-Type') || '').includes('application/json')) {
+    return new Response(`<!doctype html><meta charset="utf-8"><title>Sharing link · vnsh</title><style>body{background:#080a0e;color:#f1f4f8;font:16px system-ui;max-width:720px;margin:80px auto;padding:24px}code{display:block;padding:18px;background:#151a23;border:1px solid #303846;border-radius:12px;word-break:break-all;color:#4ade80}a{color:#4ade80}</style><h1>${role === 'edit' ? 'Edit' : 'Read'} link created</h1><p>Copy it now. vnsh stores only a hash and cannot show this exact link again.</p><code>${esc(shareUrl)}</code><p><a href="/artifacts/${esc(id)}">Back to Artifact</a></p>`, { status: 201, headers: artifactHtmlHeaders });
+  }
+  return Response.json({ capability: { ...row, url: shareUrl } }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
+}
+
+async function revokeCapability(id: string, capabilityId: string, env: AccountEnv, user: AccountUser): Promise<Response> {
+  if (user.sessionKind !== 'browser') return jsonError('HUMAN_REQUIRED', 'Only a signed-in human can revoke sharing links', 403);
+  const result = await env.ACCOUNTS.prepare(`UPDATE artifact_capabilities SET revoked_at=? WHERE id=? AND artifact_id=?
+    AND artifact_id IN (SELECT id FROM artifacts WHERE owner_id=?) AND revoked_at IS NULL`)
+    .bind(new Date().toISOString(), capabilityId, id, user.id).run();
+  return new Response(null, { status: result.meta.changes ? 204 : 404 });
+}
+
+async function resolveCapability(raw: string, env: AccountEnv): Promise<{ capability: CapabilityRow; artifact: ArtifactRow } | null> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(raw)) return null;
+  const row = await env.ACCOUNTS.prepare(`SELECT c.id AS capability_id,c.artifact_id,c.role,c.label,c.created_at AS capability_created_at,c.last_used_at,c.revoked_at,
+    a.*,w.name AS workspace_name FROM artifact_capabilities c JOIN artifacts a ON a.id=c.artifact_id
+    LEFT JOIN workspaces w ON w.id=a.workspace_id WHERE c.token_hash=? AND c.revoked_at IS NULL`)
+    .bind(await tokenHash(raw)).first<Record<string, unknown>>();
+  if (!row) return null;
+  const capability: CapabilityRow = { id: String(row.capability_id), artifact_id: String(row.artifact_id), role: row.role as 'read' | 'edit', label: row.label as string | null, created_at: String(row.capability_created_at), last_used_at: row.last_used_at as string | null, revoked_at: null };
+  return { capability, artifact: row as unknown as ArtifactRow };
+}
+
+async function useCapability(raw: string, request: Request, env: AccountEnv, contentOnly: boolean): Promise<Response> {
+  const resolved = await resolveCapability(raw, env);
+  if (!resolved) return jsonError('NOT_FOUND', 'Sharing link not found or revoked', 404);
+  const { capability, artifact } = resolved;
+  await env.ACCOUNTS.prepare('UPDATE artifact_capabilities SET last_used_at=? WHERE id=?').bind(new Date().toISOString(), capability.id).run();
+  if (request.method === 'PUT') {
+    if (capability.role !== 'edit') return jsonError('READ_ONLY', 'This sharing link can read but cannot update the Artifact', 403);
+    const principal: AccountUser = { id: artifact.owner_id, email: '', tier: 'free', sessionId: `capability:${capability.id}`, sessionKind: 'token' };
+    return updateArtifact(artifact.id, request, env, principal);
+  }
+  if (request.method !== 'GET' && request.method !== 'HEAD') return jsonError('METHOD_NOT_ALLOWED', 'Use GET, HEAD or PUT', 405);
+  const object = await env.VNSH_STORE.get(artifact.current_object_key);
+  if (!object) return jsonError('STORAGE_ERROR', 'Artifact content is temporarily unavailable', 503);
+  const headers = {
+    ...renderedContentHeaders(artifact.content_type), ETag: `"${artifact.current_version}"`,
+    'X-Vnsh-Artifact-Id': artifact.id, 'X-Vnsh-Artifact-Title': encodeURIComponent(artifact.title),
+    'X-Vnsh-Capability': capability.role, 'X-Vnsh-Workspace': encodeURIComponent(artifact.workspace_name || 'Personal'),
+    Allow: capability.role === 'edit' ? 'GET, HEAD, PUT' : 'GET, HEAD',
+  };
+  const accept = request.headers.get('Accept') || '';
+  if (!contentOnly && accept.includes('text/html')) {
+    const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(artifact.title)} · vnsh</title><style>body{margin:0;background:#edf1ef;font:14px system-ui;color:#14201c}header{height:60px;background:white;border-bottom:1px solid #dce4e0;display:flex;align-items:center;padding:0 20px;gap:12px}b{font-size:15px}span{color:#6d7a74}iframe{display:block;width:calc(100% - 24px);height:calc(100vh - 84px);margin:12px;border:1px solid #cad5cf;border-radius:10px;background:white}</style><header><b>${esc(artifact.title)}</b><span>${esc(artifact.workspace_name || 'Personal')} · v${artifact.current_version} · ${capability.role} link</span></header><iframe title="Artifact content" sandbox src="/c/${esc(raw)}/content"></iframe>`;
+    return new Response(request.method === 'HEAD' ? null : html, { headers: artifactHtmlHeaders });
+  }
+  return new Response(request.method === 'HEAD' ? null : object.body, { headers });
+}
+
 export async function handleArtifacts(request: Request, env: AccountEnv, url: URL): Promise<Response | null> {
   const collection = url.pathname === '/api/artifacts';
   const match = url.pathname.match(/^\/api\/artifacts\/([0-9a-f-]{36})$/i);
@@ -362,13 +462,24 @@ export async function handleArtifacts(request: Request, env: AccountEnv, url: UR
   const page = url.pathname.match(/^\/artifacts\/([0-9a-f-]{36})$/i);
   const content = url.pathname.match(/^\/artifacts\/([0-9a-f-]{36})\/content$/i);
   const formDelete = url.pathname.match(/^\/artifacts\/([0-9a-f-]{36})\/delete$/i);
-  if (!collection && !match && !versions && !page && !content && !formDelete) return null;
+  const capabilityManage = url.pathname.match(/^\/api\/artifacts\/([0-9a-f-]{36})\/capabilities$/i);
+  const capabilityRevoke = url.pathname.match(/^\/api\/artifacts\/([0-9a-f-]{36})\/capabilities\/([0-9a-f-]{36})$/i);
+  const capabilityFormRevoke = url.pathname.match(/^\/artifacts\/([0-9a-f-]{36})\/capabilities\/([0-9a-f-]{36})\/revoke$/i);
+  const capabilityUse = url.pathname.match(/^\/c\/([A-Za-z0-9_-]{43})(?:\/content)?$/);
+  if (!collection && !match && !versions && !page && !content && !formDelete && !capabilityManage && !capabilityRevoke && !capabilityFormRevoke && !capabilityUse) return null;
+  if (capabilityUse) return useCapability(capabilityUse[1], request, env, url.pathname.endsWith('/content'));
   const user = await currentUser(request, env);
   if (!user) return jsonError('UNAUTHORIZED', 'Sign in or connect an Agent token', 401);
   if (collection && request.method === 'GET') return listArtifacts(request, env, user);
   if (collection && request.method === 'POST') return createArtifact(request, env, user);
   if (versions && request.method === 'GET') return listVersions(versions[1], env, user);
   if (versions) return jsonError('METHOD_NOT_ALLOWED', 'Use GET to list Artifact versions', 405);
+  if (capabilityManage) return manageCapabilities(capabilityManage[1], request, env, user);
+  if (capabilityRevoke && request.method === 'DELETE') return revokeCapability(capabilityRevoke[1], capabilityRevoke[2], env, user);
+  if (capabilityFormRevoke && request.method === 'POST') {
+    const revoked = await revokeCapability(capabilityFormRevoke[1], capabilityFormRevoke[2], env, user);
+    return revoked.status === 204 ? new Response(null, { status: 303, headers: { Location: `/artifacts/${capabilityFormRevoke[1]}` } }) : revoked;
+  }
   if (page && (request.method === 'GET' || request.method === 'HEAD')) return artifactPage(page[1], request, env, user);
   if (content && (request.method === 'GET' || request.method === 'HEAD')) return artifactContent(content[1], request, env, user);
   if (formDelete && request.method === 'POST') {
