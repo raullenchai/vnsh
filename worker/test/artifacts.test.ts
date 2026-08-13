@@ -39,6 +39,7 @@ beforeAll(async () => {
       "CREATE TABLE artifacts (id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,summary TEXT,artifact_type TEXT NOT NULL DEFAULT 'document',content_type TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',visibility TEXT NOT NULL DEFAULT 'private',current_version INTEGER NOT NULL DEFAULT 1,current_object_key TEXT NOT NULL,current_size INTEGER NOT NULL,history_size INTEGER NOT NULL DEFAULT 0,history_versions INTEGER NOT NULL DEFAULT 0,workspace_id TEXT REFERENCES workspaces(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
       "CREATE TABLE artifact_versions (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,version INTEGER NOT NULL,object_key TEXT NOT NULL UNIQUE,size INTEGER NOT NULL,author_principal_id TEXT NOT NULL,author_kind TEXT NOT NULL,change_summary TEXT,source_ref TEXT,evidence_json TEXT NOT NULL DEFAULT '[]',client_harness TEXT,client_model TEXT,content_type TEXT,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,version))",
       "CREATE TABLE artifact_access (artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,principal_type TEXT NOT NULL,principal_id TEXT NOT NULL,role TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(artifact_id,principal_type,principal_id))",
+      "CREATE TABLE artifact_capabilities (id TEXT PRIMARY KEY,artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,token_hash TEXT NOT NULL UNIQUE,role TEXT NOT NULL,label TEXT,created_by_session_id TEXT NOT NULL,created_at TEXT NOT NULL,last_used_at TEXT,revoked_at TEXT)",
     ] },
   ]);
   await env.ACCOUNTS.prepare('INSERT INTO users VALUES(?,?,?,?)')
@@ -143,6 +144,53 @@ describe('account Artifacts V1 contract', () => {
     }));
     expect(stale.status).toBe(412);
     expect(await stale.json()).toMatchObject({ error: 'VERSION_CONFLICT' });
+
+    const readCapabilityResponse = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'read', label: 'Reviewer' }),
+    }));
+    expect(readCapabilityResponse.status).toBe(201);
+    const readCapability = (await readCapabilityResponse.json<any>()).capability;
+    expect(readCapability.url).toMatch(/^https:\/\/account\.vnsh\.dev\/c\/[A-Za-z0-9_-]{43}$/);
+    const capabilityRead = await call(new Request(readCapability.url));
+    expect(capabilityRead.status).toBe(200);
+    expect(capabilityRead.headers.get('X-Vnsh-Capability')).toBe('read');
+    expect(capabilityRead.headers.get('ETag')).toBe('"2"');
+    expect(await capabilityRead.text()).toContain('Smoke passed.');
+    const readWrite = await call(new Request(readCapability.url, { method: 'PUT', headers: { 'If-Match': '"2"', 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'blocked' }) }));
+    expect(await readWrite.json()).toMatchObject({ error: 'READ_ONLY' });
+
+    const editCapabilityResponse = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'edit', label: 'Agent handoff' }),
+    }));
+    const editCapability = (await editCapabilityResponse.json<any>()).capability;
+    const capabilityUpdate = await call(new Request(editCapability.url, { method: 'PUT', headers: { 'If-Match': '"2"', 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'Capability v3', contentType: 'text/plain; charset=utf-8', changeSummary: 'Capability handoff' }) }));
+    expect(capabilityUpdate.status).toBe(200);
+    expect(await capabilityUpdate.json<any>()).toMatchObject({ artifact: { version: 3 } });
+    const browserCapability = await call(new Request(readCapability.url, { headers: { Accept: 'text/html' } }));
+    const browserShell = await browserCapability.text();
+    expect(browserShell).toContain('sandbox');
+    expect(browserShell).toContain(`${new URL(readCapability.url).pathname}/content`);
+    const browserContent = await call(new Request(`${readCapability.url}/content`, { headers: { Accept: 'text/html' } }));
+    expect(browserContent.headers.get('Content-Security-Policy')).toContain("sandbox; default-src 'none'");
+    expect(await browserContent.text()).toBe('Capability v3');
+    const listedCapabilities = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, { headers: { Authorization: 'Bearer human-token' } }));
+    const capabilityMetadata = (await listedCapabilities.json<any>()).capabilities;
+    expect(capabilityMetadata).toHaveLength(2);
+    expect(JSON.stringify(capabilityMetadata)).not.toContain(new URL(readCapability.url).pathname.split('/').pop());
+    const agentCannotManage = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, { headers: { Authorization: 'Bearer agent-token' } }));
+    expect(await agentCannotManage.json()).toMatchObject({ error: 'HUMAN_REQUIRED' });
+    const invalidRole = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'owner' }),
+    }));
+    expect(await invalidRole.json()).toMatchObject({ error: 'INVALID_ROLE' });
+    const formCapability = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities`, {
+      method: 'POST', headers: { Authorization: 'Bearer human-token', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'role=read&label=One-time+handoff',
+    }));
+    expect(formCapability.status).toBe(201);
+    expect(await formCapability.text()).toContain('stores only a hash');
+    const revoked = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}/capabilities/${readCapability.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer human-token' } }));
+    expect(revoked.status).toBe(204);
+    expect((await call(new Request(readCapability.url))).status).toBe(404);
 
     const agentDelete = await call(new Request(`https://account.vnsh.dev/api/artifacts/${artifact.id}`, { method: 'DELETE', headers: { Authorization: 'Bearer agent-token' } }));
     expect(agentDelete.status).toBe(403);
