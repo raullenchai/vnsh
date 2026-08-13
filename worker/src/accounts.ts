@@ -115,7 +115,7 @@ main{padding:68px 0 90px}.eyebrow{display:flex;align-items:center;gap:8px;color:
 .workspace-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:28px 0 8px}.workspace-bar>a{color:var(--muted);text-decoration:none;border:1px solid var(--line);padding:8px 12px;border-radius:10px;font-size:12px}.workspace-bar>a.active{color:#071109;background:var(--green);border-color:var(--green)}.workspace-create{display:flex;gap:6px;margin-left:auto}.workspace-create input{width:180px;margin:0;padding:8px 10px}.workspace-create button{padding:8px 10px}
 .auth-wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:stretch;max-width:940px;margin:30px auto 0}.auth-copy,.auth-card{border:1px solid var(--line);border-radius:22px;background:rgba(16,20,27,.82);box-shadow:var(--shadow)}.auth-copy{padding:48px;background:linear-gradient(145deg,rgba(74,222,128,.08),rgba(16,20,27,.9) 42%)}.auth-copy h1{font-size:46px}.auth-card{padding:42px;display:flex;flex-direction:column;justify-content:center}.auth-card h2{font-size:24px}.auth-card p{color:var(--muted)}label{display:block;color:var(--muted);font-size:12px;margin:22px 0 7px}input{width:100%;border:1px solid #323b49;border-radius:10px;background:#0c1016;color:var(--ink);font:15px inherit;padding:13px 14px;outline:none}input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(74,222,128,.1)}.auth-card button{width:100%;margin-top:12px;background:var(--green);color:#071109;border-color:var(--green);font-weight:750}.fine{font-size:12px!important;color:var(--dim)!important;margin-top:18px!important}.token{padding:22px;border:1px solid rgba(240,181,74,.28);background:#0b0e13;border-radius:14px;overflow:auto;color:#ffe1a3;font:13px/1.7 ui-monospace,monospace;word-break:break-all}.footer{border-top:1px solid rgba(255,255,255,.07);padding:26px 0 40px;color:var(--dim);font-size:12px}
 @media(max-width:760px){.shell{width:min(100% - 28px,1120px)}.topbar{height:62px}.topnav a:first-child{display:none}main{padding:42px 0 64px}.hero-row{display:block}.stats{margin-top:26px;width:100%}.stat{flex:1;min-width:0;padding:13px}.grid,.artifact-grid{grid-template-columns:1fr}.library-tools{display:block}.library-tools input,.library-tools select,.library-tools button{width:100%;margin:5px 0}.auth-wrap{grid-template-columns:1fr}.auth-copy{padding:30px}.auth-copy h1{font-size:38px}.auth-card{padding:28px}.notice{font-size:13px}}
-</style></head><body><div class="shell"><header class="topbar"><a class="brand" href="https://vnsh.dev">vnsh<i>_</i></a><nav class="topnav"><a href="https://vnsh.dev">Create workspace</a><a href="https://vnsh.dev/llms.txt">Agent setup</a></nav></header>${body}<footer class="footer">Two explicit modes · Host-blind encrypted links or account-authorized Artifacts.</footer></div></body></html>`;
+</style></head><body><div class="shell"><header class="topbar"><a class="brand" href="https://vnsh.dev">vnsh<i>_</i></a><nav class="topnav"><a href="https://vnsh.dev">Create encrypted link</a><a href="https://vnsh.dev/llms.txt">Connect an Agent</a></nav></header>${body}<footer class="footer">Two explicit modes · Host-blind encrypted links or account-authorized Artifacts.</footer></div></body></html>`;
 const htmlHeaders = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "no-store",
@@ -605,6 +605,7 @@ export async function handleAccount(
   const requestedWorkspace = url.searchParams.get("workspace");
   const selectedWorkspace = workspaces.results.find((workspace: any) => workspace.id === requestedWorkspace) || workspaces.results[0];
   const query = (url.searchParams.get("q") || "").trim().slice(0, 200);
+  const workspaceError = (url.searchParams.get("workspace_error") || "").slice(0, 200);
   const artifacts = await env.ACCOUNTS.prepare(
     `SELECT id,title,summary,artifact_type,status,current_version,current_size,history_size,updated_at
        FROM artifacts WHERE owner_id=? AND workspace_id=? AND (?='' OR title LIKE ? OR summary LIKE ?)
@@ -635,7 +636,9 @@ export async function handleAccount(
   const artifactCards = artifacts.results.map((artifact: any) =>
     `<a class="artifact-card" href="/artifacts/${esc(artifact.id)}"><span class="artifact-type">${esc(artifact.artifact_type)}</span><h3>${esc(artifact.title)}</h3><p>${esc(artifact.summary || "No summary yet")}</p><footer><span class="${artifact.status === "in_review" ? "review-status" : ""}">${esc(artifact.status.replace("_", " "))} · v${Number(artifact.current_version)}</span><span>${esc(new Date(String(artifact.updated_at)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }))}</span></footer></a>`,
   ).join("");
-  const workspaceNav = workspaces.results.map((workspace: any) =>
+  const workspaceNav = (workspaceError
+    ? `<div class="notice" style="flex-basis:100%;margin:0 0 8px"><span class="shield">!</span><div><b>Workspace not created.</b><br>${esc(workspaceError)}</div></div>`
+    : "") + workspaces.results.map((workspace: any) =>
     `<a class="${workspace.id === selectedWorkspace.id ? "active" : ""}" href="/?workspace=${esc(workspace.id)}">${esc(workspace.name)} · ${Number(workspace.artifact_count || 0)}</a>`,
   ).join("");
   const sessionCards = sessions.results.map((session: any) =>
