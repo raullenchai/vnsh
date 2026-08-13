@@ -1,11 +1,14 @@
 # Privacy Policy — vnsh Chrome Extension
 
 **Effective Date:** February 14, 2026
-**Last Updated:** February 14, 2026
+**Last Updated:** August 13, 2026
 
 ## Overview
 
-The vnsh Chrome Extension is built on a **host-blind architecture**. We cannot access, read, or decrypt your data.
+The vnsh Chrome Extension and anonymous encrypted links use a **host-blind
+architecture**. We cannot access, read, or decrypt content created in that
+mode. Account-based Artifacts are a separate collaboration mode described
+below.
 
 ## Data Encryption
 
@@ -25,8 +28,16 @@ Signed-in accounts are an explicit exception to temporary retention. For an
 account, vnsh stores the email address, session records, and the opaque IDs,
 sizes, versions, and timestamps of workspaces and artifacts created while
 signed in. Those objects are retained until the account owner deletes them.
-Their content remains client-side encrypted unless the owner deliberately uses
-the public, unencrypted publishing option.
+Existing account-owned encrypted workspaces remain client-side encrypted unless
+the owner deliberately uses the public, unencrypted publishing option.
+
+Account-based Artifacts are different: they are stored as account-authorized
+content so authenticated humans and Agent tokens can discover and collaborate
+without transporting a decryption key in every URL. vnsh can technically read
+this content. Artifact API responses are private and uncached; Artifacts are not
+public unless their human owner explicitly publishes a version. Anonymous
+host-blind sharing remains available and unchanged for content that should not
+be readable by the service.
 
 ## Local Storage
 

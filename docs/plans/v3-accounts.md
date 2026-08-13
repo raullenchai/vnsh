@@ -4,6 +4,13 @@ Status: implementation in progress 2026-08-13. The product decision below
 supersedes the earlier 7-day signed-in free tier: signed-in documents are kept
 until the owner deletes them during the free preview.
 
+> **2026-08-13 mode boundary:** this plan describes account ownership applied
+> to encrypted capability-link workspaces. Phase 1 account-based Artifacts add
+> a second, intentionally non-host-blind collaboration mode so authenticated
+> Agents can discover content without already possessing a fragment key. The
+> encrypted workspace guarantees below still hold for that original mode; they
+> are not claims about account Artifacts. See GitHub issue #59.
+
 ## The problem, stated exactly
 
 A workspace shared with a colleague is gone 24 hours later. The colleague opens

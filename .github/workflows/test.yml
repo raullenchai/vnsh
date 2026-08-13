@@ -208,10 +208,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: worker/package-lock.json
 
-      # Inert until CLOUDFLARE_API_TOKEN is added in Settings > Secrets. Without
-      # it this skips with a notice instead of failing, so adding this file
-      # changes nothing about how the project ships until that is a deliberate
-      # choice. Deploys keep working from a laptop in the meantime.
+      # The API token is stored as a repository secret. Additive D1 migrations
+      # run before the Worker that uses them; Wrangler captures a backup and
+      # rolls back a failed migration. An applied additive schema remains safe
+      # if the subsequent Worker upload fails and the previous version stays up.
       - name: Deploy worker
         id: deploy
         env:
@@ -222,7 +222,10 @@ jobs:
             echo "deployed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          cd worker && npm ci && npx wrangler deploy
+          cd worker
+          npm ci
+          npx wrangler d1 migrations apply ACCOUNTS --remote
+          npx wrangler deploy
           echo "deployed=true" >> "$GITHUB_OUTPUT"
 
       # A deploy reporting success is not the same as the change being live: the

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>vnsh Artifacts — interactive product prototype</title>
+  <style>
+    :root {
+      --bg:#f5f7f6; --panel:#fff; --ink:#14201c; --muted:#68766f; --line:#dfe6e2;
+      --green:#10b981; --green-dark:#087a58; --green-soft:#e8f8f1; --amber:#d97706;
+      --amber-soft:#fff7e8; --blue:#2563eb; --shadow:0 18px 55px rgba(23,42,34,.12);
+      --sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+    }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+    button,input,select,textarea{font:inherit} button{cursor:pointer} .hidden{display:none!important}
+    .app{min-height:100vh;display:grid;grid-template-columns:248px 1fr}
+    .sidebar{position:sticky;top:0;height:100vh;background:#0b1511;color:#dbe9e2;padding:22px 16px;display:flex;flex-direction:column}
+    .brand{display:flex;align-items:center;gap:10px;padding:4px 9px 25px;font:700 18px var(--mono)}
+    .brand-mark{color:var(--green)} .preview-tag{font:600 9px var(--mono);letter-spacing:.12em;color:#8ca198;border:1px solid #31443b;border-radius:99px;padding:4px 7px}
+    .nav-label{margin:17px 10px 7px;color:#6f857a;font:600 10px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+    .nav{display:flex;align-items:center;gap:11px;width:100%;border:0;background:transparent;color:#a9bbb2;padding:11px 12px;border-radius:10px;text-align:left}
+    .nav:hover,.nav.active{color:white;background:#17251f}.nav.active{box-shadow:inset 3px 0 var(--green)}
+    .nav .icon{width:20px;font-family:var(--mono);color:#7f968b}.nav.active .icon{color:var(--green)}
+    .agent-status{margin-top:auto;border:1px solid #263a31;background:#111e18;border-radius:13px;padding:13px;cursor:pointer;transition:.15s}
+    .agent-status:hover{border-color:#397a61;background:#15271f}
+    .agent-row{display:flex;justify-content:space-between;align-items:center}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(16,185,129,.12)}
+    .agent-status strong{font-size:12px}.agent-status p{margin:8px 0 0;color:#7f968b;font:10px/1.5 var(--mono)}
+    .profile{display:flex;align-items:center;gap:10px;margin-top:12px;padding:12px 8px 0;border-top:1px solid #22342c;font-size:12px}
+    .avatar{display:grid;place-items:center;width:31px;height:31px;border-radius:50%;background:#245c47;color:#c6fae4;font:700 11px var(--mono)}
+    main{min-width:0}.topbar{height:68px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.88);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:space-between;padding:0 34px;position:sticky;top:0;z-index:10}
+    .crumb{font:600 12px var(--mono);color:var(--muted)}.crumb b{color:var(--ink)}
+    .top-actions{display:flex;gap:9px;align-items:center}.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:10px 14px;border-radius:9px;font-weight:650;font-size:13px;box-shadow:0 1px 1px rgba(0,0,0,.03)}
+    .btn:hover{border-color:#acbbb3}.btn.primary{border-color:#0b1813;background:#0b1813;color:white}.btn.green{border-color:var(--green-dark);background:var(--green-dark);color:white}.btn.ghost{box-shadow:none;background:transparent}.btn.small{padding:7px 10px;font-size:12px}.btn.danger{color:#b42318}
+    .content{padding:38px 38px 70px;max-width:1460px;margin:auto}.page-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-end;margin-bottom:26px}
+    h1{font-size:35px;letter-spacing:-.035em;margin:0 0 8px}.subtitle{margin:0;color:var(--muted);font-size:14px}.eyebrow{color:var(--green-dark);font:700 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;margin-bottom:9px}
+    .search{display:flex;align-items:center;gap:10px;background:white;border:1px solid var(--line);border-radius:12px;padding:0 15px;margin-bottom:18px;box-shadow:0 2px 8px rgba(20,32,28,.03)}
+    .search:focus-within{border-color:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.13)}.search input{height:50px;width:100%;border:0;outline:0;background:transparent}
+    .filters{display:flex;justify-content:space-between;align-items:center;margin:13px 0 20px}.tabs{display:flex;gap:4px}.tab{border:0;background:transparent;color:var(--muted);padding:8px 11px;border-radius:8px;font-weight:650}.tab.active{background:#e7ece9;color:var(--ink)}
+    .view-note{font:10px var(--mono);color:#8a9891}.cards{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:19px}.card{overflow:hidden;border:1px solid var(--line);background:white;border-radius:15px;transition:.18s;cursor:pointer}.card:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:#b9c8c0}
+    .thumb{height:208px;padding:19px;background:#eef3f0;position:relative;overflow:hidden}.thumb-paper{height:100%;background:#fff;border:1px solid #e0e6e3;border-radius:7px;padding:18px;box-shadow:0 6px 15px rgba(0,0,0,.05)}
+    .mini-kicker{font:700 7px var(--mono);letter-spacing:.15em;color:var(--green-dark)}.mini-title{font-weight:800;font-size:22px;letter-spacing:-.06em;margin:12px 0 9px;max-width:85%}.mini-line{height:5px;border-radius:5px;background:#dce5e0;margin:7px 0}.mini-line.short{width:62%}.mini-panel{height:44px;border-radius:6px;background:linear-gradient(120deg,#ddf6e9,#edf9f3);border-left:4px solid var(--green);margin-top:13px}
+    .thumb.code{background:#101b16}.thumb.code .thumb-paper{background:#14231c;border-color:#294237;box-shadow:none}.code-lines{font:8px/1.85 var(--mono);color:#8ea399}.code-lines b{color:#5ee6ad}.code-lines i{color:#e4bd72;font-style:normal}
+    .thumb.metrics{background:#edf6f2}.bars{display:flex;align-items:end;height:115px;gap:13px;padding:9px 13px 0}.bars i{flex:1;background:#b8ead5;border-radius:4px 4px 0 0}.bars i:nth-child(2){background:var(--green)}.bars i:nth-child(3){background:#6fd5ad}.bars i:nth-child(4){background:#278c68}
+    .card-body{padding:17px 18px}.card h3{font-size:15px;margin:0 0 14px;line-height:1.35}.meta{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px}.pill{display:inline-flex;align-items:center;gap:5px;border-radius:99px;padding:4px 7px;background:#f1f4f2;font:650 9px var(--mono)}.pill.public{background:#e8f4ff;color:#1769aa}.pill.review{background:var(--amber-soft);color:#9a5b00}.pill.approved{background:var(--green-soft);color:var(--green-dark)}
+    .journey{margin-top:31px;padding:17px 20px;background:#eaf2ee;border:1px solid #d7e4dd;border-radius:13px;display:flex;gap:15px;align-items:center}.journey strong{font:700 11px var(--mono)}.journey span{color:var(--muted);font-size:12px}.journey .step{display:inline-flex;gap:7px;align-items:center}.step-num{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:white;color:var(--green-dark);font:700 9px var(--mono)}
+    /* artifact detail */
+    .artifact-shell{height:calc(100vh - 68px);display:grid;grid-template-rows:auto 1fr;background:#e9eeeb}.artifact-toolbar{background:white;border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+    .artifact-name{display:flex;align-items:center;gap:11px;min-width:0}.back{border:0;background:#f2f5f3;border-radius:8px;width:34px;height:34px}.artifact-name h2{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.artifact-name p{font:10px var(--mono);color:var(--muted);margin:4px 0 0}.toolbar-actions{display:flex;gap:8px;align-items:center}
+    .preview-frame{margin:19px;border:1px solid #cdd7d2;background:#fff;border-radius:13px;overflow:auto;box-shadow:0 12px 40px rgba(15,32,24,.09)}
+    .artifact-page{max-width:1040px;margin:auto;padding:74px 72px 110px}.artifact-page .kicker{font:700 12px var(--mono);letter-spacing:.17em;color:#d47719}.artifact-page h1{font-size:60px;max-width:790px;margin:27px 0 21px;line-height:1.01}.artifact-page .lede{font-size:20px;color:#52615a;line-height:1.65;max-width:900px}.chips{display:flex;gap:8px;margin:27px 0}.chip{font:700 11px var(--mono);padding:7px 10px;border-radius:99px;background:#e9f7f2;color:#16775a}.chip.orange{background:#fff2e3;color:#b76512}.callout{margin-top:36px;background:linear-gradient(120deg,#e3f8ec,#f4fbf7);border-left:6px solid #2d9e70;border-radius:14px;padding:29px 35px}.callout small{font:700 11px var(--mono);color:#25845f}.callout h3{font-size:21px;margin:14px 0}.callout p{color:#4f635a;line-height:1.7}
+    /* drawer/modal */
+    .scrim{position:fixed;inset:0;background:rgba(8,17,13,.43);z-index:30;display:flex;justify-content:flex-end}.drawer{width:min(460px,100%);height:100%;background:white;padding:25px;box-shadow:-20px 0 60px rgba(0,0,0,.18);overflow:auto}.drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:25px}.drawer h2{font-size:23px;margin:0}.close{border:0;background:#f0f3f1;border-radius:50%;width:34px;height:34px}.field{margin:17px 0}.field label{display:block;font:650 11px var(--mono);color:#53625b;margin-bottom:8px}.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:11px 12px;outline:0}.field textarea{min-height:100px;resize:vertical}.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+    .segmented{display:grid;grid-template-columns:1fr 1fr;gap:8px}.choice{border:1px solid var(--line);border-radius:11px;padding:13px;text-align:left;background:white}.choice.active{border-color:var(--green);background:var(--green-soft)}.choice b{display:block;font-size:12px}.choice span{display:block;color:var(--muted);font-size:10px;margin-top:4px;line-height:1.4}
+    .info{background:#f0f7f4;border:1px solid #d8e9e1;padding:12px;border-radius:10px;font-size:11px;color:#4c6258;line-height:1.5}.drawer-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
+    .version-list{display:grid;gap:9px}.version{border:1px solid var(--line);border-radius:11px;padding:13px;display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center}.version.selected{border-color:var(--green);background:var(--green-soft)}.vnum{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#edf1ef;font:700 10px var(--mono)}.version b{font-size:12px}.version p{font:9px var(--mono);color:var(--muted);margin:4px 0 0}
+    .codebox{position:relative;background:#0d1913;color:#c9d9d1;border-radius:10px;padding:14px 44px 14px 14px;font:11px/1.65 var(--mono);overflow:auto}.codebox b{color:#50dfa5}.copy-mini{position:absolute;right:8px;top:8px;border:1px solid #355143;background:#17271f;color:#b9cec3;border-radius:6px;padding:5px 7px;font:9px var(--mono)}
+    .scope-list{display:grid;gap:8px;margin:12px 0}.scope{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:11px}.scope span:last-child{font:9px var(--mono);color:var(--green-dark)}
+    .agent-flow{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:17px 0}.agent-flow div{background:#f1f5f3;border-radius:8px;padding:9px 7px;text-align:center;font:9px/1.4 var(--mono);color:#53645c}.agent-flow b{display:block;color:var(--green-dark);font-size:12px;margin-bottom:3px}
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:60;background:#0c1913;color:white;border-radius:10px;padding:12px 16px;font-size:12px;box-shadow:var(--shadow)}
+    .mobile-nav{display:none}
+    @media(max-width:960px){.app{grid-template-columns:76px 1fr}.sidebar{padding:20px 10px}.brand span:not(.brand-mark),.preview-tag,.nav span:not(.icon),.nav-label,.agent-status,.profile span{display:none}.brand,.nav{justify-content:center}.cards{grid-template-columns:repeat(2,minmax(220px,1fr))}.content{padding:28px}.artifact-page{padding:55px 38px}.artifact-page h1{font-size:46px}}
+    @media(max-width:650px){.app{display:block}.sidebar{display:none}.topbar{padding:0 17px}.content{padding:24px 16px 80px}.cards{grid-template-columns:1fr}.page-head{align-items:flex-start;flex-direction:column}.journey{display:none}.mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#0b1511;z-index:20;justify-content:space-around;padding:10px}.mobile-nav button{color:#a9bbb2;background:none;border:0;font:10px var(--mono)}.artifact-toolbar{padding:10px}.toolbar-actions .label{display:none}.preview-frame{margin:8px}.artifact-page{padding:42px 24px}.artifact-page h1{font-size:38px}.artifact-page .lede{font-size:16px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">&gt;_</span><span>vnsh</span><span class="preview-tag">CONCEPT</span></div>
+      <div class="nav-label">Workspace</div>
+      <button class="nav active" data-view="library"><span class="icon">◇</span><span>Artifacts</span></button>
+      <button class="nav" data-action="new"><span class="icon">＋</span><span>New artifact</span></button>
+      <button class="nav" data-action="quick"><span class="icon">↗</span><span>Quick encrypted share</span></button>
+      <div class="nav-label">Library</div>
+      <button class="nav" data-filter="yours"><span class="icon">@</span><span>Yours</span></button>
+      <button class="nav" data-filter="shared"><span class="icon">⇄</span><span>Shared with you</span></button>
+      <button class="nav"><span class="icon">☆</span><span>Starred</span></button>
+      <div class="agent-status" data-action="agents"><div class="agent-row"><strong>2 agents connected</strong><span class="dot"></span></div><p>Codex · active now<br>Claude Code · 18m ago<br><br>Manage access →</p></div>
+      <div class="profile"><span class="avatar">RC</span><span>Raullen Chai</span></div>
+    </aside>
+
+    <main>
+      <header class="topbar"><div class="crumb"><b>vnsh</b> / Personal workspace</div><div class="top-actions"><button class="btn ghost" data-action="agents">Connect agent</button><button class="btn ghost" data-action="quick">Quick share</button><button class="btn primary" data-action="new">＋ New artifact</button></div></header>
+
+      <section id="library" class="content">
+        <div class="page-head"><div><div class="eyebrow">Account artifacts</div><h1>Work worth keeping.</h1><p class="subtitle">Agents create and collaborate. You review what gets shared.</p></div><button class="btn" id="journeyBtn">▶ Show product journey</button></div>
+        <label class="search"><span>⌕</span><input id="search" placeholder="Search artifacts, projects, or contributors…"></label>
+        <div class="filters"><div class="tabs"><button class="tab active" data-filter="all">All</button><button class="tab" data-filter="yours">Yours</button><button class="tab" data-filter="shared">Shared with you</button><button class="tab" data-filter="review">Needs review <span class="pill review">2</span></button></div><span class="view-note">6 artifacts · permanent until deleted</span></div>
+        <div class="cards" id="cards">
+          <article class="card" data-title="Launch readiness brief" data-owner="yours" data-state="review" data-open>
+            <div class="thumb"><div class="thumb-paper"><div class="mini-kicker">VNSH · LAUNCH READINESS</div><div class="mini-title">From agent output to an approved release.</div><div class="mini-line"></div><div class="mini-line short"></div><div class="mini-panel"></div></div></div>
+            <div class="card-body"><h3>Launch readiness brief</h3><div class="meta"><span class="pill review">● Needs your review</span><span>Codex · 4m</span></div></div>
+          </article>
+          <article class="card" data-title="Agent handoff protocol" data-owner="shared" data-state="approved">
+            <div class="thumb code"><div class="thumb-paper"><div class="code-lines"><b>handoff</b> {<br>&nbsp;&nbsp;status: <i>"ready"</i>,<br>&nbsp;&nbsp;owner: <i>"deploy-agent"</i>,<br>&nbsp;&nbsp;next: [<i>"smoke"</i>, <i>"verify"</i>],<br>&nbsp;&nbsp;blocked: false<br>}<br><br><b>human_gate</b>: approved</div></div></div>
+            <div class="card-body"><h3>Agent handoff protocol</h3><div class="meta"><span class="pill approved">✓ Approved v4</span><span>Shared · 2h</span></div></div>
+          </article>
+          <article class="card" data-title="Production reliability report" data-owner="yours" data-state="approved">
+            <div class="thumb metrics"><div class="thumb-paper"><div class="mini-kicker">7 DAY RELIABILITY</div><div class="bars"><i style="height:52%"></i><i style="height:88%"></i><i style="height:72%"></i><i style="height:94%"></i></div><div class="mini-line short"></div></div></div>
+            <div class="card-body"><h3>Production reliability report</h3><div class="meta"><span class="pill public">◎ Public · v7</span><span>Edited yesterday</span></div></div>
+          </article>
+          <article class="card" data-title="Knowledge Spaces RFC" data-owner="shared" data-state="review">
+            <div class="thumb"><div class="thumb-paper"><div class="mini-kicker">ARCHITECTURE DECISION</div><div class="mini-title">Two modes. One collaboration layer.</div><div class="mini-line"></div><div class="mini-line"></div><div class="mini-line short"></div></div></div>
+            <div class="card-body"><h3>Knowledge Spaces RFC</h3><div class="meta"><span class="pill review">● Needs your review</span><span>Claude · 3h</span></div></div>
+          </article>
+          <article class="card" data-title="CLI authentication guide" data-owner="yours" data-state="draft">
+            <div class="thumb code"><div class="thumb-paper"><div class="code-lines">$ <b>vn login</b><br><br>Opening secure device flow…<br><i>✓ CLI connected</i><br><br>$ <b>vn artifact create</b><br>Permanent artifact created.</div></div></div>
+            <div class="card-body"><h3>CLI authentication guide</h3><div class="meta"><span class="pill">Draft v2</span><span>You · yesterday</span></div></div>
+          </article>
+          <article class="card" data-title="Multi-agent product strategy" data-owner="yours" data-state="approved">
+            <div class="thumb"><div class="thumb-paper"><div class="mini-kicker">PRODUCT STRATEGY</div><div class="mini-title">Knowledge → workflow → organization.</div><div class="mini-panel"></div><div class="mini-line short"></div></div></div>
+            <div class="card-body"><h3>Multi-agent product strategy</h3><div class="meta"><span class="pill public">◎ Public · v3</span><span>You · 2d</span></div></div>
+          </article>
+        </div>
+        <div class="journey"><strong>USER JOURNEY</strong><span class="step"><i class="step-num">1</i>Agent creates</span><span>→</span><span class="step"><i class="step-num">2</i>Agents iterate</span><span>→</span><span class="step"><i class="step-num">3</i>Human reviews</span><span>→</span><span class="step"><i class="step-num">4</i>Approved version is shared</span></div>
+      </section>
+
+      <section id="artifact" class="artifact-shell hidden">
+        <div class="artifact-toolbar"><div class="artifact-name"><button class="back" data-view="library">←</button><div><h2>Launch readiness brief</h2><p>v3 · updated by Codex 4 minutes ago · awaiting your review</p></div></div><div class="toolbar-actions"><span class="pill review">● Needs review</span><button class="btn small" data-action="handoff"><span class="label">Hand to agent</span> ↗</button><button class="btn small" data-action="history"><span class="label">Versions</span>⌄</button><button class="btn small green" data-action="review">Review</button><button class="btn small primary" data-action="share">Share</button></div></div>
+        <div class="preview-frame"><article class="artifact-page"><div class="kicker">VNSH · RELEASE 2026.08</div><h1>From agent output to an approved release.</h1><p class="lede">A human-readable readiness brief assembled from the implementation PR, self-review, production deployment and live smoke verification.</p><div class="chips"><span class="chip orange">For human review</span><span class="chip">Agent generated</span><span class="chip">Evidence attached</span></div><div class="callout"><small>V3 · PROPOSED FOR APPROVAL · UPDATED 4M AGO</small><h3>✓ Release chain verified end-to-end</h3><p>Codex merged the implementation, GitHub Actions passed the full coverage gate, Cloudflare deployed the Worker, and 40/40 production smoke checks passed. Reviewer attention is requested on the new account-artifact permission boundary.</p></div></article></div>
+      </section>
+    </main>
+  </div>
+  <nav class="mobile-nav"><button data-view="library">◇ Artifacts</button><button data-action="new">＋ New</button><button data-action="quick">↗ Quick share</button></nav>
+
+  <div id="drawer" class="scrim hidden"><aside class="drawer"><div class="drawer-head"><h2 id="drawerTitle">New artifact</h2><button class="close" data-action="close">×</button></div><div id="drawerBody"></div></aside></div>
+  <div id="toast" class="toast hidden"></div>
+
+  <template id="newTpl">
+    <div class="eyebrow">Permanent · account based</div><p class="subtitle">Create a durable collaboration space for humans and agents.</p>
+    <div class="field"><label>ARTIFACT TITLE</label><input value="Q3 launch decision brief"></div>
+    <div class="field"><label>START WITH</label><div class="segmented"><button class="choice active"><b>Blank artifact</b><span>Write or let an agent fill it in.</span></button><button class="choice"><b>Import workspace</b><span>Keep an existing vnsh handoff.</span></button></div></div>
+    <div class="field"><label>CONTENT TYPE</label><select><option>Interactive HTML</option><option>Markdown document</option><option>Code artifact</option><option>Report</option></select></div>
+    <div class="field"><label>INITIAL ACCESS</label><select><option>Private — only me and my agents</option><option>Specific people</option></select></div>
+    <div class="info">This is the account collaboration mode. Need a no-login, host-blind transfer instead? Use <b>Quick encrypted share</b>.</div>
+    <div class="drawer-actions"><button class="btn" data-action="close">Cancel</button><button class="btn primary" data-action="created">Create artifact →</button></div>
+  </template>
+  <template id="quickTpl">
+    <div class="eyebrow">Anonymous · host-blind</div><p class="subtitle">The original vnsh mode stays exactly where users expect it.</p>
+    <div class="field"><label>PASTE OR DROP CONTENT</label><textarea placeholder="Paste text, HTML, logs, or drop a file…"></textarea></div>
+    <div class="segmented"><button class="choice active"><b>Encrypted workspace</b><span>Key stays in the URL fragment.</span></button><button class="choice"><b>Public document</b><span>Readable by anyone and any agent.</span></button></div>
+    <div class="info" style="margin-top:16px">No account required · expires automatically · one URL carries everything.</div>
+    <div class="drawer-actions"><button class="btn" data-action="close">Cancel</button><button class="btn primary" data-action="quickCreated">Create secure link →</button></div>
+  </template>
+  <template id="reviewTpl">
+    <div class="eyebrow">Human in the loop</div><p class="subtitle">Agents can keep working. You control which version becomes approved.</p>
+    <div class="version selected"><span class="vnum">3</span><div><b>Release chain verified</b><p>CODEX · 4 MINUTES AGO · CURRENT</p></div><span>✓</span></div>
+    <div class="field"><label>REVIEW NOTE</label><textarea placeholder="What did you verify, or what needs to change?">Verified production deployment and 40/40 smoke checks. Permission copy is clear.</textarea></div>
+    <div class="info">Approving v3 does not stop agents from creating v4. Public sharing can remain pinned to this approved version.</div>
+    <div class="drawer-actions"><button class="btn danger" data-action="changes">Request changes</button><button class="btn green" data-action="approved">Approve v3 ✓</button></div>
+  </template>
+  <template id="shareTpl">
+    <div class="eyebrow">Publish with control</div><p class="subtitle">Share a stable result while agents continue iterating privately.</p>
+    <div class="field"><label>GENERAL ACCESS</label><select><option>Anyone with the link</option><option>Specific people and agents</option><option>Private</option></select></div>
+    <div class="field"><label>SHARED VERSION</label><div class="version-list"><button class="version"><span class="vnum">↻</span><div><b>Latest version</b><p>LINK MOVES WHEN AGENTS UPDATE</p></div><span></span></button><button class="version selected"><span class="vnum">3</span><div><b>Approved version 3</b><p>PINNED · APPROVED BY YOU</p></div><span>✓</span></button><button class="version"><span class="vnum">2</span><div><b>Version 2</b><p>CODEX · 38 MINUTES AGO</p></div><span></span></button></div></div>
+    <div class="field"><label>PUBLIC LINK</label><input readonly value="https://vnshcontent.dev/a/launch-26-v3"></div>
+    <div class="info">Published content opens on the isolated content domain. It cannot access your account session.</div>
+    <div class="drawer-actions"><button class="btn" data-action="close">Cancel</button><button class="btn primary" data-action="copied">Copy link</button></div>
+  </template>
+  <template id="historyTpl">
+    <div class="eyebrow">Attributable history</div><p class="subtitle">See the handoff across agents and humans.</p>
+    <div class="version-list"><div class="version selected"><span class="vnum">3</span><div><b>Release chain verified</b><p>CODEX · GPT-5 · 4M · NEEDS REVIEW</p></div><span>current</span></div><div class="version"><span class="vnum">2</span><div><b>Deployment evidence added</b><p>DEPLOY AGENT · CLAUDE · 38M</p></div></div><div class="version"><span class="vnum">1</span><div><b>Initial readiness report</b><p>CODEX · GPT-5 · 1H</p></div></div></div>
+  </template>
+  <template id="agentsTpl">
+    <div class="eyebrow">One-time setup</div><p class="subtitle">Connect any harness once. It can then discover the artifacts you allow—no URL pasted into every prompt.</p>
+    <div class="agent-flow"><div><b>1</b>Connect</div><div><b>2</b>Discover</div><div><b>3</b>Collaborate</div><div><b>4</b>Request review</div></div>
+    <div class="field"><label>RECOMMENDED · CLI</label><div class="codebox"><button class="copy-mini" data-action="copyCmd">copy</button><b>$</b> npx vnsh login<br><b>$</b> vn artifacts list --needs-review</div></div>
+    <div class="field"><label>MCP · CODEX / CLAUDE CODE / CURSOR</label><div class="codebox"><button class="copy-mini" data-action="copyMcp">copy</button><b>$</b> npx vnsh-mcp setup<br><span style="color:#789186"># adds artifact tools + discoverable resources</span></div></div>
+    <div class="field"><label>DEFAULT AGENT SCOPE</label><div class="scope-list"><div class="scope"><span>Read accessible artifacts</span><span>ALLOW</span></div><div class="scope"><span>Create and update drafts</span><span>ALLOW</span></div><div class="scope"><span>Request human review</span><span>ALLOW</span></div><div class="scope"><span>Approve or publish</span><span>HUMAN ONLY</span></div></div></div>
+    <div class="info"><b>Agent-native by default.</b> The MCP server exposes artifact list/search/read as discoverable Resources and create/update/request_review as tools. A connected agent does not need to know a vnsh URL first.</div>
+    <div class="drawer-actions"><button class="btn" data-action="close">Done</button><button class="btn primary" data-action="deviceFlow">Connect another agent →</button></div>
+  </template>
+  <template id="handoffTpl">
+    <div class="eyebrow">Agent handoff</div><p class="subtitle">Assign the next move while preserving the current artifact, context and version.</p>
+    <div class="field"><label>AGENT</label><select><option>Codex · active now</option><option>Claude Code · last active 18m ago</option><option>Copy handoff link for another agent…</option></select></div>
+    <div class="field"><label>WHAT SHOULD IT DO?</label><textarea>Address the permission-boundary concern in the review note. Update this artifact with evidence, then request my review again. Do not publish.</textarea></div>
+    <div class="field"><label>PERMISSION FOR THIS HANDOFF</label><div class="segmented"><button class="choice active"><b>Edit this artifact</b><span>Read context and create v4.</span></button><button class="choice"><b>Read only</b><span>Inspect without changing it.</span></button></div></div>
+    <div class="info">The agent receives the artifact ID, current v3, version history and your instruction. Publishing remains human-only.</div>
+    <div class="drawer-actions"><button class="btn" data-action="close">Cancel</button><button class="btn primary" data-action="assigned">Assign to Codex →</button></div>
+  </template>
+  <script>
+    const library=document.querySelector('#library'), artifact=document.querySelector('#artifact');
+    const drawer=document.querySelector('#drawer'), drawerTitle=document.querySelector('#drawerTitle'), drawerBody=document.querySelector('#drawerBody');
+    const templates={new:['New artifact','newTpl'],quick:['Quick encrypted share','quickTpl'],review:['Review version 3','reviewTpl'],share:['Share artifact','shareTpl'],history:['Version history','historyTpl'],agents:['Connect your agents','agentsTpl'],handoff:['Hand artifact to an agent','handoffTpl']};
+    function showView(name){library.classList.toggle('hidden',name!=='library');artifact.classList.toggle('hidden',name!=='artifact');document.querySelectorAll('.nav[data-view]').forEach(n=>n.classList.toggle('active',n.dataset.view===name));}
+    function openDrawer(name){const [title,id]=templates[name];drawerTitle.textContent=title;drawerBody.innerHTML=document.querySelector('#'+id).innerHTML;drawer.classList.remove('hidden');}
+    function closeDrawer(){drawer.classList.add('hidden')}
+    function toast(message){const el=document.querySelector('#toast');el.textContent=message;el.classList.remove('hidden');setTimeout(()=>el.classList.add('hidden'),2400)}
+    document.addEventListener('click',e=>{const view=e.target.closest('[data-view]');if(view){showView(view.dataset.view);return}const action=e.target.closest('[data-action]')?.dataset.action;if(action&&templates[action]){openDrawer(action);return}if(action==='close'){closeDrawer();return}if(action==='created'){closeDrawer();toast('Artifact created — your agents can discover it now.');setTimeout(()=>openDrawer('handoff'),500);return}if(action==='quickCreated'){closeDrawer();toast('Encrypted link created — key is only in the URL.');return}if(action==='approved'){closeDrawer();document.querySelector('.artifact-toolbar .pill').className='pill approved';document.querySelector('.artifact-toolbar .pill').textContent='✓ Approved v3';toast('Version 3 approved. Ready to publish.');setTimeout(()=>openDrawer('share'),500);return}if(action==='changes'){closeDrawer();toast('Changes requested — Codex was notified.');return}if(action==='assigned'){closeDrawer();toast('Assigned to Codex with edit access to this artifact only.');return}if(action==='deviceFlow'){closeDrawer();toast('Secure device approval opened in a new tab.');return}if(action==='copyCmd'||action==='copyMcp'){toast(action==='copyCmd'?'CLI commands copied.':'MCP setup command copied.');return}if(action==='copied'){closeDrawer();navigator.clipboard?.writeText('https://vnshcontent.dev/a/launch-26-v3');toast('Pinned v3 link copied.');return}if(action==='new'||action==='quick'){openDrawer(action);return}if(e.target.closest('[data-open]'))showView('artifact');const choice=e.target.closest('.choice,.version');if(choice&&choice.parentElement){[...choice.parentElement.children].forEach(x=>x.classList?.remove('active','selected'));choice.classList.add(choice.classList.contains('choice')?'active':'selected')}});
+    document.querySelector('#search').addEventListener('input',e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.card').forEach(c=>c.classList.toggle('hidden',!c.dataset.title.toLowerCase().includes(q)))});
+    document.addEventListener('click',e=>{const filter=e.target.closest('[data-filter]')?.dataset.filter;if(!filter)return;document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.filter===filter));document.querySelectorAll('.card').forEach(c=>c.classList.toggle('hidden',filter!=='all'&&c.dataset.owner!==filter&&c.dataset.state!==filter))});
+    document.querySelector('#journeyBtn').addEventListener('click',()=>{showView('artifact');setTimeout(()=>openDrawer('review'),650)});
+  </script>
+</body>
+</html>

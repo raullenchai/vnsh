@@ -222,13 +222,20 @@ Anonymous sharing remains account-free and temporary. Sign in at
 and `/artifact/` pages until you delete them. Browser creates use the signed-in
 session automatically. For the CLI, run `vn login` and approve the device in
 your browser. MCP and CI can use an account token in `VNSH_TOKEN`; content is
-still encrypted locally and the account database
-stores only ownership metadata, not keys or plaintext.
+still encrypted locally for capability-link workspaces, and the account database
+stores only their ownership metadata, not keys or plaintext.
 During the free preview, each account can keep 100 documents and 1 GB total,
 including retained versions.
 Keep the returned link: its fragment is the only copy of the decryption/editing
 secret, so the account can manage retention and deletion but cannot recover a
 lost key.
+
+Phase 1 account Artifacts add a separate collaboration mode: authenticated
+humans and Agent tokens can discover and version private Artifact content
+without carrying a fragment key. That convenience has a different security
+boundary—vnsh can technically read account Artifact content. It is never
+silently substituted for an anonymous encrypted workspace, and only a human
+may approve or publish by default.
 
 **What holds.** vnsh cannot read encrypted content, cannot write to it, and
 cannot recover a write token from anything it stores. Rendered content runs with

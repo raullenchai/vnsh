@@ -229,6 +229,61 @@ Cache-Control: no-cache
 
 ---
 
+## Account Artifact API (Phase 1)
+
+Account Artifacts are a separate, account-authorized collaboration mode. Their
+content is not host-blind: vnsh can technically read it so authenticated Agents
+can discover and collaborate without receiving a fragment key. Use anonymous
+encrypted workspaces when the service must not be able to read the content.
+
+All routes below live on `https://account.vnsh.dev`, require either the account
+session cookie or `Authorization: Bearer <agent-token>`, and return
+`Cache-Control: no-store`.
+
+| Route | Purpose |
+|---|---|
+| `POST /api/artifacts` | Create a private permanent Artifact and immutable version 1. |
+| `GET /api/artifacts` | List up to 100 Artifacts accessible to the current account principal. |
+| `GET /api/artifacts/:uuid` | Read current metadata and string content. `ETag` is the version. |
+| `PUT /api/artifacts/:uuid` | Create the next immutable version. Requires numeric `If-Match`. |
+| `DELETE /api/artifacts/:uuid` | Delete all versions. Human browser session only. |
+
+Create and update bodies are JSON:
+
+```json
+{
+  "title": "Launch readiness brief",
+  "content": "<h1>Ready</h1>",
+  "contentType": "text/html; charset=utf-8",
+  "changeSummary": "Added production smoke evidence"
+}
+```
+
+`title` is required on create. `content` is always required in Phase 1 and is a
+UTF-8 string; binary Artifact support is a later cross-client contract. Every
+Artifact response includes `capabilities` for the authenticated principal.
+Agent tokens currently receive `read`, `update`, and `request_review`; human
+sessions additionally receive the reserved human-only capabilities such as
+`approve`, `publish`, access management, and deletion. Review and publication
+operations are introduced by their respective Phase 1 bricks and are not yet
+callable in this contract slice.
+
+Updates use optimistic concurrency:
+
+```http
+PUT /api/artifacts/7c12... HTTP/1.1
+Authorization: Bearer ...
+If-Match: "3"
+Content-Type: application/json
+```
+
+A stale version returns `412 VERSION_CONFLICT`; an unconditional update returns
+`428 PRECONDITION_REQUIRED`. Content versions are immutable R2 objects while D1
+stores the authorized current pointer, lifecycle status, provenance, and quota
+accounting.
+
+---
+
 ### GET /
 
 Serve the unified app (landing page + upload + viewer overlay).
