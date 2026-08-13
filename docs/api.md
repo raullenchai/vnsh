@@ -51,6 +51,13 @@ there and set it as `VNSH_TOKEN`.
 - `GET /api/account/documents` lists the current user's workspace/artifact metadata.
 - `POST /api/account/token` creates a bearer token and shows it once.
 - `DELETE /api/account/documents/{id}` deletes an owned document from R2 and its index row.
+- `GET /api/account/me` returns the bearer token's user.
+- `DELETE /api/account/token/current` revokes the current bearer token.
+
+CLI login uses a device flow: `POST /api/auth/device` returns a 10-minute user
+code and verification URL; the browser approves it at `/device`, while the CLI
+polls `POST /api/auth/device/token`. A successful exchange is single-use and
+returns a one-year revocable bearer token. Pending polls return `202`.
 
 Account sessions and tokens are stored only as SHA-256 hashes. The account index
 cannot reconstruct a lost document link; keep the link because its fragment is

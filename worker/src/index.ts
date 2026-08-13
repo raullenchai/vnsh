@@ -2382,7 +2382,7 @@ export default {
     }
 
     if (url.hostname === 'account.vnsh.dev' || url.hostname.startsWith('account.')) {
-      if (path === '/api/auth/request' && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
+      if ((path === '/api/auth/request' || path === '/api/auth/device') && !(await checkRateLimit(env.UPLOAD_LIMITER, getClientIp(request)))) return rateLimitResponse();
       return handleAccount(request, env, url);
     }
 
@@ -2836,6 +2836,7 @@ export default {
       const results = await env.ACCOUNTS.batch([
         env.ACCOUNTS.prepare('DELETE FROM sessions WHERE expires_at<=?').bind(cutoff),
         env.ACCOUNTS.prepare('DELETE FROM magic_links WHERE expires_at<=?').bind(cutoff),
+        env.ACCOUNTS.prepare('DELETE FROM device_logins WHERE expires_at<=?').bind(cutoff),
       ]);
       console.log(`Account cleanup: deleted ${results.reduce((n, r) => n + (r.meta.changes || 0), 0)} expired records`);
     } catch (error) {
@@ -3734,9 +3735,9 @@ renews that. An author can ask for up to 7 days at creation (?ttl= in hours, max
 168), or extend an existing one with vnsh_workspace_renew, which changes the
 expiry without touching the content or the version.
 
-Signed-in creates are kept until their owner deletes them. Sign in at
-https://account.vnsh.dev, create a CLI / agent token, and set VNSH_TOKEN for the
-client process. The create request then carries Authorization: Bearer <token>
+Signed-in creates are kept until their owner deletes them. CLI users run
+"vn login" and approve the device in a browser; MCP and CI use a token from
+https://account.vnsh.dev in VNSH_TOKEN. The create request then carries Authorization: Bearer <token>
 and returns "permanent": true instead of "expires". Add X-Vnsh-Kind: artifact
 or set artifact=true in the MCP create tool for a rendered /artifact/{id} URL.
 The account stores ownership metadata, never the URL fragment or content key,

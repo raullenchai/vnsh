@@ -16,6 +16,11 @@ Workspaces expire 24 hours after their latest write by default. Use `--ttl 168`
 when creating one for a seven-day lifetime; writes preserve the chosen lifetime.
 `vn renew` extends expiry without changing content or its version.
 
+Run `vn login` to connect your account through a browser. Once signed in, new
+workspaces and artifacts are kept until you delete them. `vn whoami` shows the
+active account and `vn logout` revokes the saved credential. Automation can use
+`VNSH_TOKEN` instead.
+
 ## Link permissions
 
 | Link | Read | Write |
