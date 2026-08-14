@@ -1,5 +1,6 @@
 import { currentUser, handleAccount, migrateSessionCookie, type AccountEnv } from './accounts';
 import { handleArtifacts } from './artifacts';
+import { DOCS_HTML } from './docs-page';
 import { handleWorkspaces } from './workspaces';
 import { canArchiveVersion, canCreateDocument, quotaResponse } from './account-usage';
 import { getClientAgent, getClientRef, handleEvent, trackEvent } from './analytics';
@@ -2703,6 +2704,18 @@ export default {
       });
     }
 
+    // Human documentation. Keep /llms.txt as the machine-facing protocol.
+    if ((request.method === 'GET' || request.method === 'HEAD') && path === '/docs') {
+      return new Response(request.method === 'GET' ? DOCS_HTML : null, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=300, stale-while-revalidate=3600',
+          'Referrer-Policy': 'no-referrer',
+        },
+      });
+    }
+
     // Route: GET/HEAD / - Serve unified app
     if ((request.method === 'GET' || request.method === 'HEAD') && path === '/') {
       // No blob guide here: the landing page is not an encrypted link.
@@ -3989,6 +4002,12 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
     <lastmod>2026-07-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://vnsh.dev/docs</loc>
+    <lastmod>2026-08-13</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://vnsh.dev/pipe</loc>
@@ -6059,7 +6078,7 @@ const APP_HTML = `<!DOCTYPE html>
       <div class="nav-links">
         <a href="#how-it-works">How it works</a>
         <a href="#security">Security</a>
-        <a href="/llms.txt">Docs</a>
+        <a href="/docs">Docs</a>
         <a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>
       </div>
     </nav>
@@ -6400,7 +6419,8 @@ const APP_HTML = `<!DOCTYPE html>
       AES-256-GCM &middot; keys stay in the URL fragment
       <span class="dot">&middot;</span><a href="/blog">Writing</a>
       <span class="dot">&middot;</span><a href="https://github.com/raullenchai/vnsh">Source</a>
-      <span class="dot">&middot;</span><a href="/llms.txt">llms.txt</a>
+      <span class="dot">&middot;</span><a href="/docs">Docs</a>
+      <span class="dot">&middot;</span><a href="/llms.txt">For Agents</a>
       <span class="dot">&middot;</span>MIT
     </div>
   </div>
