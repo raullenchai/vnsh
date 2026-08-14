@@ -5976,33 +5976,35 @@ const APP_HTML = `<!DOCTYPE html>
     .landing .github-star-btn { background: transparent; border-color: var(--paper-line); color: var(--paper-muted); }
     .landing .github-star-btn:hover { background: white; border-color: #c8c5bb; color: var(--paper-ink); }
 
-    .landing .hero { width:100%; max-width:1120px; padding:76px 0 54px; text-align:left; }
-    .hero-grid { display:grid; grid-template-columns:minmax(0,.9fr) minmax(430px,1.1fr); gap:64px; align-items:start; }
-    .hero-copy { padding-top:34px; }
+    .landing .hero { width:100%; max-width:960px; padding:82px 0 48px; text-align:center; }
+    .hero-grid { display:block; }
+    .hero-copy { padding:0; }
     .landing .eyebrow { color: var(--product); opacity: 1; font-family: var(--sans); font-weight: 700; letter-spacing: .11em; }
-    .landing .hero-title { max-width: 10ch; overflow-wrap:break-word; font-size: clamp(3rem,6vw,4.65rem); line-height: 1.055; font-weight: 640; letter-spacing: -.052em; }
-    .landing .hero-subtitle { max-width: 650px; color: var(--paper-muted); font-size: 19px; line-height: 1.55; }
+    .landing .hero-title { max-width: 820px; overflow-wrap:break-word; font-size: clamp(3rem,6vw,4.55rem); line-height: 1.04; font-weight: 620; letter-spacing: -.05em; }
+    .landing .hero-subtitle { max-width: 670px; margin-left:auto; margin-right:auto; color: var(--paper-muted); font-size: 18px; line-height: 1.6; }
     .landing .hero-subtitle .pain { color: inherit; }
     .landing .hero-subtitle b { color: var(--paper-ink); }
-    .hero-actions { display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-top:26px; }
+    .hero-actions { display:flex; justify-content:center; align-items:center; gap:20px; margin-top:18px; }
     .hero-cta { display:inline-flex; height:48px; align-items:center; justify-content:center; padding:0 22px; border-radius:999px; text-decoration:none; font-size:14px; font-weight:650; }
     .hero-cta.primary { background:#18191b; color:white; }
     .hero-cta.primary:hover { background:#34363a; }
     .hero-cta.secondary { height:auto; padding:8px 4px; border:0; border-bottom:1px solid transparent; border-radius:0; background:transparent; color:var(--paper-muted); }
     .hero-cta.secondary:hover { color:var(--paper-ink); border-bottom-color:#aeb1b7; }
     .landing .hero-account { display:none; }
-    .hero-install { margin-top:22px; }
-    .hero-install-label { margin-bottom:7px; color:var(--paper-muted); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-    .hero-install .code-block { margin:0; position:relative; padding-top:34px; border:1px solid #303238; border-radius:10px; box-shadow:0 10px 30px rgba(24,25,27,.09); }
-    .terminal-dots { position:absolute; top:13px; left:15px; display:flex; gap:6px; }
-    .terminal-dots i { width:7px; height:7px; border-radius:50%; background:#62656c; }
-    .terminal-dots i:nth-child(1){background:#e16b62}.terminal-dots i:nth-child(2){background:#d9a944}.terminal-dots i:nth-child(3){background:#62ad73}
-    .hero-install .code-block code { color:#e8e9ec; }
-    .hero-install .code-block .str,.hero-install .code-block .u { color:#aeb8d1; }
-    .hero-creator .door { padding:26px; border-radius:14px; box-shadow:0 8px 30px rgba(24,25,27,.045); }
-    .hero-creator .door-title { font-size:25px; }
-    .hero-creator .door-lede { margin-bottom:17px; }
+    .hero-after { max-width:760px; margin:16px auto 0; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+    .hero-install { min-width:0; }
+    .landing .hero-install .code-block { margin:0; padding:9px 12px; border:1px solid var(--paper-line); border-radius:8px; background:#f4f5f6; color:#4d5159; box-shadow:none; }
+    .landing .hero-install .code-block code { color:#4d5159; font-size:11px; }
+    .hero-install .code-block .prompt { color:#90949c; }
+    .hero-install .copy-btn { color:#777c85; }
+    .hero-creator { max-width:760px; margin:42px auto 0; text-align:left; }
+    .hero-creator .door { padding:14px; border-radius:16px; box-shadow:0 16px 50px rgba(24,25,27,.07); }
+    .hero-creator .door-tag,.hero-creator .door-title,.hero-creator .door-lede { display:none; }
     .hero-creator .then { display:none; }
+    .hero-creator .dropzone { min-height:190px; max-height:none; border:0; border-radius:10px; }
+    .hero-creator .opt { margin:10px 2px 0; border:0; background:transparent; padding:8px 9px; }
+    .hero-creator .opt-text { text-align:left; font-size:0; }
+    .hero-creator .opt-text b { display:inline; font-size:12px; font-weight:560; }
 
     .landing .diagram-band { padding: 28px 0 78px; }
     .landing .product-window { display:none; }
@@ -6080,8 +6082,8 @@ const APP_HTML = `<!DOCTYPE html>
 
     @media(max-width:900px){.product-body{grid-template-columns:180px 1fr}.product-context{display:none}}
     @media(max-width:650px){
-      .landing .hero{width:100%;min-width:0;padding:48px 0 38px}.hero-grid{display:block}.hero-copy{padding-top:0}.hero-creator{margin-top:34px}.landing .hero-title{max-width:100%;font-size:clamp(2.65rem,12.5vw,3.05rem);letter-spacing:-.055em}.landing .hero-subtitle{font-size:17px}
-      .hero-actions{flex-direction:column}.hero-cta{width:100%;max-width:320px}
+      .landing .hero{width:100%;min-width:0;padding:52px 0 38px}.hero-copy{padding:0}.hero-creator{margin-top:30px}.landing .hero-title{max-width:100%;font-size:clamp(2.5rem,11.5vw,3rem);line-height:1.07;letter-spacing:-.05em}.landing .hero-subtitle{font-size:16px}
+      .hero-after{display:block}.hero-actions{margin-top:16px}.hero-install{margin-top:15px}.hero-install .code-block{overflow:auto}.hero-creator .door{padding:10px}.hero-creator .dropzone{min-height:165px}
       .demo-flow{display:block}.demo-arrow{height:32px;transform:rotate(90deg)}.demo-step{padding:22px 24px}.demo-arrow{animation:none}
       .product-bar-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.product-body{display:block;min-height:0}.product-side{display:none}.product-doc{min-width:0;padding:28px 24px}.product-doc h2{overflow-wrap:anywhere;font-size:25px}
       .journey{padding-bottom:58px}.journey-grid{grid-template-columns:1fr;gap:24px}
@@ -6117,12 +6119,11 @@ const APP_HTML = `<!DOCTYPE html>
   <div class="band">
     <section class="hero rail-narrow">
       <div class="hero-grid">
-        <div class="hero-copy"><p class="eyebrow">Shared context for every Agent</p>
-        <h1 class="hero-title">Paste context once. Hand it to any Agent.</h1>
-        <p class="hero-subtitle">Turn logs, research, screenshots or a working document into one link that Claude Code, Cursor, Codex and people can continue from.</p>
-        <div class="hero-actions"><a class="hero-cta primary" href="#hero-creator">Create a link — free</a><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace</a></div>
-        <div class="hero-install"><div class="hero-install-label">Make Claude Code understand every vnsh link</div><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div></div>
+        <div class="hero-copy"><p class="eyebrow">Context that moves with the work</p>
+        <h1 class="hero-title">One link. Any Agent. No lost context.</h1>
+        <p class="hero-subtitle">Drop in the context once. Claude Code, Cursor, Codex or a person can pick it up and continue.</p></div>
         <div class="hero-creator" id="hero-creator"></div>
+        <div class="hero-after"><div class="hero-install"><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><code><span class="prompt">Connect Claude Code&nbsp;·&nbsp;</span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div><div class="hero-actions"><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace →</a></div></div>
       </div>
     </section>
   </div>
@@ -6271,7 +6272,7 @@ const APP_HTML = `<!DOCTYPE html>
           <label class="opt" for="opt-public">
             <input type="checkbox" id="opt-public">
             <span class="opt-text">
-              <b>Skip the encryption so agents can just fetch it.</b>
+              <b>Make public so Agents can just fetch it.</b>
               An encrypted link needs a key and something to run the decryption,
               so an agent with only <em style="font-style:normal;color:var(--ink-soft)">fetch</em>
               gets nothing from one until you set it up. This trades that away:

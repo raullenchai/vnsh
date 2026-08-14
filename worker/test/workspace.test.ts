@@ -529,7 +529,7 @@ describe('homepage', () => {
     expect(html).toContain('<a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>');
     expect(html).toMatch(/\.nav-links \.nav-action \{[^}]*height: 40px;[^}]*padding: 0 15px;/);
     expect(html).toContain('Open your Workspace');
-    expect(html).toContain('Create a link — free');
+    expect(html).toContain('Drop a file or paste text');
     expect(html).toContain('.nav-links > a:not(.nav-sign-in) { display: none; }');
   });
 
@@ -696,7 +696,7 @@ describe('homepage information architecture', () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
     // Lead with the pain, then immediately show the concrete product object.
-    expect(html).toContain('Paste context once. Hand it to any Agent.');
+    expect(html).toContain('One link. Any Agent. No lost context.');
     expect(html).toContain('One link · the same context · every tool');
     expect(html).toContain('Launch brief: what every Agent needs to know');
   });

@@ -37,13 +37,13 @@ describe('vnsh API', () => {
       expect(html).toContain('vnsh');
       // The landing page provides an immediate create path, then demonstrates
       // the handoff and concrete use cases.
-      expect(html).toContain('Paste context once. Hand it to any Agent.');
+      expect(html).toContain('One link. Any Agent. No lost context.');
       expect(html).toContain('id="hero-creator"');
       expect(html).toContain('One link · the same context · every tool');
       expect(html).toContain('Browser research → coding Agent');
       expect(html).toContain('Research → implementation');
       expect(html).toContain('Agent proposal → your decision');
-      expect(html).toContain('Create a link — free');
+      expect(html).toContain('Drop a file or paste text');
       expect(html).toContain('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2');
     });
   });
