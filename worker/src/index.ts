@@ -5173,13 +5173,16 @@ const APP_HTML = `<!DOCTYPE html>
     }
     .wordmark { font-family: var(--mono); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
     .wordmark span { color: var(--accent); }
-    .nav-links { display: flex; gap: 22px; font-size: 13.5px; color: var(--ink-faint); }
+    .nav-links { display: flex; align-items: center; gap: 22px; font-size: 13.5px; color: var(--ink-faint); }
     .nav-links a { color: inherit; text-decoration: none; }
     .nav-links a:hover { color: var(--ink); }
+    .nav-links .nav-action {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 36px; padding: 0 13px; border-radius: 8px;
+      font-size: 12.5px; font-weight: 600; line-height: 1; white-space: nowrap;
+    }
     .nav-links .nav-sign-in {
-      display: inline-flex; align-items: center; padding: 7px 13px; margin: -7px 0;
-      border: 1px solid var(--accent-edge); border-radius: 8px;
-      background: var(--accent); color: #04140a; font-weight: 650;
+      border: 1px solid var(--accent); background: var(--accent); color: #04140a;
     }
     .nav-links .nav-sign-in:hover { background: #2bd46b; color: #04140a; }
 
@@ -5559,10 +5562,8 @@ const APP_HTML = `<!DOCTYPE html>
 
     /* GitHub Star Button */
     .github-star-btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 7px 13px; background: var(--raised); border: 1px solid var(--line-lit);
-      border-radius: 8px; color: var(--ink-soft); text-decoration: none;
-      font-size: 12.5px; font-weight: 560; transition: background 0.15s, border-color 0.15s, color 0.15s;
+      gap: 8px; background: var(--raised); border: 1px solid var(--line-lit);
+      color: var(--ink-soft); transition: background 0.15s, border-color 0.15s, color 0.15s;
     }
     .github-star-btn:hover { background: #1b1f25; border-color: #3a414b; color: var(--ink); }
     .github-star-btn svg { width: 15px; height: 15px; fill: currentColor; }
@@ -5947,11 +5948,11 @@ const APP_HTML = `<!DOCTYPE html>
       <div class="nav-links">
         <a href="#start">Get started</a>
         <a href="#security">Security</a>
-        <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="github-star-btn">
+        <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="nav-action github-star-btn">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           Star
         </a>
-        <a class="nav-sign-in" href="https://account.vnsh.dev">Sign in</a>
+        <a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>
       </div>
     </nav>
   </div>

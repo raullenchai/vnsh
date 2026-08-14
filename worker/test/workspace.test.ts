@@ -526,7 +526,9 @@ describe('homepage', () => {
   it('offers an unmistakable account sign-in on desktop and mobile', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
-    expect(html).toContain('<a class="nav-sign-in" href="https://account.vnsh.dev">Sign in</a>');
+    expect(html).toContain('<a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>');
+    expect(html).toContain('class="nav-action github-star-btn"');
+    expect(html).toMatch(/\.nav-links \.nav-action \{[^}]*height: 36px;[^}]*padding: 0 13px;/);
     expect(html).toContain('Sign in to your account');
     expect(html).toContain('Want permanent, organized Artifacts?');
     expect(html).toContain('.nav-links > a:not(.nav-sign-in) { display: none; }');
