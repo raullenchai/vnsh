@@ -5976,20 +5976,39 @@ const APP_HTML = `<!DOCTYPE html>
     .landing .github-star-btn { background: transparent; border-color: var(--paper-line); color: var(--paper-muted); }
     .landing .github-star-btn:hover { background: white; border-color: #c8c5bb; color: var(--paper-ink); }
 
-    .landing .hero { padding: 92px 0 54px; }
+    .landing .hero { width:100%; max-width:1120px; padding:76px 0 54px; text-align:left; }
+    .hero-grid { display:grid; grid-template-columns:minmax(0,.9fr) minmax(430px,1.1fr); gap:64px; align-items:start; }
+    .hero-copy { padding-top:34px; }
     .landing .eyebrow { color: var(--product); opacity: 1; font-family: var(--sans); font-weight: 700; letter-spacing: .11em; }
-    .landing .hero-title { max-width: 15ch; overflow-wrap:break-word; font-size: clamp(3rem,7vw,5.35rem); line-height: .98; font-weight: 690; letter-spacing: -.06em; }
+    .landing .hero-title { max-width: 10ch; overflow-wrap:break-word; font-size: clamp(3rem,6vw,4.8rem); line-height: .98; font-weight: 690; letter-spacing: -.06em; }
     .landing .hero-subtitle { max-width: 650px; color: var(--paper-muted); font-size: 19px; line-height: 1.55; }
     .landing .hero-subtitle .pain { color: inherit; }
     .landing .hero-subtitle b { color: var(--paper-ink); }
-    .hero-actions { display:flex; justify-content:center; align-items:center; gap:12px; margin-top:30px; }
+    .hero-actions { display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-top:26px; }
     .hero-cta { display:inline-flex; height:48px; align-items:center; justify-content:center; padding:0 22px; border-radius:999px; text-decoration:none; font-size:14px; font-weight:650; }
     .hero-cta.primary { background:var(--product); color:white; }
     .hero-cta.primary:hover { background:var(--product-dark); }
     .hero-cta.secondary { border:1px solid var(--paper-line); background:var(--paper-card); color:var(--paper-ink); }
     .landing .hero-account { display:none; }
+    .hero-install { margin-top:22px; }
+    .hero-install-label { margin-bottom:7px; color:var(--paper-muted); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .hero-install .code-block { margin:0; }
+    .hero-creator .door { padding:26px; box-shadow:0 24px 70px rgba(49,48,43,.12); }
+    .hero-creator .door-title { font-size:25px; }
+    .hero-creator .door-lede { margin-bottom:17px; }
+    .hero-creator .then { display:none; }
 
-    .landing .diagram-band { padding: 22px 0 92px; }
+    .landing .diagram-band { padding: 28px 0 78px; }
+    .landing .product-window { display:none; }
+    .handoff-demo { overflow:hidden; border:1px solid var(--paper-line); border-radius:22px; background:var(--paper-card); box-shadow:0 24px 70px rgba(49,48,43,.09); }
+    .demo-head { padding:15px 20px; border-bottom:1px solid var(--paper-line); color:var(--paper-muted); font-size:12px; font-weight:650; }
+    .demo-flow { display:grid; grid-template-columns:1fr 48px 1fr 48px 1fr; align-items:stretch; min-height:190px; }
+    .demo-step { padding:28px 24px; display:flex; flex-direction:column; justify-content:center; }
+    .demo-step b { display:block; margin:9px 0 6px; font-size:16px; }
+    .demo-step p { color:var(--paper-muted); font-size:12px; line-height:1.5; }
+    .demo-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:11px; background:var(--blue-wash); color:var(--product); font-weight:800; }
+    .demo-arrow { display:grid; place-items:center; color:var(--product); font-size:22px; animation:handoffPulse 1.8s ease-in-out infinite; }
+    @keyframes handoffPulse { 50% { transform:translateX(5px); opacity:.45; } }
     .landing .diagram-scroll,.landing .diagram-note { display:none; }
     .product-window { width:100%; min-width:0; overflow:hidden; border:1px solid var(--paper-line); border-radius:22px; background:var(--paper-card); box-shadow:0 30px 80px rgba(49,48,43,.12); }
     .product-bar { height:54px; display:flex; align-items:center; gap:8px; padding:0 18px; border-bottom:1px solid var(--paper-line); }
@@ -6017,11 +6036,11 @@ const APP_HTML = `<!DOCTYPE html>
     .journey-step h3 { margin:11px 0 8px; font-size:19px; letter-spacing:-.02em; }
     .journey-step p { color:var(--paper-muted); font-size:14px; line-height:1.65; }
 
-    .landing .doors-band { max-width:1120px; padding:84px 0; }
+    .landing .doors-band { max-width:760px; padding:84px 0; }
     .landing .doors-head { text-align:center; margin-bottom:38px; }
     .landing .doors-head h2 { font-size:clamp(2rem,4vw,3.4rem); letter-spacing:-.045em; line-height:1.05; }
     .landing .doors-head p { color:var(--paper-muted); margin-top:12px; }
-    .landing .doors { gap:18px; }
+    .landing .doors { display:block; }
     .landing .door { border-color:var(--paper-line); background:var(--paper-card); border-radius:18px; padding:25px; box-shadow:none; }
     .landing .door-promote { border-color:#cbd1fb; background:#f3f4ff; }
     .landing .door-tag { color:var(--product); font-family:var(--sans); font-weight:750; letter-spacing:.08em; }
@@ -6052,8 +6071,9 @@ const APP_HTML = `<!DOCTYPE html>
 
     @media(max-width:900px){.product-body{grid-template-columns:180px 1fr}.product-context{display:none}}
     @media(max-width:650px){
-      .landing .hero{width:100%;min-width:0;padding:62px 0 38px}.landing .hero-title{max-width:100%;font-size:clamp(2.65rem,12.5vw,3.05rem);letter-spacing:-.055em}.landing .hero-subtitle{font-size:17px}
+      .landing .hero{width:100%;min-width:0;padding:48px 0 38px}.hero-grid{display:block}.hero-copy{padding-top:0}.hero-creator{margin-top:34px}.landing .hero-title{max-width:100%;font-size:clamp(2.65rem,12.5vw,3.05rem);letter-spacing:-.055em}.landing .hero-subtitle{font-size:17px}
       .hero-actions{flex-direction:column}.hero-cta{width:100%;max-width:320px}
+      .demo-flow{display:block}.demo-arrow{height:32px;transform:rotate(90deg)}.demo-step{padding:22px 24px}.demo-arrow{animation:none}
       .product-bar-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.product-body{display:block;min-height:0}.product-side{display:none}.product-doc{min-width:0;padding:28px 24px}.product-doc h2{overflow-wrap:anywhere;font-size:25px}
       .journey{padding-bottom:58px}.journey-grid{grid-template-columns:1fr;gap:24px}
       .landing .diagram-band{padding-bottom:58px}.landing .doors-band,.landing .trust{padding:58px 0}
@@ -6087,13 +6107,14 @@ const APP_HTML = `<!DOCTYPE html>
   <!-- Hero -->
   <div class="band">
     <section class="hero rail-narrow">
-      <p class="eyebrow">Shared context for every Agent</p>
-      <h1 class="hero-title">Your Agents should not work from memory.</h1>
-      <p class="hero-subtitle">
-        Give Claude Code, Cursor, Codex and your team one shared place for plans,
-        research and handoffs. <b>People stay in the loop. Context stays with the work.</b>
-      </p>
-      <div class="hero-actions"><a class="hero-cta primary" href="https://account.vnsh.dev">Start your workspace</a><a class="hero-cta secondary" href="#start">Try an Incognito Artifact</a></div>
+      <div class="hero-grid">
+        <div class="hero-copy"><p class="eyebrow">Shared context for every Agent</p>
+        <h1 class="hero-title">Paste context once. Hand it to any Agent.</h1>
+        <p class="hero-subtitle">Turn logs, research, screenshots or a working document into one link that Claude Code, Cursor, Codex and people can continue from.</p>
+        <div class="hero-actions"><a class="hero-cta primary" href="#hero-creator">Create a link — free</a><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace</a></div>
+        <div class="hero-install"><div class="hero-install-label">Make Claude Code understand every vnsh link</div><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div></div>
+        <div class="hero-creator" id="hero-creator"></div>
+      </div>
     </section>
   </div>
 
@@ -6101,6 +6122,10 @@ const APP_HTML = `<!DOCTYPE html>
        hosting is drawn as containment, blindness as a struck-out eye on the cage. -->
   <div class="band">
     <section class="diagram-band rail">
+      <div class="handoff-demo" aria-label="A context handoff from a person to two AI Agents">
+        <div class="demo-head">One link · the same context · every tool</div>
+        <div class="demo-flow"><div class="demo-step"><span class="demo-icon">1</span><b>You create a link</b><p>Paste a stack trace, drop a file, or capture context from Chrome.</p></div><div class="demo-arrow">→</div><div class="demo-step"><span class="demo-icon">2</span><b>Claude Code fixes it</b><p>The Agent reads the full context and writes its diagnosis back.</p></div><div class="demo-arrow">→</div><div class="demo-step"><span class="demo-icon">3</span><b>Cursor continues</b><p>No re-prompting. It opens the same current document and carries on.</p></div></div>
+      </div>
       <div class="product-window" aria-label="vnsh workspace product preview">
         <div class="product-bar"><span class="product-dot"></span><span class="product-dot"></span><span class="product-dot"></span><span class="product-bar-title">Product launch · Shared Workspace</span></div>
         <div class="product-body">
@@ -6203,9 +6228,9 @@ const APP_HTML = `<!DOCTYPE html>
   <div class="band">
     <section class="journey rail" id="how-it-works">
       <div class="journey-grid">
-        <article class="journey-step"><span class="journey-num">01</span><h3>Create a Workspace</h3><p>Organize the durable context for a project, team or goal. Your account keeps it until you delete it.</p></article>
-        <article class="journey-step"><span class="journey-num">02</span><h3>Hand an Artifact to any Agent</h3><p>Share one capability link with Claude Code, Codex, Cursor or a teammate. No repeated briefing.</p></article>
-        <article class="journey-step"><span class="journey-num">03</span><h3>Review what changed</h3><p>Every update creates a version. People keep the context, the history and the final call.</p></article>
+        <article class="journey-step"><span class="journey-num">CONTEXT HANDOFF</span><h3>Browser research → coding Agent</h3><p>Package a long API page, screenshot, or error and give the useful context to your local Agent.</p></article>
+        <article class="journey-step"><span class="journey-num">AGENT TO AGENT</span><h3>Research → implementation</h3><p>Let one Agent leave findings and test output where the next Agent can read and extend them.</p></article>
+        <article class="journey-step"><span class="journey-num">HUMAN IN THE LOOP</span><h3>Agent proposal → your decision</h3><p>Review the same living document in a browser, make the call, and send the Agent back to work.</p></article>
       </div>
     </section>
   </div>
@@ -6215,7 +6240,7 @@ const APP_HTML = `<!DOCTYPE html>
        second use. -->
   <div class="band band-surface" id="start">
     <section class="doors-band rail">
-      <div class="doors-head"><h2>Start where you are.</h2><p>Use a permanent team workspace, or make a private handoff with no account.</p></div>
+      <div class="doors-head"><h2>Make it a habit, not another tab.</h2><p>Connect vnsh once so your Agent can open, create and update shared context directly.</p></div>
       <div class="doors">
 
         <div class="door">
@@ -6508,6 +6533,12 @@ const APP_HTML = `<!DOCTYPE html>
     let isRawMode = false;
     let selectedFile = null;
     let blobExpiresAt = null;
+
+    // The creator remains one component and one set of IDs, but its visual home
+    // is the hero: the first useful action should not require a scroll.
+    const heroCreator = document.getElementById('hero-creator');
+    const incognitoCreator = document.querySelector('.doors .door:not(.door-promote)');
+    if (heroCreator && incognitoCreator) heroCreator.appendChild(incognitoCreator);
 
     // Elements
     const dropzone = document.getElementById('dropzone');

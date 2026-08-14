@@ -35,15 +35,16 @@ describe('vnsh API', () => {
       const html = await response.text();
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('vnsh');
-      // The landing page now leads with the user problem, then proves the
-      // product with a real shared-workspace preview.
-      expect(html).toContain('Your Agents should not work from memory.');
-      expect(html).toContain('vnsh workspace product preview');
-      expect(html).toContain('Create a Workspace');
-      expect(html).toContain('Hand an Artifact to any Agent');
-      expect(html).toContain('Review what changed');
-      expect(html).toContain('Try an Incognito Artifact');
-      expect(html).toContain('Product launch · Shared Workspace');
+      // The landing page provides an immediate create path, then demonstrates
+      // the handoff and concrete use cases.
+      expect(html).toContain('Paste context once. Hand it to any Agent.');
+      expect(html).toContain('id="hero-creator"');
+      expect(html).toContain('One link · the same context · every tool');
+      expect(html).toContain('Browser research → coding Agent');
+      expect(html).toContain('Research → implementation');
+      expect(html).toContain('Agent proposal → your decision');
+      expect(html).toContain('Create a link — free');
+      expect(html).toContain('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2');
     });
   });
 
