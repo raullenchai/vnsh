@@ -527,10 +527,9 @@ describe('homepage', () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
     expect(html).toContain('<a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>');
-    expect(html).toContain('class="nav-action github-star-btn"');
-    expect(html).toMatch(/\.nav-links \.nav-action \{[^}]*height: 36px;[^}]*padding: 0 13px;/);
-    expect(html).toContain('Sign in to your account');
-    expect(html).toContain('Want permanent, organized Artifacts?');
+    expect(html).toMatch(/\.nav-links \.nav-action \{[^}]*height: 40px;[^}]*padding: 0 15px;/);
+    expect(html).toContain('Start your workspace');
+    expect(html).toContain('Try an Incognito Artifact');
     expect(html).toContain('.nav-links > a:not(.nav-sign-in) { display: none; }');
   });
 
@@ -696,13 +695,10 @@ describe('homepage information architecture', () => {
   it('names the product concept where a first-time visitor looks', async () => {
     const html = await (await call(new Request('http://localhost/'))).text();
 
-    // The headline has to carry the object, not just the mechanism: "one link
-    // you can read and write" leaves "read and write what?" unanswered.
-    expect(html).toContain('One workspace all your agents can read and write.');
-
-    // And the diagram names the same concept, so the two reinforce rather than
-    // repeat: the eyebrow lists the agents instead of echoing the headline.
-    expect(html).toContain('The portable workspace');
+    // Lead with the pain, then immediately show the concrete product object.
+    expect(html).toContain('Your Agents should not work from memory.');
+    expect(html).toContain('Product launch · Shared Workspace');
+    expect(html).toContain('Launch brief: what every Agent needs to know');
   });
 
   it('describes the workspace crypto as GCM, not the v1 blob CBC', async () => {
@@ -714,7 +710,7 @@ describe('homepage information architecture', () => {
     // copy and its footer long after that stopped being true.
     // Bound the slice at the viewer overlay, which comes later in the DOM and
     // legitimately says CBC — an unbounded slice would fail on correct markup.
-    const start = html.indexOf('Why you can hand it a private log');
+    const start = html.indexOf('Choose the right boundary for the work.');
     const end = html.indexOf('<!-- Viewer Overlay -->');
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
