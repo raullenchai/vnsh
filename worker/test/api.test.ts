@@ -47,6 +47,36 @@ describe('vnsh API', () => {
     });
   });
 
+  describe('Human documentation', () => {
+    it('GET /docs explains the product and links to the agent protocol', async () => {
+      const request = new Request('http://localhost/docs');
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toContain('text/html');
+      const html = await response.text();
+      expect(html).toContain('Give every Agent the context it needs.');
+      expect(html).toContain('Your first shared Workspace');
+      expect(html).toContain('Two modes, two different promises');
+      expect(html).toContain('Connect through MCP');
+      expect(html).toContain('Know where the trust boundary is');
+      expect(html).toContain('href="/llms.txt"');
+    });
+
+    it('HEAD /docs returns headers without a body', async () => {
+      const request = new Request('http://localhost/docs', { method: 'HEAD' });
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, env as Env, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toContain('text/html');
+      expect(await response.text()).toBe('');
+    });
+  });
+
   describe('POST /api/drop', () => {
     it('uploads blob and returns ID', async () => {
       const testContent = 'test-content-' + Date.now();
