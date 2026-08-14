@@ -5952,23 +5952,23 @@ const APP_HTML = `<!DOCTYPE html>
       .code-block code { font-size: 0.8rem; }
     }
 
-    /* 2026 product landing. The viewer keeps the original dark utility theme;
-       the marketing surface is deliberately warm, quiet and document-led. */
+    /* Product landing. The viewer keeps its dark utility theme; the marketing
+       surface uses a restrained, cool developer-product palette. */
     .landing {
-      --paper: #f7f5ef; --paper-2: #eeece4; --paper-card: #fffefa;
-      --paper-ink: #20211f; --paper-muted: #676861; --paper-line: #dcd9cf;
-      --product: #4f66e8; --product-dark: #3448ba; --mint: #ccebd9;
-      --ground:var(--paper); --surface:var(--paper-card); --raised:#f0eee7;
-      --line:var(--paper-line); --line-lit:#c9c6bc; --ink:var(--paper-ink);
-      --ink-soft:#4f504b; --ink-faint:var(--paper-muted); --ink-ghost:#8a8a82;
-      --accent:var(--product); --accent-edge:#bfc6f6; --accent-wash:#edf0ff;
+      --paper: #fafafa; --paper-2: #f4f5f6; --paper-card: #ffffff;
+      --paper-ink: #18191b; --paper-muted: #686b70; --paper-line: #e3e4e7;
+      --product: #68738e; --product-dark: #4f596f; --mint: #dce8e1;
+      --ground:var(--paper); --surface:var(--paper-card); --raised:#f2f3f5;
+      --line:var(--paper-line); --line-lit:#cfd2d7; --ink:var(--paper-ink);
+      --ink-soft:#4d5055; --ink-faint:var(--paper-muted); --ink-ghost:#898c92;
+      --accent:var(--product); --accent-edge:#c6cad5; --accent-wash:#f0f2f6;
       --ember:#b86a2c;
       width:100%; min-height: 100vh; overflow-x:hidden; background: var(--paper); color: var(--paper-ink);
     }
     .landing .band-surface { background: var(--paper-2); border-color: var(--paper-line); }
     .landing .nav { width:100%; max-width: 1120px; min-width:0; padding: 20px 0; }
     .landing .wordmark { color: var(--paper-ink); font: 700 20px/1 var(--sans); letter-spacing: -.04em; }
-    .landing .wordmark span { color: var(--product); }
+    .landing .wordmark span { color: #6c7486; }
     .landing .nav-links { color: var(--paper-muted); }
     .landing .nav-links a:hover { color: var(--paper-ink); }
     .landing .nav-links .nav-sign-in { background: var(--paper-ink); border-color: var(--paper-ink); color: white; }
@@ -5980,33 +5980,39 @@ const APP_HTML = `<!DOCTYPE html>
     .hero-grid { display:grid; grid-template-columns:minmax(0,.9fr) minmax(430px,1.1fr); gap:64px; align-items:start; }
     .hero-copy { padding-top:34px; }
     .landing .eyebrow { color: var(--product); opacity: 1; font-family: var(--sans); font-weight: 700; letter-spacing: .11em; }
-    .landing .hero-title { max-width: 10ch; overflow-wrap:break-word; font-size: clamp(3rem,6vw,4.8rem); line-height: .98; font-weight: 690; letter-spacing: -.06em; }
+    .landing .hero-title { max-width: 10ch; overflow-wrap:break-word; font-size: clamp(3rem,6vw,4.65rem); line-height: 1.055; font-weight: 640; letter-spacing: -.052em; }
     .landing .hero-subtitle { max-width: 650px; color: var(--paper-muted); font-size: 19px; line-height: 1.55; }
     .landing .hero-subtitle .pain { color: inherit; }
     .landing .hero-subtitle b { color: var(--paper-ink); }
     .hero-actions { display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-top:26px; }
     .hero-cta { display:inline-flex; height:48px; align-items:center; justify-content:center; padding:0 22px; border-radius:999px; text-decoration:none; font-size:14px; font-weight:650; }
-    .hero-cta.primary { background:var(--product); color:white; }
-    .hero-cta.primary:hover { background:var(--product-dark); }
-    .hero-cta.secondary { border:1px solid var(--paper-line); background:var(--paper-card); color:var(--paper-ink); }
+    .hero-cta.primary { background:#18191b; color:white; }
+    .hero-cta.primary:hover { background:#34363a; }
+    .hero-cta.secondary { height:auto; padding:8px 4px; border:0; border-bottom:1px solid transparent; border-radius:0; background:transparent; color:var(--paper-muted); }
+    .hero-cta.secondary:hover { color:var(--paper-ink); border-bottom-color:#aeb1b7; }
     .landing .hero-account { display:none; }
     .hero-install { margin-top:22px; }
     .hero-install-label { margin-bottom:7px; color:var(--paper-muted); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-    .hero-install .code-block { margin:0; }
-    .hero-creator .door { padding:26px; box-shadow:0 24px 70px rgba(49,48,43,.12); }
+    .hero-install .code-block { margin:0; position:relative; padding-top:34px; border:1px solid #303238; border-radius:10px; box-shadow:0 10px 30px rgba(24,25,27,.09); }
+    .terminal-dots { position:absolute; top:13px; left:15px; display:flex; gap:6px; }
+    .terminal-dots i { width:7px; height:7px; border-radius:50%; background:#62656c; }
+    .terminal-dots i:nth-child(1){background:#e16b62}.terminal-dots i:nth-child(2){background:#d9a944}.terminal-dots i:nth-child(3){background:#62ad73}
+    .hero-install .code-block code { color:#e8e9ec; }
+    .hero-install .code-block .str,.hero-install .code-block .u { color:#aeb8d1; }
+    .hero-creator .door { padding:26px; border-radius:14px; box-shadow:0 8px 30px rgba(24,25,27,.045); }
     .hero-creator .door-title { font-size:25px; }
     .hero-creator .door-lede { margin-bottom:17px; }
     .hero-creator .then { display:none; }
 
     .landing .diagram-band { padding: 28px 0 78px; }
     .landing .product-window { display:none; }
-    .handoff-demo { overflow:hidden; border:1px solid var(--paper-line); border-radius:22px; background:var(--paper-card); box-shadow:0 24px 70px rgba(49,48,43,.09); }
+    .handoff-demo { overflow:hidden; border:1px solid var(--paper-line); border-radius:16px; background:var(--paper-card); box-shadow:0 8px 30px rgba(24,25,27,.04); }
     .demo-head { padding:15px 20px; border-bottom:1px solid var(--paper-line); color:var(--paper-muted); font-size:12px; font-weight:650; }
     .demo-flow { display:grid; grid-template-columns:1fr 48px 1fr 48px 1fr; align-items:stretch; min-height:190px; }
     .demo-step { padding:28px 24px; display:flex; flex-direction:column; justify-content:center; }
     .demo-step b { display:block; margin:9px 0 6px; font-size:16px; }
     .demo-step p { color:var(--paper-muted); font-size:12px; line-height:1.5; }
-    .demo-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:11px; background:var(--blue-wash); color:var(--product); font-weight:800; }
+    .demo-icon { width:38px; height:38px; display:grid; place-items:center; border:1px solid #dfe1e6; border-radius:10px; background:#f7f8f9; color:#616a7e; font-weight:750; }
     .demo-arrow { display:grid; place-items:center; color:var(--product); font-size:22px; animation:handoffPulse 1.8s ease-in-out infinite; }
     @keyframes handoffPulse { 50% { transform:translateX(5px); opacity:.45; } }
     .landing .diagram-scroll,.landing .diagram-note { display:none; }
@@ -6041,17 +6047,20 @@ const APP_HTML = `<!DOCTYPE html>
     .landing .doors-head h2 { font-size:clamp(2rem,4vw,3.4rem); letter-spacing:-.045em; line-height:1.05; }
     .landing .doors-head p { color:var(--paper-muted); margin-top:12px; }
     .landing .doors { display:block; }
-    .landing .door { border-color:var(--paper-line); background:var(--paper-card); border-radius:18px; padding:25px; box-shadow:none; }
-    .landing .door-promote { border-color:#cbd1fb; background:#f3f4ff; }
+    .landing .door { border-color:var(--paper-line); background:var(--paper-card); border-radius:14px; padding:25px; box-shadow:none; }
+    .landing .door-promote { border-color:var(--paper-line); background:#f7f8fa; }
     .landing .door-tag { color:var(--product); font-family:var(--sans); font-weight:750; letter-spacing:.08em; }
     .landing .door-title { color:var(--paper-ink); font-size:23px; }
     .landing .door-lede,.landing .then li,.landing .door-foot,.landing .opt-text { color:var(--paper-muted); }
     .landing .then li b,.landing .door-foot b,.landing .opt-text b { color:var(--paper-ink); }
-    .landing .dropzone,.landing .setup-prompt { background:white; border-color:var(--paper-line); color:var(--paper-ink); }
-    .landing .dropzone:hover,.landing .setup-prompt:hover { border-color:var(--product); }
-    .landing .dropzone-icon { color:var(--product); }
-    .landing .btn-primary { background:var(--product); border-color:var(--product); color:white; }
-    .landing .btn-primary:hover { background:var(--product-dark); border-color:var(--product-dark); color:white; }
+    .landing .dropzone { background:#fafbfc; border:1px dashed #cfd2d8; color:var(--paper-ink); box-shadow:none; }
+    .landing .dropzone:hover,.landing .dropzone.dragover { background:#f6f7f9; border-color:#9299a8; box-shadow:none; }
+    .landing .dropzone-icon { color:#626b7f; border-color:#d8dae0; background:white; }
+    .landing .opt { background:#fafbfc; border-color:var(--paper-line); }
+    .landing .setup-prompt { background:white; border-color:var(--paper-line); color:var(--paper-ink); }
+    .landing .setup-prompt:hover { border-color:#aeb2ba; }
+    .landing .btn-primary { background:#18191b; border-color:#18191b; color:white; }
+    .landing .btn-primary:hover { background:#34363a; border-color:#34363a; color:white; }
     .landing .btn { background:white; border-color:var(--paper-line); color:var(--paper-ink); }
     .landing .setup-prompt-text,.landing .code-block,.landing .mcp-config { background:#292a27; color:#f5f4ef; }
     .landing .then li .n { color:var(--product); border-color:#bfc6f6; background:#f5f6ff; }
@@ -6112,7 +6121,7 @@ const APP_HTML = `<!DOCTYPE html>
         <h1 class="hero-title">Paste context once. Hand it to any Agent.</h1>
         <p class="hero-subtitle">Turn logs, research, screenshots or a working document into one link that Claude Code, Cursor, Codex and people can continue from.</p>
         <div class="hero-actions"><a class="hero-cta primary" href="#hero-creator">Create a link — free</a><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace</a></div>
-        <div class="hero-install"><div class="hero-install-label">Make Claude Code understand every vnsh link</div><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div></div>
+        <div class="hero-install"><div class="hero-install-label">Make Claude Code understand every vnsh link</div><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><code><span class="prompt">$ </span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div></div>
         <div class="hero-creator" id="hero-creator"></div>
       </div>
     </section>
