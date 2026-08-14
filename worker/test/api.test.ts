@@ -35,8 +35,15 @@ describe('vnsh API', () => {
       const html = await response.text();
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('vnsh');
-      // The headline has to name the object, not just the mechanism.
-      expect(html).toContain('One workspace all your agents can read and write.');
+      // The landing page now leads with the user problem, then proves the
+      // product with a real shared-workspace preview.
+      expect(html).toContain('Your Agents should not work from memory.');
+      expect(html).toContain('vnsh workspace product preview');
+      expect(html).toContain('Create a Workspace');
+      expect(html).toContain('Hand an Artifact to any Agent');
+      expect(html).toContain('Review what changed');
+      expect(html).toContain('Try an Incognito Artifact');
+      expect(html).toContain('Product launch · Shared Workspace');
     });
   });
 

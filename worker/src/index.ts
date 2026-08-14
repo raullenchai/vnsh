@@ -5046,12 +5046,12 @@ const APP_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Share context between Claude Code, Cursor &amp; any agent | vnsh</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%23111' width='32' height='32' rx='4'/%3E%3Ctext x='4' y='23' font-family='monospace' font-size='20' font-weight='bold' fill='%2310b981'%3E%3E_%3C/text%3E%3C/svg%3E">
-  <meta name="description" content="One workspace all your AI agents can read and write — Claude Code, Cursor, OpenHands. Encrypted in your browser, so vnsh cannot read it.">
+  <title>Shared knowledge for people and AI Agents | vnsh</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%234f66e8' width='32' height='32' rx='8'/%3E%3Cpath d='M8 10l6 13 10-13' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <meta name="description" content="Give Claude Code, Codex, Cursor and your team one shared place for plans, research and handoffs. People stay in the loop. Context stays with the work.">
   <meta name="keywords" content="vnsh, portable workspace, multi agent workspace, claude code artifacts alternative, share context between ai agents, model agnostic, mcp server, claude code, cursor, openhands, encrypted sharing, host-blind, ephemeral, ai context sharing, npx vnsh">
-  <meta property="og:title" content="vnsh — Portable Workspaces for AI and Humans">
-  <meta property="og:description" content="One link. Any agent can read and write it. Encrypted in your browser — vnsh cannot read it. Gone 24h after the last edit.">
+  <meta property="og:title" content="vnsh — Shared knowledge for people and AI Agents">
+  <meta property="og:description" content="One durable workspace for plans, research and handoffs across your team and every Agent.">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="vnsh">
   <meta property="og:locale" content="en_US">
@@ -5060,20 +5060,20 @@ const APP_HTML = `<!DOCTYPE html>
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="vnsh — Portable Workspaces for AI and Humans">
-  <meta name="twitter:description" content="One link. Any agent can read and write it. Encrypted in your browser — vnsh cannot read it. Gone 24h after the last edit.">
+  <meta name="twitter:title" content="vnsh — Shared knowledge for people and AI Agents">
+  <meta name="twitter:description" content="One durable workspace for plans, research and handoffs across your team and every Agent.">
   <meta name="twitter:image" content="https://vnsh.dev/og-image.png">
   <link rel="canonical" href="https://vnsh.dev">
   <meta name="robots" content="index, follow">
   <meta name="author" content="vnsh">
-  <meta name="theme-color" content="#22c55e">
+  <meta name="theme-color" content="#f7f5ef">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "vnsh",
-    "alternateName": "Portable Workspaces for AI and Humans",
-    "description": "A shared, encrypted workspace that any AI agent can read and write through one link \u2014 Claude Code, Cursor, OpenHands, Cline. Encrypted in your browser, so vnsh cannot read it. Deleted 24 hours after the last edit.",
+    "alternateName": "Shared knowledge for people and AI Agents",
+    "description": "A durable shared knowledge workspace for plans, research and handoffs across people, Claude Code, Codex, Cursor and other AI Agents.",
     "url": "https://vnsh.dev",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "Cross-platform (macOS, Linux, Windows)",
@@ -5090,7 +5090,9 @@ const APP_HTML = `<!DOCTYPE html>
       "priceCurrency": "USD"
     },
     "featureList": [
-      "One link every agent can both read and write",
+      "Permanent Account Artifacts organized by Workspace",
+      "Capability links Agents and people can read and write",
+      "Version history for every Artifact update",
       "Model-agnostic: works with Claude Code, Cursor, OpenHands, Cline, Windsurf, Zed",
       "Host-blind architecture - the server never sees your data",
       "End-to-end encryption (AES-256-GCM for workspaces, AES-256-CBC for one-shot blobs)",
@@ -5178,7 +5180,7 @@ const APP_HTML = `<!DOCTYPE html>
     .nav-links a:hover { color: var(--ink); }
     .nav-links .nav-action {
       display: inline-flex; align-items: center; justify-content: center;
-      height: 36px; padding: 0 13px; border-radius: 8px;
+      height: 40px; padding: 0 15px; border-radius: 10px;
       font-size: 12.5px; font-weight: 600; line-height: 1; white-space: nowrap;
     }
     .nav-links .nav-sign-in {
@@ -5930,10 +5932,119 @@ const APP_HTML = `<!DOCTYPE html>
       .code-block { padding: 0.75rem; }
       .code-block code { font-size: 0.8rem; }
     }
+
+    /* 2026 product landing. The viewer keeps the original dark utility theme;
+       the marketing surface is deliberately warm, quiet and document-led. */
+    .landing {
+      --paper: #f7f5ef; --paper-2: #eeece4; --paper-card: #fffefa;
+      --paper-ink: #20211f; --paper-muted: #676861; --paper-line: #dcd9cf;
+      --product: #4f66e8; --product-dark: #3448ba; --mint: #ccebd9;
+      --ground:var(--paper); --surface:var(--paper-card); --raised:#f0eee7;
+      --line:var(--paper-line); --line-lit:#c9c6bc; --ink:var(--paper-ink);
+      --ink-soft:#4f504b; --ink-faint:var(--paper-muted); --ink-ghost:#8a8a82;
+      --accent:var(--product); --accent-edge:#bfc6f6; --accent-wash:#edf0ff;
+      --ember:#b86a2c;
+      width:100%; min-height: 100vh; overflow-x:hidden; background: var(--paper); color: var(--paper-ink);
+    }
+    .landing .band-surface { background: var(--paper-2); border-color: var(--paper-line); }
+    .landing .nav { width:100%; max-width: 1120px; min-width:0; padding: 20px 0; }
+    .landing .wordmark { color: var(--paper-ink); font: 700 20px/1 var(--sans); letter-spacing: -.04em; }
+    .landing .wordmark span { color: var(--product); }
+    .landing .nav-links { color: var(--paper-muted); }
+    .landing .nav-links a:hover { color: var(--paper-ink); }
+    .landing .nav-links .nav-sign-in { background: var(--paper-ink); border-color: var(--paper-ink); color: white; }
+    .landing .nav-links .nav-sign-in:hover { background: #3a3b37; color: white; }
+    .landing .github-star-btn { background: transparent; border-color: var(--paper-line); color: var(--paper-muted); }
+    .landing .github-star-btn:hover { background: white; border-color: #c8c5bb; color: var(--paper-ink); }
+
+    .landing .hero { padding: 92px 0 54px; }
+    .landing .eyebrow { color: var(--product); opacity: 1; font-family: var(--sans); font-weight: 700; letter-spacing: .11em; }
+    .landing .hero-title { max-width: 15ch; overflow-wrap:break-word; font-size: clamp(3rem,7vw,5.35rem); line-height: .98; font-weight: 690; letter-spacing: -.06em; }
+    .landing .hero-subtitle { max-width: 650px; color: var(--paper-muted); font-size: 19px; line-height: 1.55; }
+    .landing .hero-subtitle .pain { color: inherit; }
+    .landing .hero-subtitle b { color: var(--paper-ink); }
+    .hero-actions { display:flex; justify-content:center; align-items:center; gap:12px; margin-top:30px; }
+    .hero-cta { display:inline-flex; height:48px; align-items:center; justify-content:center; padding:0 22px; border-radius:999px; text-decoration:none; font-size:14px; font-weight:650; }
+    .hero-cta.primary { background:var(--product); color:white; }
+    .hero-cta.primary:hover { background:var(--product-dark); }
+    .hero-cta.secondary { border:1px solid var(--paper-line); background:var(--paper-card); color:var(--paper-ink); }
+    .landing .hero-account { display:none; }
+
+    .landing .diagram-band { padding: 22px 0 92px; }
+    .landing .diagram-scroll,.landing .diagram-note { display:none; }
+    .product-window { width:100%; min-width:0; overflow:hidden; border:1px solid var(--paper-line); border-radius:22px; background:var(--paper-card); box-shadow:0 30px 80px rgba(49,48,43,.12); }
+    .product-bar { height:54px; display:flex; align-items:center; gap:8px; padding:0 18px; border-bottom:1px solid var(--paper-line); }
+    .product-dot { width:9px; height:9px; border-radius:50%; background:#d4d1c8; }
+    .product-bar-title { margin-left:10px; color:var(--paper-muted); font-size:12px; }
+    .product-body { display:grid; grid-template-columns:220px 1fr 240px; min-height:420px; }
+    .product-side { padding:24px 18px; background:#f1efe8; border-right:1px solid var(--paper-line); }
+    .product-side h3,.product-context h3 { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#8a8a82; margin-bottom:16px; }
+    .workspace-item { padding:10px 12px; margin-bottom:5px; border-radius:9px; color:var(--paper-muted); font-size:13px; }
+    .workspace-item.active { color:var(--paper-ink); background:white; font-weight:650; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+    .product-doc { padding:38px 46px; }
+    .doc-kicker { color:var(--product); font-size:12px; font-weight:700; margin-bottom:12px; }
+    .product-doc h2 { font-size:31px; line-height:1.16; letter-spacing:-.035em; margin-bottom:16px; }
+    .product-doc p { color:var(--paper-muted); font-size:14px; line-height:1.75; }
+    .doc-callout { margin-top:24px; padding:17px 18px; border-radius:12px; background:#edf0ff; border-left:3px solid var(--product); font-size:13px; color:#454e7c; }
+    .product-context { padding:24px 18px; border-left:1px solid var(--paper-line); }
+    .agent-row { display:flex; gap:10px; margin-bottom:18px; }
+    .agent-avatar { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; background:var(--mint); color:#276345; font-size:11px; font-weight:800; flex:none; }
+    .agent-copy b { display:block; font-size:12px; }
+    .agent-copy span { display:block; color:var(--paper-muted); font-size:11px; line-height:1.45; }
+    .journey { max-width:1120px; padding:0 0 92px; }
+    .journey-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:30px; }
+    .journey-step { border-top:1px solid var(--paper-line); padding-top:20px; }
+    .journey-num { color:var(--product); font-size:12px; font-weight:800; }
+    .journey-step h3 { margin:11px 0 8px; font-size:19px; letter-spacing:-.02em; }
+    .journey-step p { color:var(--paper-muted); font-size:14px; line-height:1.65; }
+
+    .landing .doors-band { max-width:1120px; padding:84px 0; }
+    .landing .doors-head { text-align:center; margin-bottom:38px; }
+    .landing .doors-head h2 { font-size:clamp(2rem,4vw,3.4rem); letter-spacing:-.045em; line-height:1.05; }
+    .landing .doors-head p { color:var(--paper-muted); margin-top:12px; }
+    .landing .doors { gap:18px; }
+    .landing .door { border-color:var(--paper-line); background:var(--paper-card); border-radius:18px; padding:25px; box-shadow:none; }
+    .landing .door-promote { border-color:#cbd1fb; background:#f3f4ff; }
+    .landing .door-tag { color:var(--product); font-family:var(--sans); font-weight:750; letter-spacing:.08em; }
+    .landing .door-title { color:var(--paper-ink); font-size:23px; }
+    .landing .door-lede,.landing .then li,.landing .door-foot,.landing .opt-text { color:var(--paper-muted); }
+    .landing .then li b,.landing .door-foot b,.landing .opt-text b { color:var(--paper-ink); }
+    .landing .dropzone,.landing .setup-prompt { background:white; border-color:var(--paper-line); color:var(--paper-ink); }
+    .landing .dropzone:hover,.landing .setup-prompt:hover { border-color:var(--product); }
+    .landing .dropzone-icon { color:var(--product); }
+    .landing .btn-primary { background:var(--product); border-color:var(--product); color:white; }
+    .landing .btn-primary:hover { background:var(--product-dark); border-color:var(--product-dark); color:white; }
+    .landing .btn { background:white; border-color:var(--paper-line); color:var(--paper-ink); }
+    .landing .setup-prompt-text,.landing .code-block,.landing .mcp-config { background:#292a27; color:#f5f4ef; }
+    .landing .then li .n { color:var(--product); border-color:#bfc6f6; background:#f5f6ff; }
+
+    .landing .trust { max-width:1120px; padding:94px 0; }
+    .landing .trust-title { color:var(--paper-ink); font-size:clamp(2rem,4vw,3.4rem); }
+    .landing .cards { gap:18px; }
+    .landing .card { border-color:var(--paper-line); background:var(--paper-card); border-radius:18px; padding:24px; }
+    .landing .card h3 { color:var(--paper-ink); font-size:17px; }
+    .landing .card p,.landing .honest { color:var(--paper-muted); }
+    .landing .honest { background:#fff8ef; border-color:#ead8c7; border-left-color:#d2874c; }
+    .landing .honest b { color:var(--paper-ink); }
+    .landing .card-icon { color:var(--product); }
+    .landing .card .spec { color:#898981; border-color:var(--paper-line); }
+    .landing .footer { border-top:1px solid var(--paper-line); color:#88887f; }
+    .landing .footer a { color:var(--paper-muted); }
+
+    @media(max-width:900px){.product-body{grid-template-columns:180px 1fr}.product-context{display:none}}
+    @media(max-width:650px){
+      .landing .hero{width:100%;min-width:0;padding:62px 0 38px}.landing .hero-title{max-width:100%;font-size:clamp(2.65rem,12.5vw,3.05rem);letter-spacing:-.055em}.landing .hero-subtitle{font-size:17px}
+      .hero-actions{flex-direction:column}.hero-cta{width:100%;max-width:320px}
+      .product-bar-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.product-body{display:block;min-height:0}.product-side{display:none}.product-doc{min-width:0;padding:28px 24px}.product-doc h2{overflow-wrap:anywhere;font-size:25px}
+      .journey{padding-bottom:58px}.journey-grid{grid-template-columns:1fr;gap:24px}
+      .landing .diagram-band{padding-bottom:58px}.landing .doors-band,.landing .trust{padding:58px 0}
+    }
   </style>
 </head>
 <body>
   \${AGENT_GUIDE}
+
+  <div class="landing">
 
   <!-- Toast Notification -->
   <div class="toast" id="toast">
@@ -5946,12 +6057,9 @@ const APP_HTML = `<!DOCTYPE html>
     <nav class="nav">
       <div class="wordmark">vnsh<span>_</span></div>
       <div class="nav-links">
-        <a href="#start">Get started</a>
+        <a href="#how-it-works">How it works</a>
         <a href="#security">Security</a>
-        <a href="https://github.com/raullenchai/vnsh" target="_blank" rel="noopener noreferrer" class="nav-action github-star-btn">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          Star
-        </a>
+        <a href="/llms.txt">Docs</a>
         <a class="nav-action nav-sign-in" href="https://account.vnsh.dev">Sign in</a>
       </div>
     </nav>
@@ -5960,17 +6068,13 @@ const APP_HTML = `<!DOCTYPE html>
   <!-- Hero -->
   <div class="band">
     <section class="hero rail-narrow">
-      <p class="eyebrow">Claude Code &middot; Cursor &middot; OpenHands &middot; Cline &middot; Zed</p>
-      <h1 class="hero-title">One workspace all your agents can read and write.</h1>
+      <p class="eyebrow">Shared context for every Agent</p>
+      <h1 class="hero-title">Your Agents should not work from memory.</h1>
       <p class="hero-subtitle">
-        <span class="pain">Right now you paste the same context into Claude&nbsp;Code, then Cursor, then Slack.</span>
-        Drop it here once instead and get a link. Everyone opens the
-        <b>same living document</b> &mdash; and can change it. Encrypted in your browser,
-        so vnsh never sees it. Gone 24&nbsp;hours after the last edit.
+        Give Claude Code, Cursor, Codex and your team one shared place for plans,
+        research and handoffs. <b>People stay in the loop. Context stays with the work.</b>
       </p>
-      <a class="hero-account" href="https://account.vnsh.dev">
-        Want permanent, organized Artifacts? <strong>Sign in to your account &rarr;</strong>
-      </a>
+      <div class="hero-actions"><a class="hero-cta primary" href="https://account.vnsh.dev">Start your workspace</a><a class="hero-cta secondary" href="#start">Try an Incognito Artifact</a></div>
     </section>
   </div>
 
@@ -5978,6 +6082,14 @@ const APP_HTML = `<!DOCTYPE html>
        hosting is drawn as containment, blindness as a struck-out eye on the cage. -->
   <div class="band">
     <section class="diagram-band rail">
+      <div class="product-window" aria-label="vnsh workspace product preview">
+        <div class="product-bar"><span class="product-dot"></span><span class="product-dot"></span><span class="product-dot"></span><span class="product-bar-title">Product launch · Shared Workspace</span></div>
+        <div class="product-body">
+          <aside class="product-side"><h3>Workspaces</h3><div class="workspace-item active">Product launch</div><div class="workspace-item">Model evaluations</div><div class="workspace-item">Customer research</div><div class="workspace-item">Engineering notes</div></aside>
+          <article class="product-doc"><div class="doc-kicker">Updated by Research Agent · 4 min ago</div><h2>Launch brief: what every Agent needs to know</h2><p>We are launching the account Artifact system to make durable knowledge the default. This document is the shared source of truth for positioning, rollout, open questions and decisions.</p><div class="doc-callout"><b>Human decision needed</b><br>Approve whether Incognito Artifacts stay at 24 hours or move to seven days by default.</div></article>
+          <aside class="product-context"><h3>Activity</h3><div class="agent-row"><span class="agent-avatar">RA</span><span class="agent-copy"><b>Research Agent</b><span>Added competitor notes and linked evidence.</span></span></div><div class="agent-row"><span class="agent-avatar" style="background:#f6dfc2;color:#86501e">EN</span><span class="agent-copy"><b>Engineering Agent</b><span>Updated the rollout checklist.</span></span></div><div class="agent-row"><span class="agent-avatar" style="background:#ddd9f8;color:#51468b">YOU</span><span class="agent-copy"><b>Human review</b><span>One decision is waiting for you.</span></span></div></aside>
+        </div>
+      </div>
       <div class="diagram-scroll">
       <svg class="diagram" viewBox="0 0 900 286" role="img"
            aria-label="Your content is encrypted on your machine and becomes one portable workspace. vnsh hosts that workspace but holds no key and cannot open it. Any agent or person you give the link to decrypts it on their own machine, and can write back.">
@@ -6069,17 +6181,28 @@ const APP_HTML = `<!DOCTYPE html>
     </section>
   </div>
 
+  <div class="band">
+    <section class="journey rail" id="how-it-works">
+      <div class="journey-grid">
+        <article class="journey-step"><span class="journey-num">01</span><h3>Create a Workspace</h3><p>Organize the durable context for a project, team or goal. Your account keeps it until you delete it.</p></article>
+        <article class="journey-step"><span class="journey-num">02</span><h3>Hand an Artifact to any Agent</h3><p>Share one capability link with Claude Code, Codex, Cursor or a teammate. No repeated briefing.</p></article>
+        <article class="journey-step"><span class="journey-num">03</span><h3>Review what changed</h3><p>Every update creates a version. People keep the context, the history and the final call.</p></article>
+      </div>
+    </section>
+  </div>
+
   <!-- Two doors. The right one is louder on purpose: making a workspace by hand
        is a demo that happens once; the prompt is the only thing that produces a
        second use. -->
   <div class="band band-surface" id="start">
     <section class="doors-band rail">
+      <div class="doors-head"><h2>Start where you are.</h2><p>Use a permanent team workspace, or make a private handoff with no account.</p></div>
       <div class="doors">
 
         <div class="door">
-          <div class="door-tag">Try it</div>
-          <div class="door-title">Make one right now</div>
-          <p class="door-lede">No account, no install. It encrypts before anything leaves this tab.</p>
+          <div class="door-tag">Incognito Artifact</div>
+          <div class="door-title">Make a private handoff</div>
+          <p class="door-lede">No account, no install. Host-blind and automatically deleted.</p>
 
           <div class="dropzone" id="dropzone">
             <div class="dropzone-icon">
@@ -6154,9 +6277,9 @@ const APP_HTML = `<!DOCTYPE html>
         </div>
 
         <div class="door door-promote">
-          <div class="door-tag">The whole point</div>
-          <div class="door-title">Or never do it by hand again</div>
-          <p class="door-lede">Paste this one line into any agent. That&rsquo;s the entire setup.</p>
+          <div class="door-tag">Agent setup</div>
+          <div class="door-title">Bring vnsh into your workflow</div>
+          <p class="door-lede">Paste this one line into an Agent. It handles the setup with your approval.</p>
 
           <div class="setup-prompt" onclick="copySetupPrompt()">
             <div class="setup-prompt-text" id="setup-prompt-text"></div>
@@ -6222,7 +6345,7 @@ const APP_HTML = `<!DOCTYPE html>
   <!-- Trust -->
   <div class="band" id="security">
     <section class="trust rail">
-      <h2 class="trust-title">Why you can hand it a private log</h2>
+      <h2 class="trust-title">Choose the right boundary for the work.</h2>
 
       <div class="cards">
         <div class="card">
@@ -6231,9 +6354,9 @@ const APP_HTML = `<!DOCTYPE html>
               <rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
             </svg>
           </span>
-          <h3>vnsh can&rsquo;t read it</h3>
-          <p>Encrypted in your browser before upload. The key lives in the URL fragment, which is never transmitted. The server only ever holds opaque bytes.</p>
-          <div class="spec">AES-256-GCM &middot; HKDF-SHA256</div>
+          <h3>Account Artifacts stay useful</h3>
+          <p>Keep durable knowledge organized by Workspace, preserve every version, and let people review what Agents change. You decide who gets a read or edit capability.</p>
+          <div class="spec">PERMANENT &middot; VERSIONED &middot; HUMAN-REVIEWABLE</div>
         </div>
 
         <div class="card">
@@ -6242,12 +6365,9 @@ const APP_HTML = `<!DOCTYPE html>
               <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
             </svg>
           </span>
-          <h3>It deletes itself</h3>
-          <p>24 hours after the last edit, the content is gone, and every edit
-             restarts that clock &mdash; a workspace written to daily stays alive.
-             What remains either way is ordinary request metadata: times, sizes,
-             addresses. Never the content.</p>
-          <div class="spec">24H TTL &middot; RENEWED ON WRITE</div>
+          <h3>Incognito stays host-blind</h3>
+          <p>Encrypted in your browser with AES-256-GCM. The key stays in the URL fragment; vnsh stores opaque bytes plus ordinary request metadata. The content auto-expires, though a workspace written to daily stays alive.</p>
+          <div class="spec">NO ACCOUNT &middot; AUTO-EXPIRES &middot; HKDF-SHA256</div>
         </div>
 
         <div class="card">
@@ -6263,7 +6383,7 @@ const APP_HTML = `<!DOCTYPE html>
       </div>
 
       <p class="honest">
-        <b>Two things we won&rsquo;t oversell.</b> Handing someone a link hands the key
+        <b>What the two modes mean.</b> Account Artifacts are readable by vnsh so authorized people and Agents can discover and collaborate on them. Incognito Artifacts are host-blind. Handing someone an Incognito link hands the key
         to whatever reads it &mdash; including that agent&rsquo;s model provider. And the
         encryption runs in code this server sends you, so a future version of that
         code could keep your key: browser-delivered encryption protects you from a
@@ -6284,6 +6404,8 @@ const APP_HTML = `<!DOCTYPE html>
       <span class="dot">&middot;</span>MIT
     </div>
   </div>
+
+  </div><!-- /.landing -->
 
 
   <!-- Viewer Overlay -->
