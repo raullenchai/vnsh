@@ -167,7 +167,14 @@ async function handleShareBinary(
   filename?: string,
   isPublic?: boolean,
 ): Promise<string> {
-  const { editUrl, viewUrl, expires } = await createWorkspace(data, { public: isPublic, ttl: await getRetentionHours() });
+  // The name was already here, being written into local history and then
+  // thrown away. Sending it means the recipient downloads `report.csv` rather
+  // than a generated `.txt` — the server still cannot read it.
+  const { editUrl, viewUrl, expires } = await createWorkspace(data, {
+    public: isPublic,
+    ttl: await getRetentionHours(),
+    name: filename,
+  });
 
   await addToHistory({
     url: viewUrl,
@@ -357,7 +364,13 @@ async function handleDebugBundle(
   const bundleJson = buildBundle(bundleInput);
   const bundleBytes = new TextEncoder().encode(bundleJson);
 
-  const { editUrl, viewUrl, expires } = await createWorkspace(bundleBytes, { public: isPublic, ttl: await getRetentionHours() });
+  // A bundle is JSON, and nothing about its bytes says so: it used to download
+  // as .txt, which is the wrong thing to hand an editor or an agent.
+  const { editUrl, viewUrl, expires } = await createWorkspace(bundleBytes, {
+    public: isPublic,
+    ttl: await getRetentionHours(),
+    name: 'vnsh-debug-bundle.json',
+  });
 
   // The prompt handed to an AI needs read access, not write. Pasting the
   // edit link into a chat gave whatever read it the ability to overwrite the

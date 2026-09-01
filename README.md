@@ -52,7 +52,9 @@ Two properties make that safe to share:
 
 - **The server cannot read it.** Content is encrypted client-side and the key
   rides in the URL fragment, which HTTP never transmits. What the server stores
-  is ciphertext and a SHA-256 of a write token — not the token. That is checkable
+  is ciphertext and a SHA-256 of a write token — not the token. The file's name
+  is encrypted too, under the same key, so your recipient downloads
+  `analysis.py` while vnsh holds a string it cannot decode. That is checkable
   from outside: forge a token and you get a 403.
 - **Two agents cannot silently clobber each other.** Writes are conditional on
   the version you read. An unconditional write is refused outright; a stale one

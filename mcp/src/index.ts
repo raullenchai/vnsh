@@ -40,6 +40,8 @@ import {
   buildWorkspaceUrl,
   buildReadOnlyWorkspaceUrl,
   parseWorkspaceUrl,
+  sealWorkspaceName,
+  openWorkspaceName,
 } from './crypto.js';
 
 // Configuration
@@ -117,6 +119,10 @@ const WorkspaceCreateSchema = z.object({
     .optional()
     .describe('Store unencrypted so any agent can read it with no key. vnsh can read it too.'),
   ttl: TtlSchema.optional().describe('How long it lives, in whole hours (default: 24, max: 168)'),
+  // Sniffing bytes recovers a type for PNG and PDF and nothing at all for
+  // source code, so .py and .csv both arrive as .txt unless someone says
+  // otherwise. This is where they say otherwise.
+  name: z.string().max(255).optional().describe('File name to attach, e.g. "analysis.py". Stored encrypted under the content key, so vnsh cannot read it; it becomes the name the recipient downloads.'),
   host: z.string().optional(),
 });
 
@@ -134,6 +140,9 @@ const WorkspaceUpdateSchema = z.object({
   url: z.string(),
   content: z.string(),
   base_version: z.number().optional(),
+  // Omitting this keeps whatever name the workspace already carries; an update
+  // is not a reason to forget what the document is called.
+  name: z.string().max(255).optional().describe('File name to attach, e.g. "analysis.py". Stored encrypted under the content key, so vnsh cannot read it; it becomes the name the recipient downloads.'),
 });
 
 const WorkspaceHistorySchema = z.object({
@@ -1060,7 +1069,7 @@ export async function handleArtifactUpdate(args: unknown) {
  * @internal Exported for testing
  */
 export async function handleWorkspaceCreate(args: unknown) {
-  const { content, artifact, public: isPublic, ttl, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const { content, artifact, public: isPublic, ttl, name, host: hostOverride } = WorkspaceCreateSchema.parse(args);
   const host = hostOverride || DEFAULT_HOST;
 
   const secret = generateRootSecret();
@@ -1069,12 +1078,16 @@ export async function handleWorkspaceCreate(args: unknown) {
   // only fetch read it. The encryption step is skipped rather than performed
   // and discarded, so there is no pretence of a guarantee that is not there.
   const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
+  // A public workspace has no key, so its name is stored exactly as openly as
+  // its body — never less openly, and never more.
+  const nameHeader = name ? sealWorkspaceName(name, isPublic ? null : key) : null;
 
   const response = await fetch(`${host}/api/workspace${ttl ? `?ttl=${ttl}` : ''}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write-Hash': writeHash,
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
       ...(isPublic ? { 'X-Vnsh-Public': '1' } : {}),
       ...(artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
       ...clientHeaders(),
@@ -1132,6 +1145,26 @@ export async function handleWorkspaceCreate(args: unknown) {
 }
 
 // Fetch and decrypt a workspace. Shared by read/update/open.
+/**
+ * Whether a workspace stores its content in the clear.
+ *
+ * A HEAD rather than a read: this is only ever asked when the caller supplied a
+ * base version, so there is no reason to pull the body down. Answering "no" on
+ * a failed probe is the safe default — it keeps the encrypted path, and the
+ * conditional write is what actually protects the document.
+ */
+async function workspaceIsPublic(host: string, id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${host}/api/workspace/${id}`, {
+      method: 'HEAD',
+      headers: { ...clientHeaders() },
+    });
+    return response.headers.get('X-Vnsh-Public') === '1';
+  } catch {
+    return false;
+  }
+}
+
 async function fetchWorkspace(url: string) {
   if (isPublicWorkspaceUrl(url)) {
     const target = new URL(url.split('#')[0]);
@@ -1317,7 +1350,7 @@ export async function handleWorkspaceRenew(args: unknown) {
 }
 
 export async function handleWorkspaceUpdate(args: unknown) {
-  const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
+  const { url, content, base_version, name } = WorkspaceUpdateSchema.parse(args);
   if (isPublicWorkspaceUrl(url)) {
     throw new Error(
       'A public /p/ link is read-only. Updating needs the private edit link (#w=) returned when the workspace was created.',
@@ -1333,21 +1366,33 @@ export async function handleWorkspaceUpdate(args: unknown) {
   }
 
   // Without an explicit base, read the latest so we write against something real.
+  // Either way we need to know how this workspace stores its content: a public
+  // one is plaintext, its edit link is still a /w/#w= link, and encrypting into
+  // it would hand every reader ciphertext served as a public document.
   let version = base_version;
+  let isPublic: boolean;
   if (version === undefined) {
-    version = (await fetchWorkspace(url)).version;
+    const current = await fetchWorkspace(url);
+    version = current.version;
+    isPublic = Boolean(current.public);
+  } else {
+    isPublic = await workspaceIsPublic(host, id);
   }
 
-  const encrypted = encryptWorkspace(content, key);
+  const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
+  // The name gets exactly the guarantee the body gets. Sealing it under K for a
+  // public workspace would be worse than useless: no reader has that key.
+  const nameHeader = name ? sealWorkspaceName(name, isPublic ? null : key) : null;
   const response = await fetch(`${host}/api/workspace/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write': writeToken,
       'If-Match': `"${version}"`,
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
       ...clientHeaders(),
     },
-    body: new Uint8Array(encrypted),
+    body: new Uint8Array(body),
   });
 
   if (response.status === 412) {

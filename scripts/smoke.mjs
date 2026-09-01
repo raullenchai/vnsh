@@ -80,6 +80,27 @@ function seal(text, K) {
   return Buffer.concat([nonce, c.update(Buffer.from(text, 'utf8')), c.final(), c.getAuthTag()]);
 }
 
+// Mirrors sealWorkspaceName in the clients: a fixed-width slot, then AES-GCM.
+const NAME_SLOT_BYTES = 200;
+
+function sealName(name, K) {
+  const bytes = Buffer.from(name, 'utf8');
+  const slot = Buffer.alloc(2 + NAME_SLOT_BYTES);
+  slot.writeUInt16BE(bytes.length, 0);
+  bytes.copy(slot, 2);
+  const nonce = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', K, nonce);
+  return Buffer.concat([nonce, c.update(slot), c.final(), c.getAuthTag()]).toString('base64url');
+}
+
+function openName(header, K) {
+  const buf = Buffer.from(header, 'base64url');
+  const d = crypto.createDecipheriv('aes-256-gcm', K, buf.subarray(0, 12));
+  d.setAuthTag(buf.subarray(buf.length - 16));
+  const slot = Buffer.concat([d.update(buf.subarray(12, buf.length - 16)), d.final()]);
+  return slot.subarray(2, 2 + slot.readUInt16BE(0)).toString('utf8');
+}
+
 function open(buf, K) {
   const d = crypto.createDecipheriv('aes-256-gcm', K, buf.subarray(0, 12));
   d.setAuthTag(buf.subarray(buf.length - 16));
@@ -103,6 +124,7 @@ async function main() {
   check('llms.txt documents workspace create', llmsBody.includes('POST https://vnsh.dev/api/workspace'));
   check('llms.txt documents the write hash', llmsBody.includes('X-Vnsh-Write-Hash'));
   check('llms.txt documents the key schedule', llmsBody.includes('vnsh/enc/v2'));
+  check('llms.txt documents attaching a file name', llmsBody.includes('X-Vnsh-Name'));
 
   // ---- v1 blob roundtrip ---------------------------------------------------
   console.log('\nv1 blob');
@@ -231,6 +253,61 @@ async function main() {
     const readBack = await fetch(`${HOST}/api/workspace/${longId}`);
     check('content survives a renew unchanged',
       open(Buffer.from(await readBack.arrayBuffer()), longKeys.K) === 'edited');
+  }
+
+  // ---- file names ----------------------------------------------------------
+  // The reported pain: everything downloaded as .txt. Nothing ever sent a name,
+  // so a reader had only magic bytes to go on — and .py, .json and .csv have
+  // none. The name now rides in object metadata, sealed under the content key,
+  // so what is checked here is both halves: that it survives the round trip,
+  // and that the service is in no position to read it.
+  console.log('\nfile names');
+  const nameKeys = workspaceKeys();
+  const sealedName = sealName('quarterly-analysis.py', nameKeys.K);
+  const namedCreate = await fetch(`${HOST}/api/workspace`, {
+    method: 'POST', body: seal('print("hi")', nameKeys.K),
+    headers: {
+      'X-Vnsh-Write-Hash': nameKeys.H, 'X-Vnsh-Client': 'smoke',
+      'X-Vnsh-Name': sealedName,
+    },
+  });
+  check('a create carrying a name responds 201', namedCreate.status === 201,
+    `got ${namedCreate.status}`);
+  let namedId = null;
+  if (namedCreate.status === 201) ({ id: namedId } = await namedCreate.json());
+
+  if (namedId) {
+    const named = await fetch(`${HOST}/api/workspace/${namedId}`);
+    const returned = named.headers.get('x-vnsh-name');
+    await named.arrayBuffer();
+    check('the name comes back byte for byte', returned === sealedName,
+      `got ${returned}`);
+    check('a browser is allowed to read the header',
+      (named.headers.get('access-control-expose-headers') || '')
+        .toLowerCase().includes('x-vnsh-name'));
+    check('only the key holder can read the name',
+      returned && openName(returned, nameKeys.K) === 'quarterly-analysis.py');
+    // Padding is what makes storing this server-side defensible: without it the
+    // header length alone separates ok.txt from acquisition-targets.xlsx.
+    check('every sealed name is the same length',
+      new Set(['a.c', 'ok.txt', 'acquisition-targets.xlsx']
+        .map((n) => sealName(n, nameKeys.K).length)).size === 1);
+    // Nothing recognisable on the wire: this is what makes storing it in
+    // server-side metadata acceptable at all.
+    check('the stored name reveals nothing to the service',
+      !Buffer.from(returned || '', 'base64url').toString('latin1').includes('analysis'));
+
+    // The metadata is rebuilt from scratch on every write, which is exactly how
+    // the TTL was once demoted on every edit.
+    const editNamed = await fetch(`${HOST}/api/workspace/${namedId}`, {
+      method: 'PUT', body: seal('print("bye")', nameKeys.K),
+      headers: { 'X-Vnsh-Write': nameKeys.W, 'If-Match': '"1"', 'X-Vnsh-Client': 'smoke' },
+    });
+    check('an edit responds 200', editNamed.status === 200, `got ${editNamed.status}`);
+    const afterNamedEdit = await fetch(`${HOST}/api/workspace/${namedId}`);
+    const keptName = afterNamedEdit.headers.get('x-vnsh-name');
+    await afterNamedEdit.arrayBuffer();
+    check('an edit does not lose the name', keptName === sealedName, `got ${keptName}`);
   }
 
   // ---- what an automated reader is handed -----------------------------------

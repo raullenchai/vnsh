@@ -224,6 +224,110 @@ export function decryptWorkspace(payload: Buffer, key: Buffer): Buffer {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
+/** Bytes reserved for a name inside the sealed slot, before the 2-byte length. */
+const NAME_SLOT_BYTES = 200;
+
+/**
+ * A file name, wrapped so the service can store it without reading it.
+ *
+ * The name is content - `analysis.py` is harmless, `Q3-layoff-list.xlsx` is not
+ * - so it gets the same treatment the body gets: AES-256-GCM under the content
+ * key, base64url on the wire. vnsh keeps the string in R2 custom metadata and
+ * hands it back untouched, which is what lets a download arrive as
+ * `analysis.py` instead of a guess made from its first four bytes.
+ *
+ * The plaintext is padded to a fixed width first. Encryption hides the bytes
+ * but not their count, and an unpadded value would publish the exact length of
+ * every private file name - enough to tell `ok.txt` from
+ * `acquisition-targets.xlsx`, and enough to rule candidates in or out. Every
+ * sealed name is therefore the same size on the wire. What stays visible is
+ * only whether a name was attached at all.
+ *
+ * Public workspaces are the exception, and deliberately so: they have no key,
+ * and their name is base64url of plain UTF-8. Weakening the name below what the
+ * body already promises is the one thing this must never do.
+ */
+export function sealWorkspaceName(name: string, key: Buffer | null): string | null {
+  const clean = sanitizeFileName(name);
+  if (!clean) return null;
+  const bytes = Buffer.from(clean, 'utf-8');
+  if (!key) return bufferToBase64url(bytes);
+  // 2-byte big-endian length, then the name, then zeros out to a constant width.
+  const slot = Buffer.alloc(2 + NAME_SLOT_BYTES);
+  slot.writeUInt16BE(bytes.length, 0);
+  bytes.copy(slot, 2);
+  return bufferToBase64url(encryptWorkspace(slot, key));
+}
+
+/**
+ * Recover a name sealed by `sealWorkspaceName`, or null if anything is off.
+ *
+ * Null is a real answer, not an error: the caller falls back to a generated
+ * name. A wrong name costs nothing, and a name that came from somewhere other
+ * than the key holder must never reach a filesystem path.
+ */
+export function openWorkspaceName(header: string | null, key: Buffer | null): string | null {
+  if (!header || header.length > 512 || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+  try {
+    const bytes = base64urlToBuffer(header);
+    if (!key) return sanitizeFileName(bytes.toString('utf-8'));
+    const slot = decryptWorkspace(bytes, key);
+    if (slot.length !== 2 + NAME_SLOT_BYTES) return null;
+    const length = slot.readUInt16BE(0);
+    if (length > NAME_SLOT_BYTES) return null;
+    return sanitizeFileName(slot.subarray(2, 2 + length).toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Windows refuses these as file names, with or without an extension. */
+const RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
+ * Reduce anything to a bare file name that is safe on every platform.
+ *
+ * This value ends up in a path the CLI writes to and in a browser `download`
+ * attribute, so it has to be a name and nothing else. Beyond separators, three
+ * things matter and are easy to miss:
+ *
+ * - Bidirectional overrides. A name carrying U+202E renders in reverse from
+ *   that point on, so `.exe` can be displayed as `.pdf` in every file list that
+ *   honours them, which is the entire reason to put one in a name.
+ * - `:` addresses an NTFS alternate data stream, so `notes.txt:payload.exe`
+ *   writes somewhere other than where it appears to.
+ * - Trailing dots and spaces are stripped by Windows, so `report.txt.` and
+ *   `report.txt` are one file - a way to collide with a name on purpose.
+ *
+ * The cap is in UTF-8 bytes rather than code units so that it matches the limit
+ * the wire format actually imposes; a 200-character CJK name is 600 bytes and
+ * would otherwise be accepted here and silently dropped by the server.
+ */
+export function sanitizeFileName(raw: string): string | null {
+  if (!raw) return null;
+  const segment = raw.split(/[/\\]/).pop() || '';
+  const cleaned = segment
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    // Zero-width and bidirectional formatting characters.
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
+    .replace(/:/g, '')
+    .trim()
+    // Windows drops these, so keeping them invites two names for one file.
+    .replace(/[. ]+$/, '');
+  if (!cleaned || cleaned === '.' || cleaned === '..') return null;
+  const safe = RESERVED_DEVICE_NAMES.test(cleaned) ? `_${cleaned}` : cleaned;
+  return truncateUtf8(safe, NAME_SLOT_BYTES);
+}
+
+/** Cut to a byte budget without splitting a character in half. */
+function truncateUtf8(value: string, maxBytes: number): string | null {
+  let cut = value;
+  while (Buffer.byteLength(cut, 'utf-8') > maxBytes && cut.length > 0) {
+    cut = cut.slice(0, -1);
+  }
+  return cut || null;
+}
+
 /**
  * Workspace links come in two tiers, distinguished by their fragment prefix:
  *

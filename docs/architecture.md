@@ -115,7 +115,9 @@ documents, its root explainer, robots policy, and security contact.
 
 R2 is the single source of truth. An object's custom metadata records fields such
 as creation/expiry time, workspace version, write hash, visibility, and content
-type. Reads reject expired objects. Successful workspace writes refresh expiry;
+type. It also records the document's file name, but not as text: a name is
+content, so clients seal it under the workspace content key and the service
+stores and returns a string it cannot decode. Reads reject expired objects. Successful workspace writes refresh expiry;
 a scheduled handler removes expired objects as storage cleanup.
 
 Default retention is 24 hours after the latest successful write. Supported

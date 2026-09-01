@@ -25,7 +25,7 @@ MCP process handles plaintext, so pin or build from source if you review it.
 
 | Tool | Purpose |
 |---|---|
-| `vnsh_workspace_create` | Create an encrypted or explicitly public mutable workspace; accepts `ttl` up to 168 hours |
+| `vnsh_workspace_create` | Create an encrypted or explicitly public mutable workspace; accepts `ttl` up to 168 hours and a `name` |
 | `vnsh_workspace_read` | Read encrypted `#w`/`#r` links or public `/p/` links and return the current version |
 | `vnsh_workspace_update` | Conditionally replace content; conflicts include the current version and content for merging |
 | `vnsh_workspace_history` | List the current and retained historical versions |

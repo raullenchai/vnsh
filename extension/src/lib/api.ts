@@ -11,6 +11,7 @@ import {
   buildWorkspaceUrl,
   buildReadOnlyWorkspaceUrl,
   buildPublicUrl,
+  sealWorkspaceName,
 } from './workspace';
 
 const CLIENT_HEADER = { 'X-Vnsh-Client': 'extension/1.0.0' };
@@ -92,7 +93,7 @@ export async function downloadBlob(
  */
 export async function createWorkspace(
   plaintext: Uint8Array,
-  options: { public?: boolean; host?: string; ttl?: number } = {},
+  options: { public?: boolean; host?: string; ttl?: number; name?: string } = {},
 ): Promise<{ id: string; editUrl: string; viewUrl: string; expires: string }> {
   const host = options.host || VNSH_HOST;
   const secret = generateRootSecret();
@@ -106,12 +107,20 @@ export async function createWorkspace(
   // that could have prevented it.
   const query = options.ttl ? `?ttl=${options.ttl}` : '';
 
+  // Dropping a file used to lose its name at the door: the bytes went up and
+  // `report.csv` came back down as a generated `.txt`. The name is sealed under
+  // the same key as the body, so keeping it costs the guarantee nothing.
+  const nameHeader = options.name
+    ? await sealWorkspaceName(options.name, options.public ? null : key)
+    : null;
+
   const response = await fetch(`${host}/api/workspace${query}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       ...CLIENT_HEADER,
       'X-Vnsh-Write-Hash': writeHash,
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
       ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
     },
     body: body as BodyInit,

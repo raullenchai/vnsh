@@ -59,6 +59,19 @@ vn renew <edit-url> -t 168     # and make it a week while you are at it
 because workspaces were fixed at 24 hours; they now take the same parameter, so
 asking for a longer life no longer costs you the ability to edit.
 
+### What it is called
+
+```bash
+vn analysis.py                 # arrives as analysis.py, not vnsh-<id>-v1.txt
+cat analysis.py | vn           # no name to keep; falls back to the generated one
+vn write <edit-url> notes.md   # renames it; writing from stdin leaves the name alone
+```
+
+The name is encrypted under the same key as the content and stored as opaque
+metadata, so vnsh can hand it to your recipient without ever reading it. Nothing
+in a file's bytes says whether it is Python or prose, so without this every text
+format downloaded as `.txt`.
+
 `renew` needs the edit link (`#w=`). A view-only `#r=` link can read a workspace
 but not decide how long it lives. Renewing does not bump the version, so an
 agent part-way through an edit is unaffected.
@@ -252,6 +265,7 @@ The server CANNOT see:
 - Your plaintext content
 - The encryption key
 - What type of file it is
+- Its file name, which is encrypted under the content key before it is stored
 
 ## Troubleshooting
 
