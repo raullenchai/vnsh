@@ -12,6 +12,7 @@
  * - vnsh_workspace_create/read/update/history/restore/renew/open: mutable shared workspaces
  */
 
+import { randomBytes } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -42,6 +43,8 @@ import {
   parseWorkspaceUrl,
   sealWorkspaceName,
   openWorkspaceName,
+  sealBlobName,
+  openBlobName,
 } from './crypto.js';
 
 // Configuration
@@ -536,6 +539,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 /**
+ * Write into the temp directory without ever landing on a path that exists.
+ *
+ * The name can come from whoever shared the link, so `report.png` is a path an
+ * outsider chooses; on a shared /tmp that path can be pre-created as a symlink.
+ * `wx` opens with O_CREAT|O_EXCL, which neither follows a symlink nor overwrites,
+ * so a taken name simply gets a suffix. Same rule as the CLI.
+ */
+function writeFreshFile(base: string, bytes: Buffer): string {
+  const dir = os.tmpdir();
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length) || 'vnsh';
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const candidate = path.join(dir, attempt === 0 ? base : `${stem}-${attempt}${ext}`);
+    try {
+      fs.writeFileSync(candidate, bytes, { flag: 'wx', mode: 0o600 });
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  const unique = path.join(dir, `${stem}-${randomBytes(6).toString('hex')}${ext}`);
+  fs.writeFileSync(unique, bytes, { flag: 'wx', mode: 0o600 });
+  return unique;
+}
+
+/**
  * Handle vnsh_read tool call
  * @internal Exported for testing
  */
@@ -614,15 +643,15 @@ export async function handleRead(args: unknown) {
 
   // Decrypt
   const decrypted = decrypt(encrypted, key, iv);
+  // The name the uploader gave the file, readable only with the blob's key.
+  const attachedName = openBlobName(response.headers.get('X-Vnsh-Name'), key);
 
   // Detect binary/image content by checking magic bytes
   const imageType = detectImageType(decrypted);
 
   if (imageType) {
     // Save image to temp file and return the path
-    const tempDir = os.tmpdir();
-    const tempFile = path.join(tempDir, `opaque-${id}.${imageType.ext}`);
-    fs.writeFileSync(tempFile, decrypted);
+    const tempFile = writeFreshFile(attachedName || `opaque-${id}.${imageType.ext}`, decrypted);
 
     return {
       content: [
@@ -645,9 +674,7 @@ export async function handleRead(args: unknown) {
 
   if (isBinary) {
     // Save binary to temp file
-    const tempDir = os.tmpdir();
-    const tempFile = path.join(tempDir, `opaque-${id}.bin`);
-    fs.writeFileSync(tempFile, decrypted);
+    const tempFile = writeFreshFile(attachedName || `opaque-${id}.bin`, decrypted);
 
     return {
       content: [
@@ -722,8 +749,8 @@ async function fetchPublicWorkspace(raw: string) {
   if (kind || detectBinary(payload)) {
     const ext = kind?.ext || 'bin';
     const mime = kind?.mime || 'application/octet-stream';
-    const filePath = path.join(os.tmpdir(), `vnsh-public-${id}-v${version}.${ext}`);
-    fs.writeFileSync(filePath, payload, { mode: 0o600 });
+    const name = openWorkspaceName(response.headers.get('X-Vnsh-Name'), null);
+    const filePath = writeFreshFile(name || `vnsh-public-${id}-v${version}.${ext}`, payload);
     return {
       content: [{ type: 'text', text: `Public workspace ${id} — version ${version}.\n` +
         `It holds ${mime} (${payload.length} bytes). Saved unmodified to: ${filePath}\n\n` +
@@ -901,6 +928,9 @@ export async function handleShareFile(args: unknown) {
 
   // Encrypt the file content
   const encrypted = encrypt(fileBuffer, key, iv);
+  // The name rides along sealed under the same key, so a reader gets
+  // `report.csv` back rather than a generated `.bin`.
+  const nameHeader = sealBlobName(path.basename(resolved), key);
 
   // Build API URL with optional TTL
   let apiUrl = `${host}/api/drop`;
@@ -914,6 +944,7 @@ export async function handleShareFile(args: unknown) {
     headers: {
       'Content-Type': 'application/octet-stream',
       ...clientHeaders(),
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
     },
     body: new Uint8Array(encrypted),
   });
@@ -1223,7 +1254,8 @@ async function fetchWorkspace(url: string) {
     );
   }
 
-  return { host, id, version, writeToken, key, secret, canWrite, plaintext, public: isPublic };
+  const name = openWorkspaceName(response.headers.get('X-Vnsh-Name'), isPublic ? null : key);
+  return { host, id, version, writeToken, key, secret, canWrite, plaintext, public: isPublic, name };
 }
 
 /**
@@ -1232,7 +1264,7 @@ async function fetchWorkspace(url: string) {
  */
 export async function handleWorkspaceRead(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
-  const { host, id, version, secret, canWrite, plaintext, public: isPublic } = await fetchWorkspace(url);
+  const { host, id, version, secret, canWrite, plaintext, public: isPublic, name } = await fetchWorkspace(url);
   const viewUrl = secret ? buildReadOnlyWorkspaceUrl(host, id, secret) : url;
 
   const header = canWrite
@@ -1256,8 +1288,7 @@ export async function handleWorkspaceRead(args: unknown) {
   if (kind || detectBinary(plaintext)) {
     const ext = kind ? kind.ext : 'bin';
     const mime = kind ? kind.mime : 'application/octet-stream';
-    const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
-    fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
+    const filePath = writeFreshFile(name || `vnsh-workspace-${id}-v${version}.${ext}`, plaintext);
     const hint = kind && kind.image
       ? '\n\nOpen that local path with your client\'s file or image viewer.'
       : '\n\nRead that path to work with the file.';

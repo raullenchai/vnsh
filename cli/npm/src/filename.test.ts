@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'child_process';
+import { readFileSync, writeFileSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   generateRootSecret,
   deriveWorkspaceKeys,
   sealWorkspaceName,
   openWorkspaceName,
+  sealBlobName,
+  openBlobName,
+  generateKey,
+  generateIV,
+  encrypt,
+  bufferToBase64url,
   sanitizeFileName,
 } from './crypto.js';
 
@@ -161,5 +171,106 @@ describe('a name is a name, never a path', () => {
   it('survives the round trip after sanitising, not before', () => {
     const key = deriveWorkspaceKeys(generateRootSecret()).key;
     expect(openWorkspaceName(sealWorkspaceName('../../../evil.sh', key), key)).toBe('evil.sh');
+  });
+});
+
+/**
+ * A legacy `/v/` blob is AES-256-CBC, and its name has to be too: the shell
+ * client encrypts with `openssl enc`, which has no GCM mode. The name is CBC
+ * under the blob's own key with its own IV, NUL-padded to a fixed slot.
+ */
+describe('sealing a legacy blob name', () => {
+  const key = generateKey();
+
+  it('round-trips through the blob key', () => {
+    expect(openBlobName(sealBlobName('analysis.py', key), key)).toBe('analysis.py');
+    expect(openBlobName(sealBlobName('季度报告 v2.pdf', key), key)).toBe('季度报告 v2.pdf');
+  });
+
+  it('is base64url and a constant 299 characters whatever the name', () => {
+    const lengths = new Set(
+      ['a.c', 'ok.txt', 'acquisition-targets.xlsx', '季度报告.pdf', 'x'.repeat(150) + '.md']
+        .map((n) => sealBlobName(n, key)!),
+    );
+    for (const sealed of lengths) expect(sealed).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(new Set([...lengths].map((s) => s.length))).toEqual(new Set([299]));
+  });
+
+  it('uses a fresh IV, so the same name never seals the same way twice', () => {
+    expect(sealBlobName('same.txt', key)).not.toBe(sealBlobName('same.txt', key));
+  });
+
+  it('opens to nothing under the wrong key, a garbled header, or no header', () => {
+    const sealed = sealBlobName('secret-plan.docx', key)!;
+    expect(openBlobName(sealed, generateKey())).toBeNull();
+    expect(openBlobName(sealed.slice(0, -4), key)).toBeNull();
+    expect(openBlobName('definitely not a header', key)).toBeNull();
+    expect(openBlobName(null, key)).toBeNull();
+  });
+
+  it('drops the characters Windows refuses, so a Linux name never makes a Windows reader throw', () => {
+    expect(openBlobName(sealBlobName('report?.png', key), key)).toBe('report.png');
+    expect(sanitizeFileName('a<b>c"d|e*f.txt')).toBe('abcdef.txt');
+  });
+
+  it('sanitizes on both ends, so a path or a bidi trick never survives', () => {
+    expect(openBlobName(sealBlobName('../../etc/passwd', key), key)).toBe('passwd');
+    expect(openBlobName(sealBlobName('invoice\u202Efdp.exe', key), key)).toBe('invoicefdp.exe');
+    expect(sealBlobName('   ', key)).toBeNull();
+  });
+});
+
+/**
+ * The shell client is the other end of this wire. It has no test suite of its
+ * own, so the cross-client check lives here: seal in Node, open with the shell
+ * functions exactly as `cli/vn` defines them, and back again.
+ */
+describe('the shell client speaks the same legacy name format', () => {
+  const script = join(__dirname, '..', '..', 'vn');
+  // Everything except the trailing `main "$@"`, so sourcing defines functions
+  // without running the CLI.
+  const lib = readFileSync(script, 'utf-8').replace(/\nmain "\$@"\s*$/, '\n');
+  const dir = mkdtempSync(join(tmpdir(), 'vn-shell-'));
+  const libPath = join(dir, 'vnlib.sh');
+  writeFileSync(libPath, lib);
+  const key = generateKey();
+  const keyHex = key.toString('hex');
+
+  function sh(fn: string, ...args: string[]): string {
+    return execFileSync(
+      'bash',
+      ['-c', `source "$0"; ${fn} "$@"`, libPath, ...args],
+      { encoding: 'utf-8' },
+    );
+  }
+
+  it('opens in Node what the shell sealed', () => {
+    const sealed = sh('seal_name', '/tmp/quarterly report.csv', keyHex).trim();
+    expect(sealed).toHaveLength(299);
+    expect(openBlobName(sealed, key)).toBe('quarterly report.csv');
+  });
+
+  it('opens in the shell what Node sealed', () => {
+    expect(sh('open_name', sealBlobName('analysis.py', key)!, keyHex)).toBe('analysis.py');
+  });
+
+  it('never lets a name drive the terminal it is printed on', () => {
+    expect(sh('open_name', sealBlobName('report\u001b[2J\u001b[H.txt', key)!, keyHex)).toBe('report[2J[H.txt');
+    expect(sh('open_name', sealBlobName('invoice\u202Efdp.exe', key)!, keyHex)).toBe('invoicefdp.exe');
+    expect(sh('open_name', sealBlobName('季度\u200B报告.pdf', key)!, keyHex)).toBe('季度报告.pdf');
+  });
+
+  it('refuses a header whose slot is not the 200 bytes every client writes', () => {
+    // 207 bytes pads to 208 and decrypts cleanly; only the width gives it away.
+    const iv = generateIV();
+    const forged = bufferToBase64url(Buffer.concat([iv, encrypt(Buffer.alloc(207, 0x41), key, iv)]));
+    expect(forged).toHaveLength(299);
+    expect(sh('open_name', forged, keyHex)).toBe('');
+    expect(openBlobName(forged, key)).toBeNull();
+  });
+
+  it('prints nothing in the shell for a header it cannot open', () => {
+    expect(sh('open_name', sealBlobName('analysis.py', key)!, generateKey().toString('hex'))).toBe('');
+    expect(sh('open_name', 'garbage', keyHex)).toBe('');
   });
 });

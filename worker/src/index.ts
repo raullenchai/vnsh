@@ -296,6 +296,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
   // Parse optional TTL from query string
   const url = new URL(request.url);
   const ttlHours = parseTtlHours(url.searchParams.get('ttl'));
+  const dropName = nameFromRequest(request);
 
   // Generate unique short ID with collision check
   let id: string = generateShortId();
@@ -330,9 +331,15 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
     // Store blob in R2. R2 customMetadata is the SINGLE SOURCE OF TRUTH for
     // expiry — the core read/write path must not depend on KV, which on the
     // free plan caps at ~1000 writes/day and throws once exhausted.
+    //
+    // The file name rides along as one more opaque string. A legacy blob is
+    // sealed under AES-256-CBC rather than the workspace's GCM, because the
+    // shell client encrypts with `openssl enc`, which has no GCM mode — the
+    // name gets exactly the protection the body it names already has.
     const customMetadata: Record<string, string> = {
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(expiresAt).toISOString(),
+      ...(dropName ? { name: dropName } : {}),
     };
     await env.VNSH_STORE.put(id, await readCapped(body, MAX_BLOB_SIZE), { customMetadata });
 
@@ -415,6 +422,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
       'Cache-Control': 'private, no-store, no-cache',
       'X-Content-Type-Options': 'nosniff',
       ...(hasExpiry ? { 'X-Opaque-Expires': new Date(expiresAtMs).toISOString() } : {}),
+      ...(storedName(md) ? { 'X-Vnsh-Name': storedName(md)! } : {}),
       ...corsHeaders,
     },
   });
@@ -3419,21 +3427,50 @@ vn() {
     fi
     # Fetch and decrypt with temp file cleanup trap (P1: prevents plaintext leakage)
     _VN_TMP=\$(mktemp)
-    _vn_cleanup() { rm -f "\$_VN_TMP" 2>/dev/null; }
+    _VN_HDR_TMP=\$(mktemp)
+    _vn_cleanup() { rm -f "\$_VN_TMP" "\$_VN_HDR_TMP" 2>/dev/null; }
     trap _vn_cleanup EXIT INT TERM
     if [ -t 2 ]; then
-      curl -f --progress-bar -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -f --progress-bar -D "\$_VN_HDR_TMP" -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     else
-      curl -sf -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -sf -D "\$_VN_HDR_TMP" -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     fi
     _VN_RET=\$?
     if [ \$_VN_RET -ne 0 ] || [ ! -s "\$_VN_TMP" ]; then
       echo "Error: Failed to fetch or decrypt" >&2
       trap - EXIT INT TERM
       _vn_cleanup
-      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
       unset -f _vn_cleanup 2>/dev/null
       return 1
+    fi
+    # The name the uploader gave the file rides in X-Vnsh-Name, sealed under
+    # the same key as the body: IV(16) || AES-256-CBC over the name NUL-padded
+    # to 200 bytes, base64url. Opened here, shown on stderr, never on stdout.
+    _VN_NAME=""
+    _VN_NAME_HDR=\$(grep -i "^x-vnsh-name:" "\$_VN_HDR_TMP" 2>/dev/null | head -n 1 | cut -d" " -f2- | tr -d "\\r\\n")
+    if [ -n "\$_VN_NAME_HDR" ]; then
+      _VN_NB64=\$(printf "%s" "\$_VN_NAME_HDR" | tr '_-' '/+')
+      _VN_PAD=\$((4 - \${#_VN_NB64} % 4))
+      [ \$_VN_PAD -eq 4 ] && _VN_PAD=0
+      [ \$_VN_PAD -eq 1 ] && _VN_NB64="\${_VN_NB64}="
+      [ \$_VN_PAD -eq 2 ] && _VN_NB64="\${_VN_NB64}=="
+      _VN_NHEX=\$(printf "%s" "\$_VN_NB64" | base64 -d 2>/dev/null | xxd -p | tr -d '\\n')
+      if [ \${#_VN_NHEX} -eq 448 ]; then
+        _VN_NIV=\$(printf "%s" "\$_VN_NHEX" | cut -c1-32)
+        # openssl streams plaintext before it notices bad padding: decrypt to a
+        # file and only trust it when the exit status says the bytes were real.
+        # CBC padding that checks out is not authentication: the slot must be
+        # exactly the 200 bytes every client writes.
+        if printf "%s" "\$_VN_NHEX" | cut -c33-448 | xxd -r -p | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_NIV" -out "\$_VN_HDR_TMP" 2>/dev/null && [ "\$(wc -c < "\$_VN_HDR_TMP" | tr -d " ")" -eq 200 ]; then
+          # Controls, then zero-width and bidi formatting characters (U+202E
+          # makes .exe read as .pdf) by their UTF-8 bytes: this goes to a terminal.
+          _VN_NAME=\$(LC_ALL=C tr -d '\\000-\\037\\177' < "\$_VN_HDR_TMP" | LC_ALL=C awk '{gsub(/\\342\\200[\\213-\\217\\252-\\256]|\\342\\201[\\240-\\244\\246-\\251]|\\357\\273\\277/,""); printf "%s", $0}' | head -c 255)
+        fi
+      fi
+      if [ -n "\$_VN_NAME" ]; then
+        printf "File name: %s\\n" "\$_VN_NAME" >&2
+      fi
     fi
     # If outputting to terminal, check for binary content
     if [ -t 1 ]; then
@@ -3441,10 +3478,10 @@ vn() {
          head -c 4 "\$_VN_TMP" | grep -q "%PDF" 2>/dev/null || \\
          head -c 8 "\$_VN_TMP" | grep -qE "PNG|GIF8|JFIF" 2>/dev/null; then
         echo "Warning: Binary content detected (PDF, image, etc.)" >&2
-        echo "Save to file: vn read \\"<url>\\" > filename" >&2
+        echo "Save to file: vn read \\"<url>\\" > \"\${_VN_NAME:-filename}\"" >&2
         trap - EXIT INT TERM
         _vn_cleanup
-        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
         unset -f _vn_cleanup 2>/dev/null
         return 1
       fi
@@ -3452,7 +3489,7 @@ vn() {
     cat "\$_VN_TMP"
     trap - EXIT INT TERM
     _vn_cleanup
-    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
     unset -f _vn_cleanup 2>/dev/null
     return 0
   fi
@@ -3460,6 +3497,7 @@ vn() {
   # Upload mode
   _VN_KEY=\$(openssl rand -hex 32)
   _VN_IV=\$(openssl rand -hex 16)
+  _VN_NAME_HDR=""
 
   # Determine curl verbosity (progress bar if interactive terminal)
   _VN_CURL_OPTS="-s"
@@ -3481,6 +3519,14 @@ vn() {
       printf "Encrypting %s (%sB)...\\n" "\$1" "\$_VN_SIZE" >&2
     fi
     _VN_ENC=\$(openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" -in "\$1" 2>/dev/null | base64 | tr -d "\\n\\r")
+    # Keep the file's name: sealed under the blob key with its own IV, NUL-padded
+    # to a fixed 200-byte slot so every sealed name is the same length. openssl
+    # enc has no GCM mode, which is why this is CBC like the body it names.
+    _VN_NAME=\$(basename -- "\$1")
+    if [ -n "\$_VN_NAME" ] && [ "\$(printf "%s" "\$_VN_NAME" | wc -c | tr -d " ")" -le 200 ]; then
+      _VN_NIV=\$(openssl rand -hex 16)
+      _VN_NAME_HDR=\$({ printf "%s" "\$_VN_NAME"; head -c 200 /dev/zero; } | head -c 200 | openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_NIV" 2>/dev/null | { printf "%s" "\$_VN_NIV" | xxd -r -p; cat; } | base64 | tr '+/' '-_' | tr -d "=\\n\\r")
+    fi
   elif [ ! -t 0 ]; then
     # P2: Buffer stdin to temp file for size check before encryption
     _VN_STDIN_TMP=\$(mktemp)
@@ -3505,7 +3551,7 @@ vn() {
     return 1
   fi
   [ -t 2 ] && printf "Uploading...\\n" >&2
-  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/drop")
+  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- -H "X-Vnsh-Client: pipe/1.0" \${_VN_NAME_HDR:+-H "X-Vnsh-Name: \$_VN_NAME_HDR"} "\$_VN_HOST/api/drop")
   _VN_ID=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"id\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
   if [ -z "\$_VN_ID" ]; then
     _VN_ERR=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"error\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
@@ -3519,7 +3565,7 @@ vn() {
   # Build v2 URL with base64url encoded key+iv
   _VN_SECRET=\$(printf "%s%s" "\$_VN_KEY" "\$_VN_IV" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
   printf "%s/v/%s#%s\\n" "\$_VN_HOST" "\$_VN_ID" "\$_VN_SECRET"
-  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET
+  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET _VN_NAME _VN_NAME_HDR _VN_NIV
 }
 # vnsh CLI END
 VNEOF
@@ -4114,6 +4160,12 @@ A public workspace has no key: send base64url(utf-8(name)).
 Omitting the header on a PUT keeps the name already stored. Reduce a decoded
 name to its last path segment, and strip bidi formatting characters, before
 writing a file with it.
+
+A legacy /v/ blob (POST /api/drop, GET /api/blob/{id}) takes the same header,
+sealed with the blob's own AES-256-CBC key and a fresh IV over the name
+NUL-padded to 200 bytes: base64url( iv(16) || AES-256-CBC(key, iv, slot) ).
+Standard PKCS#7 inside the CBC, so 208 ciphertext bytes, 224 with the IV, 299
+characters. Require exactly 200 bytes back when opening one.
 
 ## Why WebFetch alone will not work
 
@@ -6689,6 +6741,9 @@ const APP_HTML = `<!DOCTYPE html>
     let isRawMode = false;
     let selectedFile = null;
     let blobExpiresAt = null;
+    // The name the uploader gave this blob, once decrypted. Null when the blob
+    // predates name support or was never given one.
+    let attachedName = null;
 
     // The creator remains one component and one set of IDs, but its visual home
     // is the hero: the first useful action should not require a scroll.
@@ -6867,6 +6922,49 @@ const APP_HTML = `<!DOCTYPE html>
       const sealed = new Uint8Array(nonce.length + ct.length);
       sealed.set(nonce, 0); sealed.set(ct, nonce.length);
       return bytesToBase64url(sealed);
+    }
+
+    var RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$/i;
+
+    /**
+     * Reduce a name chosen by whoever uploaded the file to something safe to
+     * hand a download attribute. The name is attacker-controlled by
+     * construction: it arrives from the other end of a link.
+     */
+    function sanitizeName(raw) {
+      if (!raw) return null;
+      var name = raw.split(/[\\/\\\\]/).pop();
+      name = name
+        .replace(/[\\u0000-\\u001F\\u007F-\\u009F]/g, '')
+        .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]/g, '')
+        .replace(/[<>:"|?*]/g, '')
+        .trim()
+        .replace(/[. ]+$/, '');
+      if (!name || name === '.' || name === '..') return null;
+      if (RESERVED_DEVICE_NAMES.test(name)) name = '_' + name;
+      return name.slice(0, 255);
+    }
+
+    // A legacy blob's name travels under the same AES-256-CBC key as its body,
+    // with its own random IV, NUL-padded to a fixed slot so the stored string is
+    // the same length for every file. 16 IV + 208 ciphertext = 224 bytes.
+    var LEGACY_NAME_BYTES = 16 + 208;
+
+    async function openLegacyName(header, keyBytes) {
+      if (!header || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+      var bytes;
+      try { bytes = base64urlToBytes(header); } catch (e) { return null; }
+      if (bytes.length !== LEGACY_NAME_BYTES) return null;
+      try {
+        var key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
+        var slot = new Uint8Array(await crypto.subtle.decrypt(
+          { name: 'AES-CBC', iv: bytes.slice(0, 16) }, key, bytes.slice(16)));
+        // CBC padding that happens to check out is not authentication; the
+        // slot has to be exactly the width every client writes.
+        if (slot.length !== 200) return null;
+        var end = slot.indexOf(0);
+        return sanitizeName(new TextDecoder().decode(slot.slice(0, end === -1 ? slot.length : end)));
+      } catch (e) { return null; }
     }
 
     async function createWorkspace(plaintext, name) {
@@ -7082,6 +7180,7 @@ const APP_HTML = `<!DOCTYPE html>
       document.getElementById('step-extract').className = 'step';
       document.getElementById('step-decrypt').className = 'step';
       document.getElementById('viewer-blob-id').textContent = 'Blob: ' + id.slice(0, 8) + '...';
+      attachedName = null;
       fetchAndDecrypt(id, keyHex, ivHex);
     }
 
@@ -7111,6 +7210,8 @@ const APP_HTML = `<!DOCTYPE html>
           updateTimer();
         }
 
+        const nameHeader = res.headers.get('X-Vnsh-Name');
+
         const encrypted = await res.arrayBuffer();
         document.getElementById('step-fetch').className = 'step done';
         document.getElementById('step-fetch').textContent = '> Fetching blob... OK';
@@ -7127,6 +7228,9 @@ const APP_HTML = `<!DOCTYPE html>
         document.getElementById('step-decrypt').className = 'step active';
         const keyBytes = hexToBytes(keyHex);
         const ivBytes = hexToBytes(ivHex);
+        // Decrypted with the blob's own key, so a name only ever appears for a
+        // reader who could already read the file it belongs to.
+        attachedName = await openLegacyName(nameHeader, keyBytes);
         const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
         const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: ivBytes }, key, encrypted);
 
@@ -7264,7 +7368,9 @@ const APP_HTML = `<!DOCTYPE html>
       const blob = new Blob([bytes], { type: fileType.mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = selectedFile?.name || ('vnsh-content.' + fileType.ext);
+      // The uploader's own name wins; sniffing the bytes is the fallback for
+      // blobs that never carried one.
+      a.download = attachedName || selectedFile?.name || ('vnsh-content.' + fileType.ext);
       a.click();
     }
 

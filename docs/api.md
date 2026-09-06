@@ -144,11 +144,29 @@ A public workspace has no key and nothing left to withhold, so its name is
 `base64url(utf-8(name))`. The name gets exactly the guarantee the body gets,
 never a weaker one.
 
+A legacy `/v/` blob carries a name the same way, on `POST /api/drop` and back on
+`GET /api/blob/:id`, but its body is AES-256-CBC and so is its name: the shell
+client encrypts with `openssl enc`, which has no GCM mode.
+
+```
+slot = utf-8(name) || zeros                               # exactly 200 bytes
+X-Vnsh-Name = base64url( iv(16) || AES-256-CBC(key, iv, slot) )   # 299 chars
+```
+
+Same 32-byte key as the blob, a fresh IV, NUL padding (a file name cannot
+contain NUL, so the pad is unambiguous). The CBC layer is standard PKCS#7, so
+the 200-byte slot gains eight `0x08` bytes and encrypts to 208 bytes — 224 with
+the IV. A reader requires exactly 200 bytes back after unpadding; padding that
+merely checks out is not authentication. Like the body it names, this is
+unauthenticated; the sanitizing below is what keeps a rewritten name from being
+more than a wrong name.
+
 Clients reduce the decoded value to a bare file name before using it, because it
 ends up in a `download` attribute or a filesystem path. Beyond taking the last
 path segment, that means stripping control characters, stripping zero-width and
 bidirectional formatting characters (a `U+202E` makes `.exe` render as `.pdf`),
-removing `:` (an NTFS alternate data stream), dropping trailing dots and spaces
+removing `:` (an NTFS alternate data stream) and the other characters Windows
+refuses (`< > " | ? *`), dropping trailing dots and spaces
 (Windows strips them, so two names would address one file), and prefixing the
 Windows device names — `CON`, `NUL`, `COM1` and the rest. Names are capped at
 200 UTF-8 bytes, which is what the fixed-width slot holds.
@@ -199,6 +217,12 @@ Content-Length: 1234
 |-----------|------|---------|-------------|
 | `ttl` | integer | 24 | Time-to-live in hours (max: 168) |
 
+**Optional headers:**
+
+| Header | Meaning |
+|---|---|
+| `X-Vnsh-Name` | The file name, sealed under the blob key. See [File names](#file-names). |
+
 **Response (201 Created):**
 
 ```json
@@ -238,6 +262,7 @@ Content-Length: 1234
 Cache-Control: private, no-store, no-cache
 X-Content-Type-Options: nosniff
 X-Opaque-Expires: 2024-01-25T12:00:00.000Z
+X-Vnsh-Name: <the sealed name, only if one was attached>
 
 <binary encrypted data>
 ```

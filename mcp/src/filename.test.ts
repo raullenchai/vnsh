@@ -1,4 +1,7 @@
 import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { join } from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
@@ -6,8 +9,15 @@ import {
   deriveWorkspaceKeys,
   sealWorkspaceName,
   openWorkspaceName,
+  sealBlobName,
+  openBlobName,
+  generateKey,
+  generateIV,
+  encrypt,
+  parseVnshUrl,
+  buildVnshUrl,
 } from './crypto.js';
-import { handleWorkspaceCreate, handleWorkspaceUpdate } from './index.js';
+import { handleWorkspaceCreate, handleWorkspaceUpdate, handleShareFile, handleRead } from './index.js';
 
 /**
  * An agent creating a workspace knows what the content is; nothing in the bytes
@@ -162,5 +172,76 @@ describe('vnsh_workspace_create attaches the name it is given', () => {
     await expect(
       handleWorkspaceCreate({ content: 'x', name: 'a'.repeat(300) }),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * The one-shot share is a legacy `/v/` blob, and it used to arrive nameless:
+ * vnsh_read saved every binary as `opaque-<id>.bin`.
+ */
+describe('vnsh_share_file and vnsh_read keep a legacy blob\'s name', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('share_file seals the file name under the blob key', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vnsh-share-'));
+    const filePath = path.join(dir, 'model-weights.bin');
+    fs.writeFileSync(filePath, Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 201,
+      json: async () => ({ id: 'aBcDeFgHiJkL', expires: '2026-01-01T00:00:00.000Z' }),
+      text: async () => '',
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await handleShareFile({ file_path: filePath });
+    const sent = ((fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>)['X-Vnsh-Name'];
+    expect(sent).toMatch(/^[A-Za-z0-9_-]{299}$/);
+    expect(sent).not.toContain('model-weights');
+    const { key } = parseVnshUrl((result.metadata as { url: string }).url);
+    expect(openBlobName(sent, key)).toBe('model-weights.bin');
+  });
+
+  it('read saves a binary blob under the name it was shared with', async () => {
+    const key = generateKey();
+    const iv = generateIV();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]);
+    const encrypted = encrypt(png, key, iv);
+    const name = `chart-${Date.now()}.png`;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      headers: new Headers({ 'content-length': String(encrypted.length), 'X-Vnsh-Name': sealBlobName(name, key)! }),
+      arrayBuffer: async () => encrypted.buffer.slice(encrypted.byteOffset, encrypted.byteOffset + encrypted.byteLength),
+    }) as unknown as typeof fetch;
+
+    const result = await handleRead({ url: buildVnshUrl('https://vnsh.dev', 'aBcDeFgHiJkL', key, iv) });
+    const saved = (result.metadata as { filePath: string }).filePath;
+    expect(path.basename(saved)).toBe(name);
+    expect(fs.readFileSync(saved)).toEqual(png);
+    fs.unlinkSync(saved);
+  });
+
+  it('read never overwrites a file already at that name', async () => {
+    const key = generateKey();
+    const iv = generateIV();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(16, 1)]);
+    const encrypted = encrypt(png, key, iv);
+    const name = `taken-${Date.now()}.png`;
+    const taken = path.join(os.tmpdir(), name);
+    fs.writeFileSync(taken, 'do not clobber');
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      headers: new Headers({ 'content-length': String(encrypted.length), 'X-Vnsh-Name': sealBlobName(name, key)! }),
+      arrayBuffer: async () => encrypted.buffer.slice(encrypted.byteOffset, encrypted.byteOffset + encrypted.byteLength),
+    }) as unknown as typeof fetch;
+
+    const result = await handleRead({ url: buildVnshUrl('https://vnsh.dev', 'aBcDeFgHiJkL', key, iv) });
+    const saved = (result.metadata as { filePath: string }).filePath;
+    expect(saved).not.toBe(taken);
+    expect(fs.readFileSync(taken, 'utf-8')).toBe('do not clobber');
+    fs.unlinkSync(saved);
+    fs.unlinkSync(taken);
   });
 });

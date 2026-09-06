@@ -27,6 +27,8 @@ import {
   parseWorkspaceUrl,
   sealWorkspaceName,
   openWorkspaceName,
+  sealBlobName,
+  openBlobName,
   isWorkspaceUrl,
 } from './crypto.js';
 import { clearToken, deviceLogin, loadToken, openBrowser, saveToken } from './auth.js';
@@ -495,6 +497,23 @@ async function readWorkspace(url: string): Promise<void> {
   // Opaque until a key holder opens it; the server only ever stored the string.
   const attachedName = response.headers.get('X-Vnsh-Name');
 
+  // A public workspace has an edit link too, and it is a /w/ link — so this
+  // path has to expect plaintext, or holding your own edit link looks like
+  // corruption.
+  if (response.headers.get('X-Vnsh-Public') === '1') {
+    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
+    writeOut(payload, `${link.id}-public`, openWorkspaceName(attachedName, null));
+    return;
+  }
+
+  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
+  try {
+    writeOut(decryptWorkspace(payload, link.key), link.id, openWorkspaceName(attachedName, link.key));
+  } catch {
+    error('Decryption failed. The link may be truncated or the key incorrect.');
+  }
+}
+
 /**
  * Binary going to a terminal reads as a failure, whatever the exit code.
  *
@@ -541,7 +560,7 @@ function writeFreshFile(base: string, bytes: Buffer): string {
   for (let attempt = 0; attempt < 50; attempt++) {
     const candidate = path.join(dir, attempt === 0 ? base : `${stem}-${attempt}${ext}`);
     try {
-      fs.writeFileSync(candidate, bytes, { flag: 'wx' });
+      fs.writeFileSync(candidate, bytes, { flag: 'wx', mode: 0o600 });
       return candidate;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
@@ -549,7 +568,7 @@ function writeFreshFile(base: string, bytes: Buffer): string {
   }
   // Fifty collisions means something is generating them; stop guessing.
   const unique = path.join(dir, `${stem}-${crypto.randomBytes(6).toString('hex')}${ext}`);
-  fs.writeFileSync(unique, bytes, { flag: 'wx' });
+  fs.writeFileSync(unique, bytes, { flag: 'wx', mode: 0o600 });
   return unique;
 }
 
@@ -573,23 +592,6 @@ function looksBinary(b: Buffer): boolean {
     if (b[i] < 32 && b[i] !== 9 && b[i] !== 10 && b[i] !== 13) odd++;
   }
   return n > 0 && odd / n > 0.1;
-}
-
-  // A public workspace has an edit link too, and it is a /w/ link — so this
-  // path has to expect plaintext, or holding your own edit link looks like
-  // corruption.
-  if (response.headers.get('X-Vnsh-Public') === '1') {
-    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
-    writeOut(payload, `${link.id}-public`, openWorkspaceName(attachedName, null));
-    return;
-  }
-
-  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
-  try {
-    writeOut(decryptWorkspace(payload, link.key), link.id, openWorkspaceName(attachedName, link.key));
-  } catch {
-    error('Decryption failed. The link may be truncated or the key incorrect.');
-  }
 }
 
 interface UploadResponse {
@@ -664,12 +666,18 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
 
   info(`Uploading encrypted blob (${formatBytes(encrypted.length)})...`);
 
+  // Sealed under the blob's own key, so the name reaches whoever holds the link
+  // and nobody else. Stdin has no name to keep, and the header is then absent
+  // rather than present and empty.
+  const blobName = input ? sealBlobName(path.basename(input), key) : null;
+
   // Upload
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      ...(blobName ? { 'X-Vnsh-Name': blobName } : {}),
     },
     body: encrypted,
   });
@@ -726,15 +734,21 @@ async function read(url: string): Promise<void> {
     error(`Failed to fetch blob (HTTP ${response.status})`);
   }
 
+  const attachedName = response.headers.get('X-Vnsh-Name');
   const encrypted = Buffer.from(await response.arrayBuffer());
   info(`Decrypting blob (${formatBytes(encrypted.length)})...`);
 
+  let decrypted: Buffer;
   try {
-    const decrypted = decrypt(encrypted, key, iv);
-    process.stdout.write(decrypted);
+    decrypted = decrypt(encrypted, key, iv);
   } catch (e) {
     error('Decryption failed. The key or IV may be incorrect.');
+    return;
   }
+  // Same treatment a workspace gets: piped output is still exactly the bytes,
+  // and a binary blob on a terminal is saved under the name it was sent with
+  // instead of being printed as mojibake.
+  writeOut(decrypted, id, openBlobName(attachedName, key));
 }
 
 // Setup CLI

@@ -134,6 +134,52 @@ base64url_to_hex() {
   echo "$b64" | base64 -d | xxd -p | tr -d '\n'
 }
 
+# Seal a file name for the server to hold without being able to read it.
+#
+# Same AES-256-CBC key as the blob, its own random IV, and the name NUL-padded
+# to a fixed 200-byte slot first so every sealed name is the same length. This
+# is the one format openssl enc can produce: it has no GCM mode, which is why a
+# legacy blob's name is CBC while a workspace's is GCM. Output is base64url.
+seal_name() {
+  local name="$1" key="$2"
+  name=$(basename -- "$name")
+  [ -n "$name" ] || return 0
+  [ "$(printf '%s' "$name" | wc -c | tr -d ' ')" -le 200 ] || return 0
+  local slot niv
+  slot=$(mktemp)
+  { printf '%s' "$name"; head -c 200 /dev/zero; } | head -c 200 > "$slot"
+  niv=$(random_hex 16)
+  { echo "$niv" | xxd -r -p; openssl enc -aes-256-cbc -K "$key" -iv "$niv" -in "$slot" 2>/dev/null; } \
+    | base64 | tr '+/' '-_' | tr -d '=\n'
+  rm -f "$slot"
+}
+
+# Reverse of seal_name. Prints nothing if the header is absent or malformed.
+open_name() {
+  local header="$1" key="$2"
+  [ -n "$header" ] || return 0
+  local hex
+  hex=$(base64url_to_hex "$header" 2>/dev/null)
+  [ ${#hex} -eq 448 ] || return 0
+  # openssl streams plaintext before it notices bad padding, so decrypt to a
+  # file and only print it when the exit status says the bytes were real.
+  local plain
+  plain=$(mktemp)
+  # CBC padding that happens to check out is not authentication: the slot has
+  # to be exactly the width every client writes, or the header is not ours.
+  if echo "${hex:32}" | xxd -r -p \
+    | openssl enc -d -aes-256-cbc -K "$key" -iv "${hex:0:32}" -out "$plain" 2>/dev/null \
+    && [ "$(wc -c < "$plain" | tr -d ' ')" -eq 200 ]; then
+    # Controls first, then zero-width and bidirectional formatting characters
+    # (a U+202E makes .exe read as .pdf) by their UTF-8 bytes, since the name
+    # is printed to a terminal that will honour both.
+    LC_ALL=C tr -d '\000-\037\177' < "$plain" \
+      | LC_ALL=C awk '{gsub(/\342\200[\213-\217\252-\256]|\342\201[\240-\244\246-\251]|\357\273\277/,""); printf "%s", $0}' \
+      | head -c 255
+  fi
+  rm -f "$plain"
+}
+
 # Read and decrypt a vnsh URL
 read_url() {
   local url="$1"
@@ -221,8 +267,12 @@ read_url() {
     curl_opts="-s -k"
   fi
 
+  local header_file
+  header_file=$(mktemp)
+  trap "rm -f '$temp_file' '$header_file'" EXIT
+
   local http_code
-  http_code=$(curl $curl_opts -w "%{http_code}" -o "$temp_file" "${host}/api/blob/${blob_id}")
+  http_code=$(curl $curl_opts -w "%{http_code}" -D "$header_file" -o "$temp_file" "${host}/api/blob/${blob_id}")
 
   case "$http_code" in
     200)
@@ -244,6 +294,15 @@ read_url() {
   local blob_size
   blob_size=$(wc -c < "$temp_file" | tr -d ' ')
   info "Decrypting blob (${blob_size} bytes)..."
+
+  # Output stays exactly the bytes; the name the uploader gave the file goes
+  # to stderr alongside the other progress lines so a redirect can use it.
+  local attached_name
+  attached_name=$(open_name "$(grep -i '^x-vnsh-name:' "$header_file" | head -n 1 | cut -d' ' -f2- | tr -d '\r')" "$key")
+  if [ -n "$attached_name" ]; then
+    # printf, not echo -e: the name is the other end of the link's to choose.
+    printf '%b→%b File name: %s\n' "$CYAN" "$NC" "$attached_name" >&2
+  fi
 
   # Decrypt using OpenSSL
   if ! openssl enc -d -aes-256-cbc -K "$key" -iv "$iv" -in "$temp_file" 2>/dev/null; then
@@ -373,6 +432,12 @@ main() {
     curl_opts="-s -k"
   fi
 
+  # The file's own name travels sealed under the blob key; stdin has none.
+  local name_header=""
+  if [ -n "$input_file" ]; then
+    name_header=$(seal_name "$input_file" "$key")
+  fi
+
   local response
   local http_code
   response=$(curl $curl_opts -w "\n%{http_code}" \
@@ -380,6 +445,7 @@ main() {
     --data-binary @"$encrypted_file" \
     -H "Content-Type: application/octet-stream" \
     -H "X-Vnsh-Client: cli/$VERSION" \
+    ${name_header:+-H "X-Vnsh-Name: $name_header"} \
     "${VNSH_HOST}/api/drop${url_params}")
 
   http_code=$(echo "$response" | tail -n 1)

@@ -129,7 +129,7 @@ export function sanitizeFileName(raw: string): string | null {
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
     // Zero-width and bidirectional formatting characters.
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
-    .replace(/:/g, '')
+    .replace(/[<>:"|?*]/g, '')
     .trim()
     .replace(/[. ]+$/, '');
   if (!cleaned || cleaned === '.' || cleaned === '..') return null;

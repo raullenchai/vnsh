@@ -242,3 +242,55 @@ describe('a public workspace names itself openly, like its body', () => {
     expect(response.headers.get('X-Vnsh-Name')).toBe(SEALED);
   });
 });
+
+/**
+ * Legacy blobs get the same courtesy.
+ *
+ * `/v/` links are still minted by the shell client and by MCP's one-shot share,
+ * and a blob shared that way downloaded as `vnsh-content.txt` for the same
+ * reason a workspace did: nothing ever sent a name. The service's part is
+ * identical — carry the string, never look inside it.
+ */
+describe('legacy blobs carry a name too', () => {
+  async function drop(name?: string) {
+    const response = await call(
+      new Request('http://localhost/api/drop', {
+        method: 'POST',
+        headers: name === undefined ? {} : { 'X-Vnsh-Name': name },
+        body: 'legacy-ciphertext',
+      }),
+    );
+    expect(response.status).toBe(201);
+    const { id } = (await response.json()) as { id: string };
+    return id;
+  }
+
+  async function blob(id: string) {
+    const response = await call(new Request(`http://localhost/api/blob/${id}`));
+    expect(response.status).toBe(200);
+    // Drain it: an unconsumed R2 body fails the whole test file.
+    await response.arrayBuffer();
+    return response.headers.get('X-Vnsh-Name');
+  }
+
+  it('returns the sealed name on GET /api/blob exactly as it was sent', async () => {
+    const id = await drop(SEALED);
+    expect(await blob(id)).toBe(SEALED);
+  });
+
+  it('sends no header for a blob that was never given a name', async () => {
+    const id = await drop();
+    expect(await blob(id)).toBeNull();
+  });
+
+  it('drops a value outside the header alphabet rather than refusing the blob', async () => {
+    const id = await drop('not base64url: has spaces');
+    expect(await blob(id)).toBeNull();
+  });
+
+  it('never stores the name anywhere the service could read it as text', async () => {
+    const id = await drop(SEALED);
+    const head = await (env as Env).VNSH_STORE.head(id);
+    expect(head?.customMetadata?.name).toBe(SEALED);
+  });
+});

@@ -72,6 +72,11 @@ metadata, so vnsh can hand it to your recipient without ever reading it. Nothing
 in a file's bytes says whether it is Python or prose, so without this every text
 format downloaded as `.txt`.
 
+This holds for one-shot blobs too — `vn -b analysis.py`, and the shell client
+installed by `curl -sL vnsh.dev/i | sh` — where the name is sealed under the
+blob's own key. `vn read` on a binary blob saves it under that name; `vn read`
+in the shell client prints it alongside the progress lines.
+
 `renew` needs the edit link (`#w=`). A view-only `#r=` link can read a workspace
 but not decide how long it lives. Renewing does not bump the version, so an
 agent part-way through an edit is unaffected.

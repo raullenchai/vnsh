@@ -146,3 +146,68 @@ describe('the zero-install decrypt path stays runnable', () => {
     expect(code).toContain('/api/workspace/');
   });
 });
+
+/**
+ * The blob viewer names a download after the file the uploader sent, decrypting
+ * that name in the browser with the blob's own AES-256-CBC key. Run the served
+ * functions rather than the TypeScript: the sanitizer is regex-heavy, and a
+ * template-literal backslash mangled anywhere in it ships as a different regex.
+ */
+describe('the blob viewer opens a legacy file name as served', () => {
+  async function servedOpenLegacyName(): Promise<(h: string, k: Uint8Array) => Promise<string | null>> {
+    const scripts = await scriptsOn('/v/aBcDeFgHiJkL');
+    const script = scripts.find((s) => s.includes('openLegacyName'));
+    expect(script, 'openLegacyName not found in the served page').toBeDefined();
+    const pieces = [
+      /function base64urlToBytes\([^)]*\) \{[\s\S]*?\n    \}/,
+      /var RESERVED_DEVICE_NAMES = [^\n]*;/,
+      /function sanitizeName\([^)]*\) \{[\s\S]*?\n    \}/,
+      /var LEGACY_NAME_BYTES = [^\n]*;/,
+      /async function openLegacyName\([^)]*\) \{[\s\S]*?\n    \}/,
+    ].map((re) => {
+      const m = re.exec(script!);
+      expect(m, `${re} not found in the served page`).not.toBeNull();
+      return m![0];
+    });
+    return new Function('h', 'k', `${pieces.join('\n')}\nreturn openLegacyName(h, k);`) as never;
+  }
+
+  async function sealCbc(name: string, key: Uint8Array): Promise<string> {
+    const slot = new Uint8Array(200);
+    slot.set(new TextEncoder().encode(name));
+    const iv = crypto.getRandomValues(new Uint8Array(16));
+    const k = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC' }, false, ['encrypt']);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, k, slot));
+    const out = new Uint8Array(16 + ct.length);
+    out.set(iv);
+    out.set(ct, 16);
+    return btoa(String.fromCharCode(...out)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  const key = crypto.getRandomValues(new Uint8Array(32));
+
+  it('recovers the name the CLI sealed, at the constant 299 characters', async () => {
+    const open = await servedOpenLegacyName();
+    const sealed = await sealCbc('quarterly-analysis.py', key);
+    expect(sealed).toHaveLength(299);
+    expect(await open(sealed, key)).toBe('quarterly-analysis.py');
+    expect(await open(await sealCbc('季度报告.pdf', key), key)).toBe('季度报告.pdf');
+  });
+
+  it('reduces a hostile name to something safe for a download attribute', async () => {
+    const open = await servedOpenLegacyName();
+    expect(await open(await sealCbc('../../etc/passwd', key), key)).toBe('passwd');
+    expect(await open(await sealCbc('invoice‮fdp.exe', key), key)).toBe('invoicefdp.exe');
+    expect(await open(await sealCbc('notes.txt:payload.exe', key), key)).toBe('notes.txtpayload.exe');
+    expect(await open(await sealCbc('report.txt.', key), key)).toBe('report.txt');
+    expect(await open(await sealCbc('CON.png', key), key)).toBe('_CON.png');
+  });
+
+  it('yields nothing for the wrong key, a truncated header, or no header', async () => {
+    const open = await servedOpenLegacyName();
+    const sealed = await sealCbc('secret.docx', key);
+    expect(await open(sealed, crypto.getRandomValues(new Uint8Array(32)))).toBeNull();
+    expect(await open(sealed.slice(0, -8), key)).toBeNull();
+    expect(await open('', key)).toBeNull();
+  });
+});

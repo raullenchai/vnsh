@@ -129,9 +129,16 @@ async function main() {
   // ---- v1 blob roundtrip ---------------------------------------------------
   console.log('\nv1 blob');
   const payload = crypto.randomBytes(256);
+  // A legacy blob's name is CBC under the blob key over a NUL-padded slot.
+  const blobKey = crypto.randomBytes(32);
+  const nameIv = crypto.randomBytes(16);
+  const nameCipher = crypto.createCipheriv('aes-256-cbc', blobKey, nameIv);
+  const blobName = Buffer.concat([nameIv,
+    nameCipher.update(Buffer.concat([Buffer.from('legacy-notes.py'), Buffer.alloc(200 - 15)])),
+    nameCipher.final()]).toString('base64url');
   const drop = await fetch(`${HOST}/api/drop`, {
     method: 'POST', body: payload,
-    headers: { 'Content-Type': 'application/octet-stream', 'X-Vnsh-Client': 'smoke' },
+    headers: { 'Content-Type': 'application/octet-stream', 'X-Vnsh-Client': 'smoke', 'X-Vnsh-Name': blobName },
   });
   check('POST /api/drop responds 201', drop.status === 201, `got ${drop.status}`);
   let blobId = null;
@@ -146,6 +153,15 @@ async function main() {
     const got = Buffer.from(await read.arrayBuffer());
     check('blob roundtrips byte-for-byte', got.equals(payload),
       `sent ${payload.length}b, got ${got.length}b`);
+    const returnedName = read.headers.get('x-vnsh-name');
+    check('blob name comes back exactly as sealed', returnedName === blobName);
+    if (returnedName) {
+      const buf = Buffer.from(returnedName, 'base64url');
+      const d = crypto.createDecipheriv('aes-256-cbc', blobKey, buf.subarray(0, 16));
+      const slot = Buffer.concat([d.update(buf.subarray(16)), d.final()]);
+      check('blob name opens under the blob key',
+        slot.subarray(0, slot.indexOf(0)).toString() === 'legacy-notes.py');
+    }
   }
 
   // ---- v2 workspace: create, read, write, re-read --------------------------

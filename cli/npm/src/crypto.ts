@@ -281,6 +281,46 @@ export function openWorkspaceName(header: string | null, key: Buffer | null): st
   }
 }
 
+/**
+ * Seal a name for a legacy `/v/` blob.
+ *
+ * A blob is AES-256-CBC, and its name has to travel the same way for one
+ * practical reason: the shell client encrypts with `openssl enc`, which has no
+ * GCM mode. So the name is CBC under the blob's own key with its own random IV,
+ * NUL-padded to a fixed slot first — a filename cannot contain NUL, so the pad
+ * is unambiguous, and every sealed name is the same length whatever it says.
+ *
+ * The seal is unauthenticated, exactly like the blob body it names. Someone who
+ * can rewrite stored bytes can garble the name; `sanitizeFileName` on the way
+ * out is what keeps that from becoming more than a wrong name.
+ */
+export function sealBlobName(name: string, key: Buffer): string | null {
+  const clean = sanitizeFileName(name);
+  if (!clean) return null;
+  const slot = Buffer.alloc(NAME_SLOT_BYTES);
+  Buffer.from(clean, 'utf-8').copy(slot);
+  const iv = generateIV();
+  return bufferToBase64url(Buffer.concat([iv, encrypt(slot, key, iv)]));
+}
+
+/** 16 bytes of IV plus the 200-byte slot padded by PKCS#7 to 208. */
+const SEALED_BLOB_NAME_BYTES = 16 + 208;
+
+/** Recover a name sealed by `sealBlobName`, or null if anything is off. */
+export function openBlobName(header: string | null, key: Buffer): string | null {
+  if (!header || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+  try {
+    const bytes = base64urlToBuffer(header);
+    if (bytes.length !== SEALED_BLOB_NAME_BYTES) return null;
+    const slot = decrypt(bytes.subarray(16), key, bytes.subarray(0, 16));
+    if (slot.length !== NAME_SLOT_BYTES) return null;
+    const end = slot.indexOf(0);
+    return sanitizeFileName(slot.subarray(0, end === -1 ? slot.length : end).toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
 /** Windows refuses these as file names, with or without an extension. */
 const RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
@@ -295,7 +335,8 @@ const RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
  *   that point on, so `.exe` can be displayed as `.pdf` in every file list that
  *   honours them, which is the entire reason to put one in a name.
  * - `:` addresses an NTFS alternate data stream, so `notes.txt:payload.exe`
- *   writes somewhere other than where it appears to.
+ *   writes somewhere other than where it appears to. `< > " | ? *` are simply
+ *   invalid there, and a name Linux accepts must not make a Windows reader throw.
  * - Trailing dots and spaces are stripped by Windows, so `report.txt.` and
  *   `report.txt` are one file - a way to collide with a name on purpose.
  *
@@ -310,7 +351,7 @@ export function sanitizeFileName(raw: string): string | null {
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
     // Zero-width and bidirectional formatting characters.
     .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
-    .replace(/:/g, '')
+    .replace(/[<>:"|?*]/g, '')
     .trim()
     // Windows drops these, so keeping them invites two names for one file.
     .replace(/[. ]+$/, '');
