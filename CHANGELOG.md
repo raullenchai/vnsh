@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-09-06 — file names on legacy blobs
+## 2026-09-06 — MCP 1.9.0 / CLI 2.8.0 — file names on legacy blobs
 
 - One-shot `/v/` blobs now carry the uploader's file name, sealed under the blob's own AES-256-CBC key (299-character constant-width `X-Vnsh-Name`), on `POST /api/drop` and back on `GET /api/blob/:id`. The service never sees the name.
 - The shell client installed by `vnsh.dev/i`, the `cli/vn` script, `vn -b`, and MCP `vnsh_share_file` all send it; the web viewer, `vn read`, and MCP `vnsh_read` hand the file back under that name instead of `vnsh-content.txt` / `opaque-<id>.bin`.

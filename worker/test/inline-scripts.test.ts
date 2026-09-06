@@ -211,3 +211,16 @@ describe('the blob viewer opens a legacy file name as served', () => {
     expect(await open('', key)).toBeNull();
   });
 });
+
+describe('the workspace viewer sanitizer matches the other clients', () => {
+  it('drops the characters Windows refuses and caps by bytes', async () => {
+    const scripts = await scriptsOn('/w/aBcDeFgHiJkL');
+    const script = scripts.find((s) => s.includes('function sanitizeName'))!;
+    const pieces = [/var RESERVED_DEVICE_NAMES = [^\n]*;/, /function sanitizeName\([^)]*\) \{[\s\S]*?\n  \}/]
+      .map((re) => re.exec(script)![0]);
+    const sanitize = new Function('n', `${pieces.join('\n')}\nreturn sanitizeName(n);`) as (n: string) => string | null;
+    expect(sanitize('report?.csv')).toBe('report.csv');
+    expect(sanitize('a<b>c"d|e*f.txt')).toBe('abcdef.txt');
+    expect(new TextEncoder().encode(sanitize('季'.repeat(120) + '.pdf')!).length).toBeLessThanOrEqual(200);
+  });
+});

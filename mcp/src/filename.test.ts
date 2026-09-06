@@ -245,3 +245,36 @@ describe('vnsh_share_file and vnsh_read keep a legacy blob\'s name', () => {
     fs.unlinkSync(taken);
   });
 });
+
+/**
+ * Two review findings on the update path: a probe that fails must not be read
+ * as "private" (the PUT would replace a public document with ciphertext), and
+ * the schema agents actually see has to advertise the parameter.
+ */
+describe('vnsh_workspace_update is honest about what it does not know', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('refuses to write when the visibility probe fails', async () => {
+    const calls: RequestInit[] = [];
+    global.fetch = ((_url: string, init: RequestInit) => {
+      calls.push(init);
+      return Promise.resolve({ ok: false, status: 500, headers: new Headers(), text: async () => 'boom' });
+    }) as unknown as typeof fetch;
+    const url = 'https://vnsh.dev/w/aBcDeFgHiJkL#w=' + generateRootSecret().toString('base64url');
+    await expect(handleWorkspaceUpdate({ url, content: 'x', base_version: 3 })).rejects.toThrow(/public or encrypted/);
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false);
+  });
+
+  it('advertises `name` on create and update in tools/list', () => {
+    const source = readFileSync(join(__dirname, 'index.ts'), 'utf-8');
+    for (const tool of ['vnsh_workspace_create', 'vnsh_workspace_update']) {
+      const start = source.indexOf(`name: '${tool}'`);
+      const end = source.indexOf('required: [', start);
+      expect(start).toBeGreaterThan(-1);
+      expect(source.slice(start, end)).toMatch(/\n\s+name: \{\n\s+type: 'string'/);
+    }
+  });
+});

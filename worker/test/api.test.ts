@@ -44,7 +44,7 @@ describe('vnsh API', () => {
       expect(html).toContain('Research → implementation');
       expect(html).toContain('Agent proposal → your decision');
       expect(html).toContain('Drop a file or paste text');
-      expect(html).toContain('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2');
+      expect(html).toMatch(/claude mcp add vnsh -- npx -y vnsh-mcp@\d+\.\d+\.\d+/);
     });
   });
 

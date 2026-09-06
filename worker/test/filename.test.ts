@@ -294,3 +294,54 @@ describe('legacy blobs carry a name too', () => {
     expect(head?.customMetadata?.name).toBe(SEALED);
   });
 });
+
+/**
+ * Two ways a name can be wrong after a restore, both found in review: the
+ * archive of a version that never had a name used to inherit the current one,
+ * and nothing could ever take a name away once it was set.
+ */
+describe('a name can be cleared, and a restore honours "this version had none"', () => {
+  async function put(id: string, version: number, headers: Record<string, string>) {
+    return call(
+      new Request(`http://localhost/api/workspace/${id}`, {
+        method: 'PUT',
+        headers: { 'X-Vnsh-Write': WRITE_TOKEN, 'If-Match': `"${version}"`, ...headers },
+        body: `ciphertext-v${version + 1}`,
+      }),
+    );
+  }
+  async function nameOf(id: string) {
+    const response = await call(new Request(`http://localhost/api/workspace/${id}`));
+    await response.arrayBuffer();
+    return response.headers.get('X-Vnsh-Name');
+  }
+
+  it('an empty X-Vnsh-Name on PUT forgets the stored name', async () => {
+    const { id } = await create({ name: SEALED });
+    expect((await put(id, 1, { 'X-Vnsh-Name': '' })).status).toBe(200);
+    expect(await nameOf(id)).toBeNull();
+  });
+
+  it('restoring an unnamed version does not keep the newer version\'s name', async () => {
+    const { id } = await create();
+    expect((await put(id, 1, { 'X-Vnsh-Name': SEALED })).status).toBe(200);
+    expect(await nameOf(id)).toBe(SEALED);
+    const restored = await call(
+      new Request(`http://localhost/api/workspace/${id}/history/1/restore`, {
+        method: 'POST',
+        headers: { 'X-Vnsh-Write': WRITE_TOKEN, 'If-Match': '"2"' },
+      }),
+    );
+    expect(restored.status).toBe(200);
+    expect(await nameOf(id)).toBeNull();
+  });
+
+  it('a public document on the content domain says what it is called', async () => {
+    const plain = btoa('notes.md').replace(/=+$/, '');
+    const { id } = await create({ public: true, name: plain, body: '# notes' });
+    const response = await call(new Request(`https://vnshcontent.dev/p/${id}`));
+    await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Vnsh-Name')).toBe(plain);
+  });
+});

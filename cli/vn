@@ -173,7 +173,7 @@ open_name() {
     # Controls first, then zero-width and bidirectional formatting characters
     # (a U+202E makes .exe read as .pdf) by their UTF-8 bytes, since the name
     # is printed to a terminal that will honour both.
-    LC_ALL=C tr -d '\000-\037\177' < "$plain" \
+    LC_ALL=C tr '\000' '\n' < "$plain" | head -n 1 | LC_ALL=C tr -d '\001-\037\177' \
       | LC_ALL=C awk '{gsub(/\342\200[\213-\217\252-\256]|\342\201[\240-\244\246-\251]|\357\273\277/,""); printf "%s", $0}' \
       | head -c 255
   fi

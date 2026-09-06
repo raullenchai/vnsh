@@ -385,7 +385,9 @@ export function sanitizeFileName(raw: string): string | null {
 function truncateUtf8(value: string, maxBytes: number): string | null {
   let cut = value;
   while (Buffer.byteLength(cut, 'utf-8') > maxBytes && cut.length > 0) {
-    cut = cut.slice(0, -1);
+    // By code point, not code unit: taking one UTF-16 unit off an emoji leaves
+    // a lone surrogate, which encodes as U+FFFD and fits the budget.
+    cut = Array.from(cut).slice(0, -1).join('');
   }
   return cut || null;
 }

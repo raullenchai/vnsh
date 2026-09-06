@@ -120,4 +120,15 @@ describe('the version is derived, not typed', () => {
     expect(server.packages[0].version).toBe(mcpPackage.version);
     expect(read('cli/npm/src/index.ts')).not.toMatch(/cli-npm\/\d+\.\d+\.\d+/);
   });
+
+  it('pins the same MCP version everywhere a user is told to install it', () => {
+    // A bump that misses one of these leaves README, llms.txt and the docs site
+    // telling people to install a version that no longer has the fix.
+    const { version } = json('mcp/package.json');
+    for (const file of ['README.md', 'docs/mcp.md', 'worker/src/index.ts', 'worker/src/docs-page.ts']) {
+      const pins = [...read(file).matchAll(/vnsh-mcp@(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+      expect(pins.length, `${file} pins no vnsh-mcp version`).toBeGreaterThan(0);
+      expect(new Set(pins), file).toEqual(new Set([version]));
+    }
+  });
 });

@@ -1026,6 +1026,9 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
       'Cache-Control': 'no-cache',
       ETag: `"${md.version || '1'}"`,
       ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      // A public workspace's name is base64url of the plain name; a reader
+      // that already has the document is owed what it is called.
+      ...(storedName(md) ? { 'X-Vnsh-Name': storedName(md)! } : {}),
       Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
       ...corsHeaders,
     },
@@ -1079,6 +1082,10 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
   }
 
   const putName = nameFromRequest(request);
+  // Absent header: keep the stored name. Present but empty: forget it. The
+  // distinction is what lets a restore bring back a version that never had one,
+  // instead of leaving the newer version's name on top of the older bytes.
+  const clearName = request.headers.has('X-Vnsh-Name') && !putName;
   const expectedHash = md.writeHash || '';
   const presentedHash = await sha256Hex(writeToken);
   if (!timingSafeEqual(presentedHash, expectedHash)) {
@@ -1180,7 +1187,7 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
         // Rebuilding this object from scratch means anything not named here is
         // dropped. A writer who sends no name keeps the one the document
         // already had, exactly as it keeps its TTL; sending one replaces it.
-        ...(putName || storedName(md) ? { name: (putName || storedName(md))! } : {}),
+        ...(putName ? { name: putName } : clearName ? {} : storedName(md) ? { name: storedName(md)! } : {}),
       },
     });
 
@@ -1350,7 +1357,7 @@ async function handleWorkspaceRestore(
   // is exactly the mismatch a restore is meant to undo. A caller that names the
   // restore explicitly still wins.
   const archivedName = storedName(object.customMetadata || {});
-  if (archivedName && !headers.has('X-Vnsh-Name')) headers.set('X-Vnsh-Name', archivedName);
+  if (!headers.has('X-Vnsh-Name')) headers.set('X-Vnsh-Name', archivedName || '');
   const restored = await handleWorkspacePut(
     id,
     new Request(request.url, { method: 'PUT', headers, body: object.body }),
@@ -2129,12 +2136,17 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       // Zero-width and bidirectional formatting characters. Without this,
       // a name can render its extension in reverse and pass for a PDF.
       .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]/g, '')
-      .replace(/:/g, '')
+      .replace(/[<>:"|?*]/g, '')
       .trim()
       .replace(/[. ]+$/, '');
     if (!name || name === '.' || name === '..') return null;
     if (RESERVED_DEVICE_NAMES.test(name)) name = '_' + name;
-    return name.slice(0, 255);
+    // Same 200-byte budget every client seals under, cut by code point so a
+    // surrogate pair is never split into a stray U+FFFD.
+    while (new TextEncoder().encode(name).length > 200 && name.length > 0) {
+      name = Array.from(name).slice(0, -1).join('');
+    }
+    return name || null;
   }
 
   function detectFileType(b) {
@@ -3465,7 +3477,7 @@ vn() {
         if printf "%s" "\$_VN_NHEX" | cut -c33-448 | xxd -r -p | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_NIV" -out "\$_VN_HDR_TMP" 2>/dev/null && [ "\$(wc -c < "\$_VN_HDR_TMP" | tr -d " ")" -eq 200 ]; then
           # Controls, then zero-width and bidi formatting characters (U+202E
           # makes .exe read as .pdf) by their UTF-8 bytes: this goes to a terminal.
-          _VN_NAME=\$(LC_ALL=C tr -d '\\000-\\037\\177' < "\$_VN_HDR_TMP" | LC_ALL=C awk '{gsub(/\\342\\200[\\213-\\217\\252-\\256]|\\342\\201[\\240-\\244\\246-\\251]|\\357\\273\\277/,""); printf "%s", $0}' | head -c 255)
+          _VN_NAME=\$(LC_ALL=C tr '\\000' '\\n' < "\$_VN_HDR_TMP" | head -n 1 | LC_ALL=C tr -d '\\001-\\037\\177' | LC_ALL=C awk '{gsub(/\\342\\200[\\213-\\217\\252-\\256]|\\342\\201[\\240-\\244\\246-\\251]|\\357\\273\\277/,""); printf "%s", $0}' | head -c 255)
         fi
       fi
       if [ -n "\$_VN_NAME" ]; then
@@ -3478,7 +3490,7 @@ vn() {
          head -c 4 "\$_VN_TMP" | grep -q "%PDF" 2>/dev/null || \\
          head -c 8 "\$_VN_TMP" | grep -qE "PNG|GIF8|JFIF" 2>/dev/null; then
         echo "Warning: Binary content detected (PDF, image, etc.)" >&2
-        echo "Save to file: vn read \\"<url>\\" > \"\${_VN_NAME:-filename}\"" >&2
+        printf "%s\\n" 'Save to file: vn read "<url>" > filename' >&2
         trap - EXIT INT TERM
         _vn_cleanup
         unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
@@ -3902,9 +3914,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.2"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.8.2
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.9.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.9.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -4110,8 +4122,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2        pin the version
-  npm i -g vnsh-mcp@1.8.2 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0        pin the version
+  npm i -g vnsh-mcp@1.9.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code
@@ -4157,7 +4169,8 @@ name is 307 characters. The server stores the string in object metadata and
 echoes it on GET; it never decodes it, so the name is as private as the content.
 A public workspace has no key: send base64url(utf-8(name)).
 
-Omitting the header on a PUT keeps the name already stored. Reduce a decoded
+Omitting the header on a PUT keeps the name already stored; sending it empty
+clears it. Reduce a decoded
 name to its last path segment, and strip bidi formatting characters, before
 writing a file with it.
 
@@ -6321,7 +6334,7 @@ const APP_HTML = `<!DOCTYPE html>
         <h1 class="hero-title">One link. Any Agent. No lost context.</h1>
         <p class="hero-subtitle">Drop in the context once. Claude Code, Cursor, Codex or a person can pick it up and continue.</p></div>
         <div class="hero-creator" id="hero-creator"></div>
-        <div class="hero-after"><div class="hero-install"><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><code><span class="prompt">Connect Claude Code&nbsp;·&nbsp;</span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div><div class="hero-actions"><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace →</a></div></div>
+        <div class="hero-after"><div class="hero-install"><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0', this)"><code><span class="prompt">Connect Claude Code&nbsp;·&nbsp;</span>claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0</code><button class="copy-btn" title="Copy">&#8681;</button></div></div><div class="hero-actions"><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace →</a></div></div>
       </div>
     </section>
   </div>
@@ -6904,7 +6917,9 @@ const APP_HTML = `<!DOCTYPE html>
       if (!trimmed || trimmed === '.' || trimmed === '..') return null;
       let bytes = new TextEncoder().encode(trimmed);
       while (bytes.length > NAME_SLOT_BYTES && trimmed.length > 0) {
-        trimmed = trimmed.slice(0, -1);
+        // By code point: slicing a UTF-16 unit off an emoji leaves a lone
+        // surrogate that encodes as U+FFFD and still fits the budget.
+        trimmed = Array.from(trimmed).slice(0, -1).join('');
         bytes = new TextEncoder().encode(trimmed);
       }
       if (!bytes.length) return null;
@@ -6942,7 +6957,10 @@ const APP_HTML = `<!DOCTYPE html>
         .replace(/[. ]+$/, '');
       if (!name || name === '.' || name === '..') return null;
       if (RESERVED_DEVICE_NAMES.test(name)) name = '_' + name;
-      return name.slice(0, 255);
+      while (new TextEncoder().encode(name).length > 200 && name.length > 0) {
+        name = Array.from(name).slice(0, -1).join('');
+      }
+      return name || null;
     }
 
     // A legacy blob's name travels under the same AES-256-CBC key as its body,

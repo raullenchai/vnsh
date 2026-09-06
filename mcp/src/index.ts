@@ -375,6 +375,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'when the recipient may not look at it today — a plan handed to a colleague ' +
                 'is the case that keeps expiring before it is read.',
             },
+            name: {
+              type: 'string',
+              description:
+                'File name to attach, e.g. "analysis.py". Sealed under the content key so ' +
+                'vnsh cannot read it; it becomes the name the recipient downloads. Nothing ' +
+                'in the bytes says a document is Python rather than prose.',
+            },
             host: { type: 'string', description: 'Override the vnsh host URL' },
           },
           required: ['content'],
@@ -435,6 +442,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'Version this edit is based on. Omit to read the latest first. Pass the version ' +
                 'from vnsh_workspace_read when you have already merged against it.',
+            },
+            name: {
+              type: 'string',
+              description:
+                'File name to attach, e.g. "analysis.py". Sealed under the content key so ' +
+                'vnsh cannot read it; it becomes the name the recipient downloads. Omit ' +
+                'to keep the name the workspace already has.',
             },
           },
           required: ['url', 'content'],
@@ -1184,15 +1198,22 @@ export async function handleWorkspaceCreate(args: unknown) {
  * a failed probe is the safe default — it keeps the encrypted path, and the
  * conditional write is what actually protects the document.
  */
-async function workspaceIsPublic(host: string, id: string): Promise<boolean> {
+/**
+ * Whether a workspace stores plaintext. Returns null when that cannot be
+ * established — a failed probe must never be read as "private", because the
+ * PUT that follows would replace a public document with ciphertext, and
+ * If-Match checks the version, not the visibility.
+ */
+async function workspaceIsPublic(host: string, id: string): Promise<boolean | null> {
   try {
     const response = await fetch(`${host}/api/workspace/${id}`, {
       method: 'HEAD',
       headers: { ...clientHeaders() },
     });
+    if (!response.ok) return null;
     return response.headers.get('X-Vnsh-Public') === '1';
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1407,7 +1428,14 @@ export async function handleWorkspaceUpdate(args: unknown) {
     version = current.version;
     isPublic = Boolean(current.public);
   } else {
-    isPublic = await workspaceIsPublic(host, id);
+    const probed = await workspaceIsPublic(host, id);
+    if (probed === null) {
+      throw new Error(
+        'Could not determine whether this workspace is public or encrypted, so the update ' +
+        'was not sent. Retry, or omit base_version to read it first.',
+      );
+    }
+    isPublic = probed;
   }
 
   const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);

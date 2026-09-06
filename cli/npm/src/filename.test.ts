@@ -208,6 +208,14 @@ describe('sealing a legacy blob name', () => {
     expect(openBlobName(null, key)).toBeNull();
   });
 
+  it('cuts a long name by code point, never leaving half an emoji', () => {
+    const long = 'a'.repeat(197) + '\u{1F600}.md';
+    const cut = sanitizeFileName(long)!;
+    expect(Buffer.byteLength(cut, 'utf-8')).toBeLessThanOrEqual(200);
+    expect(cut).not.toContain('\uFFFD');
+    expect(cut).toBe('a'.repeat(197));
+  });
+
   it('drops the characters Windows refuses, so a Linux name never makes a Windows reader throw', () => {
     expect(openBlobName(sealBlobName('report?.png', key), key)).toBe('report.png');
     expect(sanitizeFileName('a<b>c"d|e*f.txt')).toBe('abcdef.txt');
@@ -267,6 +275,15 @@ describe('the shell client speaks the same legacy name format', () => {
     expect(forged).toHaveLength(299);
     expect(sh('open_name', forged, keyHex)).toBe('');
     expect(openBlobName(forged, key)).toBeNull();
+  });
+
+  it('stops at the first NUL like every other client', () => {
+    const iv = generateIV();
+    const slot = Buffer.alloc(200);
+    Buffer.from('first\0second').copy(slot);
+    const raw = bufferToBase64url(Buffer.concat([iv, encrypt(slot, key, iv)]));
+    expect(sh('open_name', raw, keyHex)).toBe('first');
+    expect(openBlobName(raw, key)).toBe('first');
   });
 
   it('prints nothing in the shell for a header it cannot open', () => {

@@ -136,7 +136,7 @@ export function sanitizeFileName(raw: string): string | null {
   const safe = RESERVED_DEVICE_NAMES.test(cleaned) ? `_${cleaned}` : cleaned;
   let cut = safe;
   while (new TextEncoder().encode(cut).length > NAME_SLOT_BYTES && cut.length > 0) {
-    cut = cut.slice(0, -1);
+    cut = Array.from(cut).slice(0, -1).join('');
   }
   return cut || null;
 }

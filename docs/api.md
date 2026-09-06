@@ -137,7 +137,7 @@ fails validation is dropped rather than rejected, so a broken client loses a fil
 name instead of its document.
 
 A name belongs to the version it was written with. `PUT` without the header
-keeps the stored name; the archive of each version keeps its own, so reading or
+keeps the stored name, and `PUT` with the header present but empty clears it; the archive of each version keeps its own, so reading or
 restoring an old version gives back the name that version had.
 
 A public workspace has no key and nothing left to withhold, so its name is
