@@ -1030,7 +1030,12 @@ describe('binary content survives the viewer', () => {
   });
 
   it('downloads the original bytes under the real extension', () => {
-    expect(page).toContain("fileName = 'vnsh-' + id + '-v' + version + (fileKind ? '.' + fileKind.ext :");
+    // The sniffed extension is the fallback, not the answer: an attached name
+    // wins when there is one. Asserting the shape rather than the exact line
+    // keeps this from failing every time the fallback is reworded.
+    expect(page).toContain('var attached = await readAttachedName(');
+    expect(page).toContain("fileName = attached || ('vnsh-' + id + '-v' + version");
+    expect(page).toContain("fileKind ? '.' + fileKind.ext :");
     expect(page).toContain('a.href = fileKind ? blobUrl()');
     // Revoking the shared URL would blank the <img> that is displaying it.
     expect(page).toContain('if (!fileKind) URL.revokeObjectURL(a.href);');

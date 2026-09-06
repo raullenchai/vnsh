@@ -104,6 +104,71 @@ export async function encryptWorkspace(
   return out;
 }
 
+/** Bytes reserved for a name inside the sealed slot, before the 2-byte length. */
+export const NAME_SLOT_BYTES = 200;
+
+/** Windows refuses these as file names, with or without an extension. */
+const RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
+ * Reduce anything to a bare file name that is safe on every platform.
+ *
+ * The result reaches a browser `download` attribute, so it has to be a name and
+ * nothing else. Beyond separators, three things matter and are easy to miss:
+ * a bidirectional override makes `.exe` render as `.pdf` in any file list that
+ * honours it; `:` addresses an NTFS alternate data stream; and Windows strips
+ * trailing dots and spaces, so `report.txt.` and `report.txt` are one file.
+ *
+ * The cap is in UTF-8 bytes, not code units, so it matches what the wire format
+ * can actually carry.
+ */
+export function sanitizeFileName(raw: string): string | null {
+  if (!raw) return null;
+  const segment = raw.split(/[/\\]/).pop() || '';
+  const cleaned = segment
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    // Zero-width and bidirectional formatting characters.
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '')
+    .replace(/[<>:"|?*]/g, '')
+    .trim()
+    .replace(/[. ]+$/, '');
+  if (!cleaned || cleaned === '.' || cleaned === '..') return null;
+  const safe = RESERVED_DEVICE_NAMES.test(cleaned) ? `_${cleaned}` : cleaned;
+  let cut = safe;
+  while (new TextEncoder().encode(cut).length > NAME_SLOT_BYTES && cut.length > 0) {
+    cut = Array.from(cut).slice(0, -1).join('');
+  }
+  return cut || null;
+}
+
+/**
+ * Wrap a file name so vnsh can store it without reading it.
+ *
+ * A name is content: `screenshot.png` is nothing, `severance-agreement.pdf` is
+ * a great deal. So it travels the way the body travels - AES-256-GCM under the
+ * content key, base64url on the wire - and the service keeps an opaque string
+ * it hands back untouched.
+ *
+ * The plaintext is padded to a constant width first. Encryption hides the bytes
+ * but not their count, and an unpadded value would publish the exact length of
+ * every private name. Pass a null key for a public workspace, which has no key
+ * and nothing left to withhold.
+ */
+export async function sealWorkspaceName(
+  name: string,
+  key: Uint8Array | null,
+): Promise<string | null> {
+  const clean = sanitizeFileName(name);
+  if (!clean) return null;
+  const bytes = new TextEncoder().encode(clean);
+  if (!key) return bytesToBase64url(bytes);
+  const slot = new Uint8Array(2 + NAME_SLOT_BYTES);
+  slot[0] = (bytes.length >> 8) & 0xff;
+  slot[1] = bytes.length & 0xff;
+  slot.set(bytes, 2);
+  return bytesToBase64url(await encryptWorkspace(slot, key));
+}
+
 /** Decrypt `nonce ‖ ciphertext ‖ tag`. Throws if the tag does not verify. */
 export async function decryptWorkspace(
   payload: Uint8Array,

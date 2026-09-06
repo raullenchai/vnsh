@@ -23,6 +23,7 @@ AES-256-GCM) or, for a public workspace, the content as written.
 | `X-Vnsh-Public: 1` | no | Publish unencrypted. Never inferred; fixed at creation. |
 | `Authorization: Bearer ...` | no | Account token. Authenticated creates are retained until deleted. |
 | `X-Vnsh-Kind: artifact` | no | Index the document as an artifact and use `/artifact/{id}` links in clients. |
+| `X-Vnsh-Name` | no | The file name, sealed. See [File names](#file-names). |
 
 | Query | Meaning |
 |---|---|
@@ -78,7 +79,8 @@ limit return `403 ACCOUNT_QUOTA_EXCEEDED` with current usage and limits.
 
 Returns the stored bytes. `ETag` is the version. A public workspace comes back
 with `X-Vnsh-Public: 1`, since a client that tried to decrypt plaintext would
-report the author's own link as corrupt.
+report the author's own link as corrupt. `X-Vnsh-Name` is echoed back verbatim
+when the workspace has one.
 
 ### PUT /api/workspace/:id
 
@@ -87,7 +89,9 @@ version you read). Answers `428` without `If-Match`, `412` on a stale version,
 `403` on a bad token. Visibility is carried forward and cannot be changed by a
 write. The response mirrors create, including `url` when public. The expiry is
 renewed for the lifetime the workspace was created with, not for the default —
-an edit must not silently demote a seven-day workspace to a one-day one.
+an edit must not silently demote a seven-day workspace to a one-day one. A
+`X-Vnsh-Name` on the write replaces the stored name; omitting it keeps the one
+the workspace already had, for the same reason.
 
 ### POST /api/workspace/:id/renew
 
@@ -104,6 +108,68 @@ once expired — expiry is deletion, so there is nothing to extend.
 200 OK    ETag: "7"
 { "id": "k2p9xf...", "version": 7, "expires": "..." }
 ```
+
+### File names
+
+A workspace can carry the name of the file it holds. Without one, a client has
+only the bytes to go on, and sniffing recovers a type for PNG or PDF and nothing
+at all for source code — `.py`, `.json`, `.csv` and `.sql` all end up as `.txt`.
+
+The name lives in R2 custom metadata, alongside the version and the expiry. It
+is **not** stored as text, because a name is content: `analysis.py` gives
+nothing away and `Q3-layoff-list.xlsx` gives away more than most documents do.
+So `X-Vnsh-Name` carries
+
+```
+slot = uint16be(len(name)) || utf-8(name) || zeros        # exactly 202 bytes
+X-Vnsh-Name = base64url( nonce(12) || AES-256-GCM(K, slot) || tag(16) )
+```
+
+under the same content key `K` as the body. Encryption hides the bytes of a name
+but not how many there are, so the plaintext is padded to a constant width
+first — otherwise the header length alone would separate `ok.txt` from
+`acquisition-targets.xlsx`. Every sealed name is 307 characters. What stays
+visible to the service is only whether a name was attached at all.
+
+The server validates only the alphabet (`[A-Za-z0-9_-]`) and a 512-character
+cap; it never decodes the value and could not read it if it did. A value that
+fails validation is dropped rather than rejected, so a broken client loses a file
+name instead of its document.
+
+A name belongs to the version it was written with. `PUT` without the header
+keeps the stored name, and `PUT` with the header present but empty clears it; the archive of each version keeps its own, so reading or
+restoring an old version gives back the name that version had.
+
+A public workspace has no key and nothing left to withhold, so its name is
+`base64url(utf-8(name))`. The name gets exactly the guarantee the body gets,
+never a weaker one.
+
+A legacy `/v/` blob carries a name the same way, on `POST /api/drop` and back on
+`GET /api/blob/:id`, but its body is AES-256-CBC and so is its name: the shell
+client encrypts with `openssl enc`, which has no GCM mode.
+
+```
+slot = utf-8(name) || zeros                               # exactly 200 bytes
+X-Vnsh-Name = base64url( iv(16) || AES-256-CBC(key, iv, slot) )   # 299 chars
+```
+
+Same 32-byte key as the blob, a fresh IV, NUL padding (a file name cannot
+contain NUL, so the pad is unambiguous). The CBC layer is standard PKCS#7, so
+the 200-byte slot gains eight `0x08` bytes and encrypts to 208 bytes — 224 with
+the IV. A reader requires exactly 200 bytes back after unpadding; padding that
+merely checks out is not authentication. Like the body it names, this is
+unauthenticated; the sanitizing below is what keeps a rewritten name from being
+more than a wrong name.
+
+Clients reduce the decoded value to a bare file name before using it, because it
+ends up in a `download` attribute or a filesystem path. Beyond taking the last
+path segment, that means stripping control characters, stripping zero-width and
+bidirectional formatting characters (a `U+202E` makes `.exe` render as `.pdf`),
+removing `:` (an NTFS alternate data stream) and the other characters Windows
+refuses (`< > " | ? *`), dropping trailing dots and spaces
+(Windows strips them, so two names would address one file), and prefixing the
+Windows device names — `CON`, `NUL`, `COM1` and the rest. Names are capped at
+200 UTF-8 bytes, which is what the fixed-width slot holds.
 
 ### GET /api/workspace/:id/history
 
@@ -151,6 +217,12 @@ Content-Length: 1234
 |-----------|------|---------|-------------|
 | `ttl` | integer | 24 | Time-to-live in hours (max: 168) |
 
+**Optional headers:**
+
+| Header | Meaning |
+|---|---|
+| `X-Vnsh-Name` | The file name, sealed under the blob key. See [File names](#file-names). |
+
 **Response (201 Created):**
 
 ```json
@@ -190,6 +262,7 @@ Content-Length: 1234
 Cache-Control: private, no-store, no-cache
 X-Content-Type-Options: nosniff
 X-Opaque-Expires: 2024-01-25T12:00:00.000Z
+X-Vnsh-Name: <the sealed name, only if one was attached>
 
 <binary encrypted data>
 ```
@@ -484,8 +557,9 @@ CORS preflight handler.
 ```http
 HTTP/1.1 204 No Content
 Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type
+Access-Control-Allow-Methods: GET, HEAD, POST, PUT, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type, If-Match, X-Vnsh-*
+Access-Control-Expose-Headers: ETag, X-Vnsh-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Name
 Access-Control-Max-Age: 86400
 ```
 
@@ -497,8 +571,9 @@ All API responses include:
 
 ```http
 Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, OPTIONS
-Access-Control-Allow-Headers: Content-Type
+Access-Control-Allow-Methods: GET, HEAD, POST, PUT, OPTIONS
+Access-Control-Allow-Headers: Authorization, Content-Type, If-Match, X-Vnsh-*
+Access-Control-Expose-Headers: ETag, X-Vnsh-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Name
 Access-Control-Max-Age: 86400
 ```
 

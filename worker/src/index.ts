@@ -123,10 +123,10 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Project, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public',
+    'Authorization, Content-Type, If-Match, X-Vnsh-Client, X-Vnsh-Agent, X-Vnsh-Ref, X-Vnsh-Project, X-Vnsh-Write, X-Vnsh-Write-Hash, X-Vnsh-Kind, X-Vnsh-Public, X-Vnsh-Name',
   // Browser clients need to read the version off a workspace GET to build the
   // If-Match on the next write; without this the fetch() response hides it.
-  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Historical',
+  'Access-Control-Expose-Headers': 'ETag, X-Vnsh-Expires, X-Opaque-Expires, X-Vnsh-Public, X-Vnsh-Permanent, X-Vnsh-Historical, X-Vnsh-Name',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -296,6 +296,7 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
   // Parse optional TTL from query string
   const url = new URL(request.url);
   const ttlHours = parseTtlHours(url.searchParams.get('ttl'));
+  const dropName = nameFromRequest(request);
 
   // Generate unique short ID with collision check
   let id: string = generateShortId();
@@ -330,9 +331,15 @@ async function handleDrop(request: Request, env: Env, ctx: ExecutionContext): Pr
     // Store blob in R2. R2 customMetadata is the SINGLE SOURCE OF TRUTH for
     // expiry — the core read/write path must not depend on KV, which on the
     // free plan caps at ~1000 writes/day and throws once exhausted.
+    //
+    // The file name rides along as one more opaque string. A legacy blob is
+    // sealed under AES-256-CBC rather than the workspace's GCM, because the
+    // shell client encrypts with `openssl enc`, which has no GCM mode — the
+    // name gets exactly the protection the body it names already has.
     const customMetadata: Record<string, string> = {
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(expiresAt).toISOString(),
+      ...(dropName ? { name: dropName } : {}),
     };
     await env.VNSH_STORE.put(id, await readCapped(body, MAX_BLOB_SIZE), { customMetadata });
 
@@ -415,6 +422,7 @@ async function handleBlob(id: string, request: Request, env: Env, ctx: Execution
       'Cache-Control': 'private, no-store, no-cache',
       'X-Content-Type-Options': 'nosniff',
       ...(hasExpiry ? { 'X-Opaque-Expires': new Date(expiresAtMs).toISOString() } : {}),
+      ...(storedName(md) ? { 'X-Vnsh-Name': storedName(md)! } : {}),
       ...corsHeaders,
     },
   });
@@ -734,6 +742,46 @@ function parseTtlHours(raw: string | null): number {
   return parsed;
 }
 
+/**
+ * The file name a client chose to attach to a document, carried opaquely.
+ *
+ * A name is content. `analysis.py` is harmless; `Q3-layoff-list.xlsx` says more
+ * than most bodies do, and a service that stores it in the clear has quietly
+ * stopped being blind. So the wire value is always base64url, and on the
+ * encrypted path what it encodes is ciphertext the client produced with its own
+ * content key. This service records the string and hands it back byte for byte;
+ * it never decodes it and could not read it if it did. Public workspaces have
+ * no key and nothing to hide, so theirs is base64url of the name itself.
+ *
+ * Restricting the charset is not decoration. The value round-trips through R2
+ * metadata into a response header, and a control character or anything past
+ * Latin-1 throws when that response is constructed — which would turn a
+ * cosmetic feature into an unreadable document.
+ */
+// A sealed name is a constant 307 characters: base64url of a 12-byte nonce, a
+// 202-byte padded slot and a 16-byte tag. Public names are shorter. The cap sits
+// above both with room to spare, so no name a client will send is silently
+// dropped for being too long.
+const MAX_NAME_META = 512;
+
+function nameFromRequest(request: Request): string | null {
+  const raw = request.headers.get('X-Vnsh-Name');
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value || value.length > MAX_NAME_META) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  return value;
+}
+
+/**
+ * R2 lower-cases custom metadata keys in production, which is why this field is
+ * named `name` and not `fileName`: a single spelling that survives the round
+ * trip needs no reconciliation on the way back out.
+ */
+function storedName(md: Record<string, string>): string | null {
+  return md.name || null;
+}
+
 function workspaceExpiry(ttlHours: number = DEFAULT_TTL_HOURS): {
   expiresAt: number;
   iso: string;
@@ -793,6 +841,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
   // a day with no way to ask for more. Same parameter, same cap, same parser.
   const owner = await currentUser(request, env);
   const ttlHours = parseTtlHours(new URL(request.url).searchParams.get('ttl'));
+  const createName = nameFromRequest(request);
   const iso = owner ? null : workspaceExpiry(ttlHours).iso;
   const createdAt = new Date().toISOString();
   try {
@@ -806,6 +855,7 @@ async function handleWorkspaceCreate(request: Request, env: Env): Promise<Respon
         writeHash,
         version: '1',
         createdAt,
+        ...(createName ? { name: createName } : {}),
         ...(iso ? { expiresAt: iso, ttlHours: String(ttlHours) } : { permanent: '1', ownerId: owner!.id }),
         ...(isPublic ? { public: '1' } : {}),
       },
@@ -909,6 +959,9 @@ async function handleWorkspaceGet(id: string, request: Request, env: Env): Promi
       ...(isPublicWorkspace(md) ? { 'X-Vnsh-Public': '1' } : {}),
       ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
       ...(md.permanent === '1' ? { 'X-Vnsh-Permanent': '1' } : {}),
+      // Opaque on the encrypted path: only a holder of the content key can turn
+      // this back into a file name.
+      ...(storedName(md) ? { 'X-Vnsh-Name': storedName(md)! } : {}),
       ...corsHeaders,
     },
   });
@@ -973,6 +1026,9 @@ async function handlePublicPage(id: string, request: Request, env: Env): Promise
       'Cache-Control': 'no-cache',
       ETag: `"${md.version || '1'}"`,
       ...(md.expiresAt ? { 'X-Vnsh-Expires': md.expiresAt } : {}),
+      // A public workspace's name is base64url of the plain name; a reader
+      // that already has the document is owed what it is called.
+      ...(storedName(md) ? { 'X-Vnsh-Name': storedName(md)! } : {}),
       Link: '<https://vnsh.dev/llms.txt>; rel="describedby"; type="text/plain"',
       ...corsHeaders,
     },
@@ -1025,6 +1081,11 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
     return errorResponse('EXPIRED', 'Workspace has expired', 410, request);
   }
 
+  const putName = nameFromRequest(request);
+  // Absent header: keep the stored name. Present but empty: forget it. The
+  // distinction is what lets a restore bring back a version that never had one,
+  // instead of leaving the newer version's name on top of the older bytes.
+  const clearName = request.headers.has('X-Vnsh-Name') && !putName;
   const expectedHash = md.writeHash || '';
   const presentedHash = await sha256Hex(writeToken);
   if (!timingSafeEqual(presentedHash, expectedHash)) {
@@ -1123,6 +1184,10 @@ async function handleWorkspacePut(id: string, request: Request, env: Env): Promi
         // dropping this and quietly turning a public document into one that
         // looks encrypted, nor by setting it and exposing one that was not.
         ...(isPublicWorkspace(md) ? { public: '1' } : {}),
+        // Rebuilding this object from scratch means anything not named here is
+        // dropped. A writer who sends no name keeps the one the document
+        // already had, exactly as it keeps its TTL; sending one replaces it.
+        ...(putName ? { name: putName } : clearName ? {} : storedName(md) ? { name: storedName(md)! } : {}),
       },
     });
 
@@ -1268,6 +1333,9 @@ async function handleWorkspaceVersionGet(
       ETag: `"${version}"`,
       'X-Vnsh-Historical': '1',
       ...(isPublicWorkspace(object.customMetadata) ? { 'X-Vnsh-Public': '1' } : {}),
+      ...(storedName(object.customMetadata || {})
+        ? { 'X-Vnsh-Name': storedName(object.customMetadata || {})! }
+        : {}),
       ...corsHeaders,
     },
   });
@@ -1284,6 +1352,12 @@ async function handleWorkspaceRestore(
   const headers = new Headers(request.headers);
   headers.set('Content-Type', 'application/octet-stream');
   headers.set('Content-Length', String(object.size));
+  // Restoring is putting old content back, so it brings back the name it had.
+  // Leaving this out would keep the current name on top of older bytes, which
+  // is exactly the mismatch a restore is meant to undo. A caller that names the
+  // restore explicitly still wins.
+  const archivedName = storedName(object.customMetadata || {});
+  if (!headers.has('X-Vnsh-Name')) headers.set('X-Vnsh-Name', archivedName || '');
   const restored = await handleWorkspacePut(
     id,
     new Request(request.url, { method: 'PUT', headers, body: object.body }),
@@ -2011,6 +2085,70 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
   // What the first bytes say the content is. A workspace holds whatever was put
   // in it, and the Chrome extension puts JPEG screenshots in, so "it is text"
   // was never a safe assumption — it was just the only one this page made.
+  /**
+   * Turn the opaque X-Vnsh-Name header back into a file name.
+   *
+   * On the encrypted path the header is ciphertext under the content key, so
+   * this is the first point at which the name exists in the clear anywhere -
+   * the service stored it without ever being able to read it. Inside that
+   * ciphertext is a fixed-width slot, not the bare name: encryption hides the
+   * bytes but not their count, and an unpadded value would publish the exact
+   * length of every private file name. A public workspace has no key, and its
+   * name is plain UTF-8 for the same reason its body is.
+   *
+   * Every check below is defensive against a value this page did not write,
+   * because the result lands in a download attribute: a name carrying a path
+   * separator or a bidirectional override picks, or disguises, the file the
+   * reader saves. Anything that fails yields null and the caller falls back to
+   * the sniffed name, since a generic file name is a cosmetic loss and a
+   * crafted one is not.
+   */
+  var NAME_SLOT_BYTES = 200;
+
+  async function readAttachedName(header, isPublic) {
+    if (!header || header.length > 512 || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+    var bytes;
+    try {
+      bytes = b64urlToBytes(header);
+    } catch (e) { return null; }
+    if (isPublic) return sanitizeName(new TextDecoder().decode(bytes));
+    // 12-byte nonce + the slot + 16-byte tag, and nothing else is this format.
+    if (!contentKey || bytes.length !== 12 + 2 + NAME_SLOT_BYTES + 16) return null;
+    try {
+      var nameKey = await importAes(contentKey);
+      var out = new Uint8Array(await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: bytes.slice(0, 12) }, nameKey, bytes.slice(12)));
+      var length = (out[0] << 8) | out[1];
+      if (length > NAME_SLOT_BYTES) return null;
+      return sanitizeName(new TextDecoder().decode(out.slice(2, 2 + length)));
+    } catch (e) { return null; }
+  }
+
+  var RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$/i;
+
+  function sanitizeName(raw) {
+    if (!raw) return null;
+    // Keep the last segment only: this is a name, never a directory to
+    // traverse out of.
+    var name = raw.split(/[\\/\\\\]/).pop();
+    name = name
+      .replace(/[\\u0000-\\u001F\\u007F-\\u009F]/g, '')
+      // Zero-width and bidirectional formatting characters. Without this,
+      // a name can render its extension in reverse and pass for a PDF.
+      .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]/g, '')
+      .replace(/[<>:"|?*]/g, '')
+      .trim()
+      .replace(/[. ]+$/, '');
+    if (!name || name === '.' || name === '..') return null;
+    if (RESERVED_DEVICE_NAMES.test(name)) name = '_' + name;
+    // Same 200-byte budget every client seals under, cut by code point so a
+    // surrogate pair is never split into a stray U+FFFD.
+    while (new TextEncoder().encode(name).length > 200 && name.length > 0) {
+      name = Array.from(name).slice(0, -1).join('');
+    }
+    return name || null;
+  }
+
   function detectFileType(b) {
     if (!b || b.length < 4) return null;
     if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47)
@@ -2203,8 +2341,15 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
     }
 
     fileKind = detectFileType(plainBytes);
-    fileName = 'vnsh-' + id + '-v' + version + (fileKind ? '.' + fileKind.ext :
-      looksLikeHtml(plaintext) ? '.html' : looksLikeMarkdown(plaintext) ? '.md' : '.txt');
+
+    // The name the uploader attached, if they attached one. Sniffing the bytes
+    // can recover a type but never a name, and for anything without magic bytes
+    // it cannot even do that: .py, .json, .csv and .sql all arrived as .txt.
+    // A name is the only thing that gets this right, and it is the one thing
+    // the server was never told.
+    var attached = await readAttachedName(res.headers.get('X-Vnsh-Name'), isPublic);
+    fileName = attached || ('vnsh-' + id + '-v' + version + (fileKind ? '.' + fileKind.ext :
+      looksLikeHtml(plaintext) ? '.html' : looksLikeMarkdown(plaintext) ? '.md' : '.txt'));
 
     function humanLeft(iso) {
       if (!iso) return '';
@@ -2214,7 +2359,10 @@ const WORKSPACE_PAGE = `<!DOCTYPE html>
       if (h >= 1) return ' \u00b7 expires in ' + h + 'h';
       return ' \u00b7 expires in ' + Math.max(1, Math.floor(ms / 60000)) + 'm';
     }
-    metaEl.textContent = id + ' \u00b7 v' + version + humanLeft(expires);
+    // Lead with the name when there is one: "budget.xlsx" tells a reader what
+    // they opened; a 12-character id never did.
+    metaEl.textContent = (attached ? attached + ' \u00b7 ' : '') +
+      id + ' \u00b7 v' + version + humanLeft(expires);
 
     var dl = document.getElementById('dl');
     var raw = document.getElementById('raw');
@@ -3291,21 +3439,50 @@ vn() {
     fi
     # Fetch and decrypt with temp file cleanup trap (P1: prevents plaintext leakage)
     _VN_TMP=\$(mktemp)
-    _vn_cleanup() { rm -f "\$_VN_TMP" 2>/dev/null; }
+    _VN_HDR_TMP=\$(mktemp)
+    _vn_cleanup() { rm -f "\$_VN_TMP" "\$_VN_HDR_TMP" 2>/dev/null; }
     trap _vn_cleanup EXIT INT TERM
     if [ -t 2 ]; then
-      curl -f --progress-bar -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -f --progress-bar -D "\$_VN_HDR_TMP" -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" 2>&2 | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     else
-      curl -sf -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
+      curl -sf -D "\$_VN_HDR_TMP" -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/blob/\$_VN_ID" | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" 2>/dev/null > "\$_VN_TMP"
     fi
     _VN_RET=\$?
     if [ \$_VN_RET -ne 0 ] || [ ! -s "\$_VN_TMP" ]; then
       echo "Error: Failed to fetch or decrypt" >&2
       trap - EXIT INT TERM
       _vn_cleanup
-      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+      unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
       unset -f _vn_cleanup 2>/dev/null
       return 1
+    fi
+    # The name the uploader gave the file rides in X-Vnsh-Name, sealed under
+    # the same key as the body: IV(16) || AES-256-CBC over the name NUL-padded
+    # to 200 bytes, base64url. Opened here, shown on stderr, never on stdout.
+    _VN_NAME=""
+    _VN_NAME_HDR=\$(grep -i "^x-vnsh-name:" "\$_VN_HDR_TMP" 2>/dev/null | head -n 1 | cut -d" " -f2- | tr -d "\\r\\n")
+    if [ -n "\$_VN_NAME_HDR" ]; then
+      _VN_NB64=\$(printf "%s" "\$_VN_NAME_HDR" | tr '_-' '/+')
+      _VN_PAD=\$((4 - \${#_VN_NB64} % 4))
+      [ \$_VN_PAD -eq 4 ] && _VN_PAD=0
+      [ \$_VN_PAD -eq 1 ] && _VN_NB64="\${_VN_NB64}="
+      [ \$_VN_PAD -eq 2 ] && _VN_NB64="\${_VN_NB64}=="
+      _VN_NHEX=\$(printf "%s" "\$_VN_NB64" | base64 -d 2>/dev/null | xxd -p | tr -d '\\n')
+      if [ \${#_VN_NHEX} -eq 448 ]; then
+        _VN_NIV=\$(printf "%s" "\$_VN_NHEX" | cut -c1-32)
+        # openssl streams plaintext before it notices bad padding: decrypt to a
+        # file and only trust it when the exit status says the bytes were real.
+        # CBC padding that checks out is not authentication: the slot must be
+        # exactly the 200 bytes every client writes.
+        if printf "%s" "\$_VN_NHEX" | cut -c33-448 | xxd -r -p | openssl enc -d -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_NIV" -out "\$_VN_HDR_TMP" 2>/dev/null && [ "\$(wc -c < "\$_VN_HDR_TMP" | tr -d " ")" -eq 200 ]; then
+          # Controls, then zero-width and bidi formatting characters (U+202E
+          # makes .exe read as .pdf) by their UTF-8 bytes: this goes to a terminal.
+          _VN_NAME=\$(LC_ALL=C tr '\\000' '\\n' < "\$_VN_HDR_TMP" | head -n 1 | LC_ALL=C tr -d '\\001-\\037\\177' | LC_ALL=C awk '{gsub(/\\342\\200[\\213-\\217\\252-\\256]|\\342\\201[\\240-\\244\\246-\\251]|\\357\\273\\277/,""); printf "%s", $0}' | head -c 255)
+        fi
+      fi
+      if [ -n "\$_VN_NAME" ]; then
+        printf "File name: %s\\n" "\$_VN_NAME" >&2
+      fi
     fi
     # If outputting to terminal, check for binary content
     if [ -t 1 ]; then
@@ -3313,10 +3490,10 @@ vn() {
          head -c 4 "\$_VN_TMP" | grep -q "%PDF" 2>/dev/null || \\
          head -c 8 "\$_VN_TMP" | grep -qE "PNG|GIF8|JFIF" 2>/dev/null; then
         echo "Warning: Binary content detected (PDF, image, etc.)" >&2
-        echo "Save to file: vn read \\"<url>\\" > filename" >&2
+        printf "%s\\n" 'Save to file: vn read "<url>" > filename' >&2
         trap - EXIT INT TERM
         _vn_cleanup
-        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+        unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
         unset -f _vn_cleanup 2>/dev/null
         return 1
       fi
@@ -3324,7 +3501,7 @@ vn() {
     cat "\$_VN_TMP"
     trap - EXIT INT TERM
     _vn_cleanup
-    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX
+    unset _VN_URL _VN_ID _VN_KEY _VN_IV _VN_HOST _VN_TMP _VN_VERSION _VN_FRAG _VN_B64 _VN_PAD _VN_HEX _VN_HDR_TMP _VN_NAME _VN_NAME_HDR _VN_NB64 _VN_NHEX _VN_NIV
     unset -f _vn_cleanup 2>/dev/null
     return 0
   fi
@@ -3332,6 +3509,7 @@ vn() {
   # Upload mode
   _VN_KEY=\$(openssl rand -hex 32)
   _VN_IV=\$(openssl rand -hex 16)
+  _VN_NAME_HDR=""
 
   # Determine curl verbosity (progress bar if interactive terminal)
   _VN_CURL_OPTS="-s"
@@ -3353,6 +3531,14 @@ vn() {
       printf "Encrypting %s (%sB)...\\n" "\$1" "\$_VN_SIZE" >&2
     fi
     _VN_ENC=\$(openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_IV" -in "\$1" 2>/dev/null | base64 | tr -d "\\n\\r")
+    # Keep the file's name: sealed under the blob key with its own IV, NUL-padded
+    # to a fixed 200-byte slot so every sealed name is the same length. openssl
+    # enc has no GCM mode, which is why this is CBC like the body it names.
+    _VN_NAME=\$(basename -- "\$1")
+    if [ -n "\$_VN_NAME" ] && [ "\$(printf "%s" "\$_VN_NAME" | wc -c | tr -d " ")" -le 200 ]; then
+      _VN_NIV=\$(openssl rand -hex 16)
+      _VN_NAME_HDR=\$({ printf "%s" "\$_VN_NAME"; head -c 200 /dev/zero; } | head -c 200 | openssl enc -aes-256-cbc -K "\$_VN_KEY" -iv "\$_VN_NIV" 2>/dev/null | { printf "%s" "\$_VN_NIV" | xxd -r -p; cat; } | base64 | tr '+/' '-_' | tr -d "=\\n\\r")
+    fi
   elif [ ! -t 0 ]; then
     # P2: Buffer stdin to temp file for size check before encryption
     _VN_STDIN_TMP=\$(mktemp)
@@ -3377,7 +3563,7 @@ vn() {
     return 1
   fi
   [ -t 2 ] && printf "Uploading...\\n" >&2
-  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- -H "X-Vnsh-Client: pipe/1.0" "\$_VN_HOST/api/drop")
+  _VN_RESP=\$(printf "%s" "\$_VN_ENC" | base64 -d 2>/dev/null | curl \$_VN_CURL_OPTS -X POST --data-binary @- -H "X-Vnsh-Client: pipe/1.0" \${_VN_NAME_HDR:+-H "X-Vnsh-Name: \$_VN_NAME_HDR"} "\$_VN_HOST/api/drop")
   _VN_ID=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"id\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
   if [ -z "\$_VN_ID" ]; then
     _VN_ERR=\$(printf "%s" "\$_VN_RESP" | sed -n "s/.*\\"error\\":\\"\\\\([^\\"]*\\\\)\\".*/\\\\1/p")
@@ -3391,7 +3577,7 @@ vn() {
   # Build v2 URL with base64url encoded key+iv
   _VN_SECRET=\$(printf "%s%s" "\$_VN_KEY" "\$_VN_IV" | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
   printf "%s/v/%s#%s\\n" "\$_VN_HOST" "\$_VN_ID" "\$_VN_SECRET"
-  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET
+  unset _VN_HOST _VN_KEY _VN_IV _VN_ENC _VN_RESP _VN_ID _VN_CURL_OPTS _VN_SIZE _VN_VERSION _VN_STDIN_TMP _VN_SECRET _VN_NAME _VN_NAME_HDR _VN_NIV
 }
 # vnsh CLI END
 VNEOF
@@ -3728,9 +3914,9 @@ const LLMS_TXT = `# vnsh — Portable Workspaces for AI and Humans
    boundary section below for why: this process holds your plaintext, and an
    unpinned npx refetches it on every start.
 
-   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2
-   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.8.2"]}}
-   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.8.2
+   Claude Code    claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0
+   Cursor         .cursor/mcp.json:  {"vnsh":{"command":"npx","args":["-y","vnsh-mcp@1.9.0"]}}
+   OpenHands      openhands mcp add vnsh -- npx -y vnsh-mcp@1.9.0
    Cline          same server object in cline_mcp_settings.json
    Windsurf       same server object in mcp_config.json
    Zed            same server object under context_servers
@@ -3936,8 +4122,8 @@ every start, so the code handling your plaintext can change without you doing
 anything. That is a reasonable default for low friction and a bad one if you
 review what you run. To pin it:
 
-  claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2        pin the version
-  npm i -g vnsh-mcp@1.8.2 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
+  claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0        pin the version
+  npm i -g vnsh-mcp@1.9.0 && claude mcp add vnsh -- vnsh-mcp   install once, no refetch
   git clone https://github.com/raullenchai/vnsh && cd vnsh/mcp && npm ci && npm run build
 
 Or implement the protocol yourself from the sections above and run no vnsh code
@@ -3968,6 +4154,31 @@ To write, you also need the write token:
 
 A PUT without If-Match is refused, so one agent cannot silently overwrite
 another's work. On 412, re-read, merge, and retry.
+
+## Attaching a file name
+
+Nothing in the bytes says a document is Python rather than prose, so without a
+name a reader saves it as .txt. Send one on create or PUT:
+
+  slot = uint16be(len(name)) || utf-8(name) || zeros    # exactly 202 bytes
+  X-Vnsh-Name: base64url( nonce(12) || AES-256-GCM(K, slot) || tag(16) )
+
+Same key K as the body, fresh nonce. Pad to the fixed slot before encrypting:
+otherwise the header length publishes the exact length of the name. Every sealed
+name is 307 characters. The server stores the string in object metadata and
+echoes it on GET; it never decodes it, so the name is as private as the content.
+A public workspace has no key: send base64url(utf-8(name)).
+
+Omitting the header on a PUT keeps the name already stored; sending it empty
+clears it. Reduce a decoded
+name to its last path segment, and strip bidi formatting characters, before
+writing a file with it.
+
+A legacy /v/ blob (POST /api/drop, GET /api/blob/{id}) takes the same header,
+sealed with the blob's own AES-256-CBC key and a fresh IV over the name
+NUL-padded to 200 bytes: base64url( iv(16) || AES-256-CBC(key, iv, slot) ).
+Standard PKCS#7 inside the CBC, so 208 ciphertext bytes, 224 with the IV, 299
+characters. Require exactly 200 bytes back when opening one.
 
 ## Why WebFetch alone will not work
 
@@ -6123,7 +6334,7 @@ const APP_HTML = `<!DOCTYPE html>
         <h1 class="hero-title">One link. Any Agent. No lost context.</h1>
         <p class="hero-subtitle">Drop in the context once. Claude Code, Cursor, Codex or a person can pick it up and continue.</p></div>
         <div class="hero-creator" id="hero-creator"></div>
-        <div class="hero-after"><div class="hero-install"><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2', this)"><code><span class="prompt">Connect Claude Code&nbsp;·&nbsp;</span>claude mcp add vnsh -- npx -y vnsh-mcp@1.8.2</code><button class="copy-btn" title="Copy">&#8681;</button></div></div><div class="hero-actions"><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace →</a></div></div>
+        <div class="hero-after"><div class="hero-install"><div class="code-block" onclick="copyCommand('claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0', this)"><code><span class="prompt">Connect Claude Code&nbsp;·&nbsp;</span>claude mcp add vnsh -- npx -y vnsh-mcp@1.9.0</code><button class="copy-btn" title="Copy">&#8681;</button></div></div><div class="hero-actions"><a class="hero-cta secondary" href="https://account.vnsh.dev">Open your Workspace →</a></div></div>
       </div>
     </section>
   </div>
@@ -6543,6 +6754,9 @@ const APP_HTML = `<!DOCTYPE html>
     let isRawMode = false;
     let selectedFile = null;
     let blobExpiresAt = null;
+    // The name the uploader gave this blob, once decrypted. Null when the blob
+    // predates name support or was never given one.
+    let attachedName = null;
 
     // The creator remains one component and one set of IDs, but its visual home
     // is the hero: the first useful action should not require a scroll.
@@ -6653,11 +6867,12 @@ const APP_HTML = `<!DOCTYPE html>
     }
 
     async function uploadContent(text) {
-      await upload(new TextEncoder().encode(text));
+      // Pasted text was never a file and has no name to keep.
+      await upload(new TextEncoder().encode(text), null);
     }
 
     async function uploadFile(file) {
-      await upload(new Uint8Array(await file.arrayBuffer()));
+      await upload(new Uint8Array(await file.arrayBuffer()), file.name);
     }
 
     // Everything created here is a workspace. A workspace nobody writes to again
@@ -6686,7 +6901,95 @@ const APP_HTML = `<!DOCTYPE html>
       return toHex(new Uint8Array(d));
     }
 
-    async function createWorkspace(plaintext) {
+    /**
+     * Wrap a file name for storage as opaque server-side metadata.
+     *
+     * Encrypted under the content key for a private workspace, plain UTF-8 for a
+     * public one — the name gets exactly the guarantee its body gets, never a
+     * weaker one. Returns null when there is no name to send, so the header is
+     * simply absent rather than present and empty.
+     */
+    const NAME_SLOT_BYTES = 200;
+
+    async function sealName(name, K, isPublic) {
+      if (!name) return null;
+      let trimmed = String(name).split(/[\\/\\\\]/).pop().trim();
+      if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+      let bytes = new TextEncoder().encode(trimmed);
+      while (bytes.length > NAME_SLOT_BYTES && trimmed.length > 0) {
+        // By code point: slicing a UTF-16 unit off an emoji leaves a lone
+        // surrogate that encodes as U+FFFD and still fits the budget.
+        trimmed = Array.from(trimmed).slice(0, -1).join('');
+        bytes = new TextEncoder().encode(trimmed);
+      }
+      if (!bytes.length) return null;
+      if (isPublic) return bytesToBase64url(bytes);
+      // Padded to a constant width: encryption hides the bytes of a name but
+      // not how many there are, and an unpadded value would tell the server
+      // the exact length of every private file name.
+      const slot = new Uint8Array(2 + NAME_SLOT_BYTES);
+      slot[0] = (bytes.length >> 8) & 0xff;
+      slot[1] = bytes.length & 0xff;
+      slot.set(bytes, 2);
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const aes = await crypto.subtle.importKey('raw', K, { name: 'AES-GCM' }, false, ['encrypt']);
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, slot));
+      const sealed = new Uint8Array(nonce.length + ct.length);
+      sealed.set(nonce, 0); sealed.set(ct, nonce.length);
+      return bytesToBase64url(sealed);
+    }
+
+    var RESERVED_DEVICE_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?$/i;
+
+    /**
+     * Reduce a name chosen by whoever uploaded the file to something safe to
+     * hand a download attribute. The name is attacker-controlled by
+     * construction: it arrives from the other end of a link.
+     */
+    function sanitizeName(raw) {
+      if (!raw) return null;
+      var name = raw.split(/[\\/\\\\]/).pop();
+      name = name
+        .replace(/[\\u0000-\\u001F\\u007F-\\u009F]/g, '')
+        .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]/g, '')
+        .replace(/[<>:"|?*]/g, '')
+        .trim()
+        .replace(/[. ]+$/, '');
+      if (!name || name === '.' || name === '..') return null;
+      if (RESERVED_DEVICE_NAMES.test(name)) name = '_' + name;
+      while (new TextEncoder().encode(name).length > 200 && name.length > 0) {
+        name = Array.from(name).slice(0, -1).join('');
+      }
+      return name || null;
+    }
+
+    // A legacy blob's name travels under the same AES-256-CBC key as its body,
+    // with its own random IV, NUL-padded to a fixed slot so the stored string is
+    // the same length for every file. 16 IV + 208 ciphertext = 224 bytes.
+    var LEGACY_NAME_BYTES = 16 + 208;
+
+    async function openLegacyName(header, keyBytes) {
+      if (!header || !/^[A-Za-z0-9_-]+$/.test(header)) return null;
+      var bytes;
+      try { bytes = base64urlToBytes(header); } catch (e) { return null; }
+      if (bytes.length !== LEGACY_NAME_BYTES) return null;
+      try {
+        var key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
+        var slot = new Uint8Array(await crypto.subtle.decrypt(
+          { name: 'AES-CBC', iv: bytes.slice(0, 16) }, key, bytes.slice(16)));
+        // CBC padding that happens to check out is not authentication; the
+        // slot has to be exactly the width every client writes.
+        if (slot.length !== 200) return null;
+        var end = slot.indexOf(0);
+        return sanitizeName(new TextDecoder().decode(slot.slice(0, end === -1 ? slot.length : end)));
+      } catch (e) { return null; }
+    }
+
+    async function createWorkspace(plaintext, name) {
+      // Answered once, before the first await. Encryption takes long enough for
+      // a visitor to change their mind mid-flight, and a body encrypted under
+      // one answer must never be uploaded under another.
+      const isPublic = wantsPublic();
       progressText.textContent = '> Deriving keys...';
       progressFill.style.width = '15%';
       const S = crypto.getRandomValues(new Uint8Array(32));
@@ -6697,7 +7000,7 @@ const APP_HTML = `<!DOCTYPE html>
       // A public workspace is stored as-is so anything that speaks HTTP can read
       // it. The encryption step is skipped rather than made pointless.
       let payload;
-      if (wantsPublic()) {
+      if (isPublic) {
         progressText.textContent = '> Uploading in the clear...';
         progressFill.style.width = '40%';
         payload = typeof plaintext === 'string' ? new TextEncoder().encode(plaintext) : plaintext;
@@ -6711,6 +7014,12 @@ const APP_HTML = `<!DOCTYPE html>
         payload.set(nonce, 0); payload.set(ct, nonce.length);
       }
 
+      // The name travels the same way the body does: encrypted under K unless
+      // the author chose to publish, in which case there is no key and nothing
+      // to withhold. The server stores the string without decoding it, so
+      // "budget-2027.xlsx" reaches the reader while remaining unreadable here.
+      const nameHeader = await sealName(name, K, isPublic);
+
       progressText.textContent = '> Creating workspace...';
       progressFill.style.width = '70%';
       const res = await fetch('/api/workspace', {
@@ -6720,7 +7029,8 @@ const APP_HTML = `<!DOCTYPE html>
           'X-Vnsh-Client': 'web/1.0',
           'X-Vnsh-Ref': VNSH_REF,
           'X-Vnsh-Write-Hash': H,
-          ...(wantsPublic() ? { 'X-Vnsh-Public': '1' } : {}),
+          ...(isPublic ? { 'X-Vnsh-Public': '1' } : {}),
+          ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
         },
         body: payload,
       });
@@ -6739,12 +7049,12 @@ const APP_HTML = `<!DOCTYPE html>
       };
     }
 
-    async function upload(plaintext) {
+    async function upload(plaintext, name) {
       document.title = 'Encrypting...';
       progressEl.classList.add('show');
       resultEl.classList.remove('show');
       try {
-        const links = await createWorkspace(plaintext);
+        const links = await createWorkspace(plaintext, name);
         generatedUrl = links.edit;
         viewOnlyUrl = links.view;
         progressFill.style.width = '100%';
@@ -6888,6 +7198,7 @@ const APP_HTML = `<!DOCTYPE html>
       document.getElementById('step-extract').className = 'step';
       document.getElementById('step-decrypt').className = 'step';
       document.getElementById('viewer-blob-id').textContent = 'Blob: ' + id.slice(0, 8) + '...';
+      attachedName = null;
       fetchAndDecrypt(id, keyHex, ivHex);
     }
 
@@ -6917,6 +7228,8 @@ const APP_HTML = `<!DOCTYPE html>
           updateTimer();
         }
 
+        const nameHeader = res.headers.get('X-Vnsh-Name');
+
         const encrypted = await res.arrayBuffer();
         document.getElementById('step-fetch').className = 'step done';
         document.getElementById('step-fetch').textContent = '> Fetching blob... OK';
@@ -6933,6 +7246,9 @@ const APP_HTML = `<!DOCTYPE html>
         document.getElementById('step-decrypt').className = 'step active';
         const keyBytes = hexToBytes(keyHex);
         const ivBytes = hexToBytes(ivHex);
+        // Decrypted with the blob's own key, so a name only ever appears for a
+        // reader who could already read the file it belongs to.
+        attachedName = await openLegacyName(nameHeader, keyBytes);
         const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
         const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: ivBytes }, key, encrypted);
 
@@ -7070,7 +7386,9 @@ const APP_HTML = `<!DOCTYPE html>
       const blob = new Blob([bytes], { type: fileType.mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = selectedFile?.name || ('vnsh-content.' + fileType.ext);
+      // The uploader's own name wins; sniffing the bytes is the fallback for
+      // blobs that never carried one.
+      a.download = attachedName || selectedFile?.name || ('vnsh-content.' + fileType.ext);
       a.click();
     }
 

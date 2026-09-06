@@ -12,6 +12,7 @@
  * - vnsh_workspace_create/read/update/history/restore/renew/open: mutable shared workspaces
  */
 
+import { randomBytes } from 'node:crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -40,6 +41,10 @@ import {
   buildWorkspaceUrl,
   buildReadOnlyWorkspaceUrl,
   parseWorkspaceUrl,
+  sealWorkspaceName,
+  openWorkspaceName,
+  sealBlobName,
+  openBlobName,
 } from './crypto.js';
 
 // Configuration
@@ -117,6 +122,10 @@ const WorkspaceCreateSchema = z.object({
     .optional()
     .describe('Store unencrypted so any agent can read it with no key. vnsh can read it too.'),
   ttl: TtlSchema.optional().describe('How long it lives, in whole hours (default: 24, max: 168)'),
+  // Sniffing bytes recovers a type for PNG and PDF and nothing at all for
+  // source code, so .py and .csv both arrive as .txt unless someone says
+  // otherwise. This is where they say otherwise.
+  name: z.string().max(255).optional().describe('File name to attach, e.g. "analysis.py". Stored encrypted under the content key, so vnsh cannot read it; it becomes the name the recipient downloads.'),
   host: z.string().optional(),
 });
 
@@ -134,6 +143,9 @@ const WorkspaceUpdateSchema = z.object({
   url: z.string(),
   content: z.string(),
   base_version: z.number().optional(),
+  // Omitting this keeps whatever name the workspace already carries; an update
+  // is not a reason to forget what the document is called.
+  name: z.string().max(255).optional().describe('File name to attach, e.g. "analysis.py". Stored encrypted under the content key, so vnsh cannot read it; it becomes the name the recipient downloads.'),
 });
 
 const WorkspaceHistorySchema = z.object({
@@ -363,6 +375,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 'when the recipient may not look at it today — a plan handed to a colleague ' +
                 'is the case that keeps expiring before it is read.',
             },
+            name: {
+              type: 'string',
+              description:
+                'File name to attach, e.g. "analysis.py". Sealed under the content key so ' +
+                'vnsh cannot read it; it becomes the name the recipient downloads. Nothing ' +
+                'in the bytes says a document is Python rather than prose.',
+            },
             host: { type: 'string', description: 'Override the vnsh host URL' },
           },
           required: ['content'],
@@ -423,6 +442,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'Version this edit is based on. Omit to read the latest first. Pass the version ' +
                 'from vnsh_workspace_read when you have already merged against it.',
+            },
+            name: {
+              type: 'string',
+              description:
+                'File name to attach, e.g. "analysis.py". Sealed under the content key so ' +
+                'vnsh cannot read it; it becomes the name the recipient downloads. Omit ' +
+                'to keep the name the workspace already has.',
             },
           },
           required: ['url', 'content'],
@@ -527,6 +553,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 /**
+ * Write into the temp directory without ever landing on a path that exists.
+ *
+ * The name can come from whoever shared the link, so `report.png` is a path an
+ * outsider chooses; on a shared /tmp that path can be pre-created as a symlink.
+ * `wx` opens with O_CREAT|O_EXCL, which neither follows a symlink nor overwrites,
+ * so a taken name simply gets a suffix. Same rule as the CLI.
+ */
+function writeFreshFile(base: string, bytes: Buffer): string {
+  const dir = os.tmpdir();
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length) || 'vnsh';
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const candidate = path.join(dir, attempt === 0 ? base : `${stem}-${attempt}${ext}`);
+    try {
+      fs.writeFileSync(candidate, bytes, { flag: 'wx', mode: 0o600 });
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  const unique = path.join(dir, `${stem}-${randomBytes(6).toString('hex')}${ext}`);
+  fs.writeFileSync(unique, bytes, { flag: 'wx', mode: 0o600 });
+  return unique;
+}
+
+/**
  * Handle vnsh_read tool call
  * @internal Exported for testing
  */
@@ -605,15 +657,15 @@ export async function handleRead(args: unknown) {
 
   // Decrypt
   const decrypted = decrypt(encrypted, key, iv);
+  // The name the uploader gave the file, readable only with the blob's key.
+  const attachedName = openBlobName(response.headers.get('X-Vnsh-Name'), key);
 
   // Detect binary/image content by checking magic bytes
   const imageType = detectImageType(decrypted);
 
   if (imageType) {
     // Save image to temp file and return the path
-    const tempDir = os.tmpdir();
-    const tempFile = path.join(tempDir, `opaque-${id}.${imageType.ext}`);
-    fs.writeFileSync(tempFile, decrypted);
+    const tempFile = writeFreshFile(attachedName || `opaque-${id}.${imageType.ext}`, decrypted);
 
     return {
       content: [
@@ -636,9 +688,7 @@ export async function handleRead(args: unknown) {
 
   if (isBinary) {
     // Save binary to temp file
-    const tempDir = os.tmpdir();
-    const tempFile = path.join(tempDir, `opaque-${id}.bin`);
-    fs.writeFileSync(tempFile, decrypted);
+    const tempFile = writeFreshFile(attachedName || `opaque-${id}.bin`, decrypted);
 
     return {
       content: [
@@ -713,8 +763,8 @@ async function fetchPublicWorkspace(raw: string) {
   if (kind || detectBinary(payload)) {
     const ext = kind?.ext || 'bin';
     const mime = kind?.mime || 'application/octet-stream';
-    const filePath = path.join(os.tmpdir(), `vnsh-public-${id}-v${version}.${ext}`);
-    fs.writeFileSync(filePath, payload, { mode: 0o600 });
+    const name = openWorkspaceName(response.headers.get('X-Vnsh-Name'), null);
+    const filePath = writeFreshFile(name || `vnsh-public-${id}-v${version}.${ext}`, payload);
     return {
       content: [{ type: 'text', text: `Public workspace ${id} — version ${version}.\n` +
         `It holds ${mime} (${payload.length} bytes). Saved unmodified to: ${filePath}\n\n` +
@@ -892,6 +942,9 @@ export async function handleShareFile(args: unknown) {
 
   // Encrypt the file content
   const encrypted = encrypt(fileBuffer, key, iv);
+  // The name rides along sealed under the same key, so a reader gets
+  // `report.csv` back rather than a generated `.bin`.
+  const nameHeader = sealBlobName(path.basename(resolved), key);
 
   // Build API URL with optional TTL
   let apiUrl = `${host}/api/drop`;
@@ -905,6 +958,7 @@ export async function handleShareFile(args: unknown) {
     headers: {
       'Content-Type': 'application/octet-stream',
       ...clientHeaders(),
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
     },
     body: new Uint8Array(encrypted),
   });
@@ -1060,7 +1114,7 @@ export async function handleArtifactUpdate(args: unknown) {
  * @internal Exported for testing
  */
 export async function handleWorkspaceCreate(args: unknown) {
-  const { content, artifact, public: isPublic, ttl, host: hostOverride } = WorkspaceCreateSchema.parse(args);
+  const { content, artifact, public: isPublic, ttl, name, host: hostOverride } = WorkspaceCreateSchema.parse(args);
   const host = hostOverride || DEFAULT_HOST;
 
   const secret = generateRootSecret();
@@ -1069,12 +1123,16 @@ export async function handleWorkspaceCreate(args: unknown) {
   // only fetch read it. The encryption step is skipped rather than performed
   // and discarded, so there is no pretence of a guarantee that is not there.
   const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
+  // A public workspace has no key, so its name is stored exactly as openly as
+  // its body — never less openly, and never more.
+  const nameHeader = name ? sealWorkspaceName(name, isPublic ? null : key) : null;
 
   const response = await fetch(`${host}/api/workspace${ttl ? `?ttl=${ttl}` : ''}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write-Hash': writeHash,
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
       ...(isPublic ? { 'X-Vnsh-Public': '1' } : {}),
       ...(artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
       ...clientHeaders(),
@@ -1132,6 +1190,33 @@ export async function handleWorkspaceCreate(args: unknown) {
 }
 
 // Fetch and decrypt a workspace. Shared by read/update/open.
+/**
+ * Whether a workspace stores its content in the clear.
+ *
+ * A HEAD rather than a read: this is only ever asked when the caller supplied a
+ * base version, so there is no reason to pull the body down. Answering "no" on
+ * a failed probe is the safe default — it keeps the encrypted path, and the
+ * conditional write is what actually protects the document.
+ */
+/**
+ * Whether a workspace stores plaintext. Returns null when that cannot be
+ * established — a failed probe must never be read as "private", because the
+ * PUT that follows would replace a public document with ciphertext, and
+ * If-Match checks the version, not the visibility.
+ */
+async function workspaceIsPublic(host: string, id: string): Promise<boolean | null> {
+  try {
+    const response = await fetch(`${host}/api/workspace/${id}`, {
+      method: 'HEAD',
+      headers: { ...clientHeaders() },
+    });
+    if (!response.ok) return null;
+    return response.headers.get('X-Vnsh-Public') === '1';
+  } catch {
+    return null;
+  }
+}
+
 async function fetchWorkspace(url: string) {
   if (isPublicWorkspaceUrl(url)) {
     const target = new URL(url.split('#')[0]);
@@ -1190,7 +1275,8 @@ async function fetchWorkspace(url: string) {
     );
   }
 
-  return { host, id, version, writeToken, key, secret, canWrite, plaintext, public: isPublic };
+  const name = openWorkspaceName(response.headers.get('X-Vnsh-Name'), isPublic ? null : key);
+  return { host, id, version, writeToken, key, secret, canWrite, plaintext, public: isPublic, name };
 }
 
 /**
@@ -1199,7 +1285,7 @@ async function fetchWorkspace(url: string) {
  */
 export async function handleWorkspaceRead(args: unknown) {
   const { url } = WorkspaceUrlSchema.parse(args);
-  const { host, id, version, secret, canWrite, plaintext, public: isPublic } = await fetchWorkspace(url);
+  const { host, id, version, secret, canWrite, plaintext, public: isPublic, name } = await fetchWorkspace(url);
   const viewUrl = secret ? buildReadOnlyWorkspaceUrl(host, id, secret) : url;
 
   const header = canWrite
@@ -1223,8 +1309,7 @@ export async function handleWorkspaceRead(args: unknown) {
   if (kind || detectBinary(plaintext)) {
     const ext = kind ? kind.ext : 'bin';
     const mime = kind ? kind.mime : 'application/octet-stream';
-    const filePath = path.join(os.tmpdir(), `vnsh-workspace-${id}-v${version}.${ext}`);
-    fs.writeFileSync(filePath, plaintext, { mode: 0o600 });
+    const filePath = writeFreshFile(name || `vnsh-workspace-${id}-v${version}.${ext}`, plaintext);
     const hint = kind && kind.image
       ? '\n\nOpen that local path with your client\'s file or image viewer.'
       : '\n\nRead that path to work with the file.';
@@ -1317,7 +1402,7 @@ export async function handleWorkspaceRenew(args: unknown) {
 }
 
 export async function handleWorkspaceUpdate(args: unknown) {
-  const { url, content, base_version } = WorkspaceUpdateSchema.parse(args);
+  const { url, content, base_version, name } = WorkspaceUpdateSchema.parse(args);
   if (isPublicWorkspaceUrl(url)) {
     throw new Error(
       'A public /p/ link is read-only. Updating needs the private edit link (#w=) returned when the workspace was created.',
@@ -1333,21 +1418,40 @@ export async function handleWorkspaceUpdate(args: unknown) {
   }
 
   // Without an explicit base, read the latest so we write against something real.
+  // Either way we need to know how this workspace stores its content: a public
+  // one is plaintext, its edit link is still a /w/#w= link, and encrypting into
+  // it would hand every reader ciphertext served as a public document.
   let version = base_version;
+  let isPublic: boolean;
   if (version === undefined) {
-    version = (await fetchWorkspace(url)).version;
+    const current = await fetchWorkspace(url);
+    version = current.version;
+    isPublic = Boolean(current.public);
+  } else {
+    const probed = await workspaceIsPublic(host, id);
+    if (probed === null) {
+      throw new Error(
+        'Could not determine whether this workspace is public or encrypted, so the update ' +
+        'was not sent. Retry, or omit base_version to read it first.',
+      );
+    }
+    isPublic = probed;
   }
 
-  const encrypted = encryptWorkspace(content, key);
+  const body = isPublic ? Buffer.from(content, 'utf-8') : encryptWorkspace(content, key);
+  // The name gets exactly the guarantee the body gets. Sealing it under K for a
+  // public workspace would be worse than useless: no reader has that key.
+  const nameHeader = name ? sealWorkspaceName(name, isPublic ? null : key) : null;
   const response = await fetch(`${host}/api/workspace/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Write': writeToken,
       'If-Match': `"${version}"`,
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
       ...clientHeaders(),
     },
-    body: new Uint8Array(encrypted),
+    body: new Uint8Array(body),
   });
 
   if (response.status === 412) {

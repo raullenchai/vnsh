@@ -191,9 +191,22 @@ describe('the homepage offers publishing without becoming a menu', () => {
 
   it('sends the header only when asked, and skips encryption then', async () => {
     const html = await home();
-    expect(html).toContain("...(wantsPublic() ? { 'X-Vnsh-Public': '1' } : {})");
+    expect(html).toContain("...(isPublic ? { 'X-Vnsh-Public': '1' } : {})");
     // The encryption step is skipped rather than performed and discarded.
-    expect(html).toMatch(/if \(wantsPublic\(\)\) \{[\s\S]{0,200}Uploading in the clear/);
+    expect(html).toMatch(/if \(isPublic\) \{[\s\S]{0,200}Uploading in the clear/);
+  });
+
+  it('decides once, because the answer is used after an await', async () => {
+    // The checkbox was read three separate times across two awaits: for the
+    // body, for the file name, and for the header. A visitor who ticked it
+    // while AES-GCM was running could get a body encrypted under one answer
+    // uploaded under another — ciphertext served as a public document, with the
+    // supposedly private file name sent in the clear beside it.
+    const html = await home();
+    const create = html.slice(html.indexOf('async function createWorkspace('));
+    const body = create.slice(0, create.indexOf('\n    async function upload('));
+    expect(body).toContain('const isPublic = wantsPublic();');
+    expect(body.match(/wantsPublic\(\)/g)).toHaveLength(1);
   });
 
   it('hands back a link with no fragment, and calls it what it is', async () => {

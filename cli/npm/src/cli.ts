@@ -9,6 +9,7 @@ import { program } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import {
   encrypt,
   decrypt,
@@ -24,6 +25,10 @@ import {
   buildWorkspaceUrl,
   buildReadOnlyWorkspaceUrl,
   parseWorkspaceUrl,
+  sealWorkspaceName,
+  openWorkspaceName,
+  sealBlobName,
+  openBlobName,
   isWorkspaceUrl,
 } from './crypto.js';
 import { clearToken, deviceLogin, loadToken, openBrowser, saveToken } from './auth.js';
@@ -211,6 +216,9 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
   // Validate before reading input or claiming work has started.
   const ttl = ttlQuery(options.ttl);
   const data = await readInput(input, options.public ? 'Reading for public upload' : 'Encrypting');
+  // Only a real file has a name to keep. Piped stdin never did, and inventing
+  // one would be worse than the generated fallback.
+  const sourceName = input ? path.basename(input) : null;
 
   const secret = generateRootSecret();
   const keys = deriveWorkspaceKeys(secret);
@@ -231,6 +239,9 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
     return;
   }
 
+  // A public workspace has no key, so its name is stored the way its body is.
+  const nameHeader = sourceName ? sealWorkspaceName(sourceName, options.public ? null : keys.key) : null;
+
   info(`Uploading workspace (${formatBytes(payload.length)})...`);
   const accountToken = loadToken(host);
   const response = await fetch(`${host}/api/workspace${ttl}`, {
@@ -243,6 +254,7 @@ async function createWorkspace(input: string | undefined, options: UploadOptions
       'X-Vnsh-Write-Hash': keys.writeHash,
       ...(options.public ? { 'X-Vnsh-Public': '1' } : {}),
       ...(options.artifact ? { 'X-Vnsh-Kind': 'artifact' } : {}),
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
     },
     body: payload,
   });
@@ -335,6 +347,7 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   }
   const host = options.host || link.host;
   const data = await readInput(input, 'Encrypting');
+  const sourceName = input ? path.basename(input) : null;
 
   info(`Reading current version of ${link.id}...`);
   const current = await fetch(`${host}/api/workspace/${link.id}`, {
@@ -351,6 +364,8 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
   }
   await current.arrayBuffer();
   const version = (current.headers.get('ETag') || '').replace(/"/g, '');
+  // Visibility decides whether the name is sealed, and it is only known here.
+  const nameHeader = sourceName ? sealWorkspaceName(sourceName, isPublic ? null : link.key) : null;
 
   const response = await fetch(`${host}/api/workspace/${link.id}`, {
     method: 'PUT',
@@ -359,6 +374,9 @@ async function writeWorkspace(url: string, input: string | undefined, options: U
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
       'X-Vnsh-Write': link.writeToken as string,
       'If-Match': version,
+      // Sending no name keeps the one the workspace already has, so `vn write`
+      // from stdin never silently strips it.
+      ...(nameHeader ? { 'X-Vnsh-Name': nameHeader } : {}),
     },
     body: isPublic ? data : encryptWorkspace(data, link.key),
   });
@@ -476,6 +494,25 @@ async function readWorkspace(url: string): Promise<void> {
   }
 
   const payload = Buffer.from(await response.arrayBuffer());
+  // Opaque until a key holder opens it; the server only ever stored the string.
+  const attachedName = response.headers.get('X-Vnsh-Name');
+
+  // A public workspace has an edit link too, and it is a /w/ link — so this
+  // path has to expect plaintext, or holding your own edit link looks like
+  // corruption.
+  if (response.headers.get('X-Vnsh-Public') === '1') {
+    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
+    writeOut(payload, `${link.id}-public`, openWorkspaceName(attachedName, null));
+    return;
+  }
+
+  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
+  try {
+    writeOut(decryptWorkspace(payload, link.key), link.id, openWorkspaceName(attachedName, link.key));
+  } catch {
+    error('Decryption failed. The link may be truncated or the key incorrect.');
+  }
+}
 
 /**
  * Binary going to a terminal reads as a failure, whatever the exit code.
@@ -489,17 +526,50 @@ async function readWorkspace(url: string): Promise<void> {
  * Piped or redirected output is unchanged: exactly the bytes, so `vn read ... >
  * shot.jpg` and every existing script keep working.
  */
-function writeOut(bytes: Buffer, label: string): void {
+function writeOut(bytes: Buffer, label: string, name?: string | null): void {
   const kind = detectFileType(bytes);
   if (!process.stdout.isTTY || !(kind || looksBinary(bytes))) {
     process.stdout.write(bytes);
     return;
   }
   const ext = kind ? kind.ext : 'bin';
-  const file = path.join(os.tmpdir(), `vnsh-${label}.${ext}`);
-  fs.writeFileSync(file, bytes);
+  // The uploader's own name when there is one; sanitizeFileName has already
+  // reduced it to a single segment, so joining it onto tmpdir cannot escape.
+  const base = name || `vnsh-${label}.${ext}`;
+  const file = writeFreshFile(base, bytes);
   info(`${kind ? kind.mime : 'Binary content'} (${formatBytes(bytes.length)}) — not printed to a terminal.`);
   info(`Saved unmodified to: ${file}`);
+}
+
+/**
+ * Write into the temp directory without ever landing on a path that already
+ * exists.
+ *
+ * The name comes from whoever shared the link, so `report.png` is a path an
+ * outsider chooses. On a system with a shared /tmp, someone can pre-create that
+ * path as a symlink and have this write land wherever it points; even without
+ * an attacker, plain `writeFileSync` would silently clobber a file the reader
+ * put there. `wx` opens with O_CREAT|O_EXCL, which fails rather than following
+ * a symlink and fails rather than overwriting, so a taken name simply gets a
+ * suffix.
+ */
+function writeFreshFile(base: string, bytes: Buffer): string {
+  const dir = os.tmpdir();
+  const ext = path.extname(base);
+  const stem = base.slice(0, base.length - ext.length) || 'vnsh';
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const candidate = path.join(dir, attempt === 0 ? base : `${stem}-${attempt}${ext}`);
+    try {
+      fs.writeFileSync(candidate, bytes, { flag: 'wx', mode: 0o600 });
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  // Fifty collisions means something is generating them; stop guessing.
+  const unique = path.join(dir, `${stem}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+  fs.writeFileSync(unique, bytes, { flag: 'wx', mode: 0o600 });
+  return unique;
 }
 
 /** First-bytes identification, matching the MCP server and the web viewer. */
@@ -522,23 +592,6 @@ function looksBinary(b: Buffer): boolean {
     if (b[i] < 32 && b[i] !== 9 && b[i] !== 10 && b[i] !== 13) odd++;
   }
   return n > 0 && odd / n > 0.1;
-}
-
-  // A public workspace has an edit link too, and it is a /w/ link — so this
-  // path has to expect plaintext, or holding your own edit link looks like
-  // corruption.
-  if (response.headers.get('X-Vnsh-Public') === '1') {
-    info(`Public workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} — no decryption needed`);
-    writeOut(payload, `${link.id}-public`);
-    return;
-  }
-
-  info(`Decrypting workspace v${(response.headers.get('ETag') || '?').replace(/"/g, '')} (${formatBytes(payload.length)})...`);
-  try {
-    writeOut(decryptWorkspace(payload, link.key), link.id);
-  } catch {
-    error('Decryption failed. The link may be truncated or the key incorrect.');
-  }
 }
 
 interface UploadResponse {
@@ -613,12 +666,18 @@ async function upload(input: string | undefined, options: UploadOptions): Promis
 
   info(`Uploading encrypted blob (${formatBytes(encrypted.length)})...`);
 
+  // Sealed under the blob's own key, so the name reaches whoever holds the link
+  // and nobody else. Stdin has no name to keep, and the header is then absent
+  // rather than present and empty.
+  const blobName = input ? sealBlobName(path.basename(input), key) : null;
+
   // Upload
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/octet-stream',
       'X-Vnsh-Client': `cli-npm/${VERSION}`,
+      ...(blobName ? { 'X-Vnsh-Name': blobName } : {}),
     },
     body: encrypted,
   });
@@ -675,15 +734,21 @@ async function read(url: string): Promise<void> {
     error(`Failed to fetch blob (HTTP ${response.status})`);
   }
 
+  const attachedName = response.headers.get('X-Vnsh-Name');
   const encrypted = Buffer.from(await response.arrayBuffer());
   info(`Decrypting blob (${formatBytes(encrypted.length)})...`);
 
+  let decrypted: Buffer;
   try {
-    const decrypted = decrypt(encrypted, key, iv);
-    process.stdout.write(decrypted);
+    decrypted = decrypt(encrypted, key, iv);
   } catch (e) {
     error('Decryption failed. The key or IV may be incorrect.');
+    return;
   }
+  // Same treatment a workspace gets: piped output is still exactly the bytes,
+  // and a binary blob on a terminal is saved under the name it was sent with
+  // instead of being printed as mojibake.
+  writeOut(decrypted, id, openBlobName(attachedName, key));
 }
 
 // Setup CLI

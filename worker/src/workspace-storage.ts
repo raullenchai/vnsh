@@ -68,6 +68,10 @@ export async function archiveWorkspaceVersion(
       ...(md.expiresAt ? { expiresAt: md.expiresAt } : {}),
       ...(md.permanent === '1' ? { permanent: '1', ownerId: md.ownerId || md.ownerid || '' } : {}),
       ...(isPublic ? { public: '1' } : {}),
+      // A version is its bytes and the name they were written under. Archiving
+      // one without the other is how a restore ends up serving Python source
+      // called results.json.
+      ...(md.name ? { name: md.name } : {}),
     },
   });
   return true;
